@@ -198,6 +198,15 @@ namespace User.FXProRpmSync
         /// <summary>`fill` commands for an area: runs along each row, identical runs stacked down the rows.</summary>
         private List<string> Fills(int[] px, int stride, Rectangle area, int skip, int ox = 0, int oy = 0)
         {
+            var cmds = new List<string>();
+            foreach (var r in MergeRects(px, stride, area))
+                if (r[4] != skip) cmds.Add(Fill(r[0] + ox, r[1] + oy, r[2], r[3], r[4]));
+            return cmds;
+        }
+
+        /// <summary>An RGB565 image area as rectangles {x, y, w, h, colour}: runs along each row, identical runs stacked.</summary>
+        public static List<int[]> MergeRects(int[] px, int stride, Rectangle area)
+        {
             var open = new Dictionary<long, int[]>();
             var done = new List<int[]>();
             for (int y = area.Top; y < area.Bottom; y++)
@@ -217,10 +226,7 @@ namespace User.FXProRpmSync
                 open = next;
             }
             done.AddRange(open.Values);
-            var cmds = new List<string>(done.Count);
-            foreach (var r in done)
-                if (r[4] != skip) cmds.Add(Fill(r[0] + ox, r[1] + oy, r[2], r[3], r[4]));
-            return cmds;
+            return done;
         }
 
         private string Fill(int x, int y, int w, int h, int c) =>

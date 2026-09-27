@@ -123,6 +123,10 @@ namespace User.FXProRpmSync
             showDash.Checked += (s, e) => { S.DashEnabled = true; Changed(); };
             showDash.Unchecked += (s, e) => { S.DashEnabled = false; Changed(); };
             body.Children.Add(showDash);
+            var saverBox = new CheckBox { Content = "Show the logo on the wheel's screen when you're not racing (instead of the wheel's own dash)", IsChecked = S.ScreenSaver, Margin = new Thickness(0, 0, 0, 8) };
+            saverBox.Checked += (s, e) => { S.ScreenSaver = true; Changed(); };
+            saverBox.Unchecked += (s, e) => { S.ScreenSaver = false; Changed(); };
+            body.Children.Add(saverBox);
 
             dashBox = new ComboBox { Width = 360 };
             dashBox.SelectionChanged += (s, e) =>
@@ -223,7 +227,7 @@ namespace User.FXProRpmSync
             Color tone; string icon;
             switch (u.State)
             {
-                case "Active": case "Demo": case "Test": case "Lights on": tone = Good; icon = ""; break;
+                case "Active": case "Demo": case "Test": case "Lights on": case "Standing by": tone = Good; icon = ""; break;
                 case "Ready": tone = Info; icon = ""; break;
                 case "Error": case "Unsupported wheel firmware": tone = Bad; icon = ""; break;
                 case "Off": tone = Idle; icon = ""; break;

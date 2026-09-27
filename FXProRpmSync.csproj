@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\menu-icon.png" LogicalName="User.FXProRpmSync.menu-icon.png" />
+    <EmbeddedResource Include="assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
   </ItemGroup>
 
   <!-- simgame.exe (SimGameStub/) is built first and embedded; the plugin extracts it at runtime (see SimGameFeed). -->
