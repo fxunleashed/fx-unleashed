@@ -150,6 +150,9 @@ namespace User.FXProRpmSync
     /// "Host owns the screen" (build 3+): while active, the wheel's own screen output is dropped and only our commands
     /// reach the screen. Active = mode word set AND a USB screen packet in the last 1000 ms, so a keepalive runs every
     /// 250 ms; if SimHub dies, the wheel's dash comes back by itself within a second.
+    /// Paced at 25 KB/s (what FXProDashes tools/dash used on the wheel): USB alone can push ~30 KB/s, faster than the screen
+    /// draws small fills, and what overflows the screen's input is lost. After a `page` command the screen loads the page,
+    /// so nothing is sent for 150 ms.
     /// </summary>
     internal sealed class FxHostScreen : IScreenSink, IDisposable
     {
@@ -162,6 +165,9 @@ namespace User.FXProRpmSync
         private Timer keepalive;
         private DateTime lastSend;
         public long Bytes;
+        private const double Rate = 25000, Burst = 1200;   // bytes/s, bytes
+        private readonly System.Diagnostics.Stopwatch pace = System.Diagnostics.Stopwatch.StartNew();
+        private double credit = Burst, creditAt;
 
         public FxHostScreen(FxConnection c) { this.c = c; }
 
@@ -208,6 +214,12 @@ namespace User.FXProRpmSync
                 Array.Copy(b, 0, pending, count, b.Length);
                 pending[count + b.Length] = pending[count + b.Length + 1] = pending[count + b.Length + 2] = 0xFF;
                 count += len;
+                if (cmd.StartsWith("page ", StringComparison.Ordinal))
+                {
+                    SendNow(count);
+                    Thread.Sleep(150); // the screen is loading the page; commands now could be dropped
+                    credit = Burst; creditAt = pace.Elapsed.TotalSeconds;
+                }
             }
         }
 
@@ -215,6 +227,20 @@ namespace User.FXProRpmSync
 
         private void SendNow(int n)
         {
+            if (n > 0)
+            {
+                double t = pace.Elapsed.TotalSeconds;
+                credit = Math.Min(Burst, credit + (t - creditAt) * Rate);
+                creditAt = t;
+                if (credit < n)
+                {
+                    Thread.Sleep((int)Math.Ceiling((n - credit) * 1000 / Rate));
+                    t = pace.Elapsed.TotalSeconds;
+                    credit = Math.Min(Burst, credit + (t - creditAt) * Rate);
+                    creditAt = t;
+                }
+                credit -= n;
+            }
             c.ScreenBytes(pending, n);
             Bytes += n;
             count = 0;
