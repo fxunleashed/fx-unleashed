@@ -110,6 +110,14 @@ namespace User.FXProRpmSync
             SimHub.Logging.Current.Info("[FXProRpmSync] " + Status);
         }
 
+        /// <summary>The game closed: the next car, even the same one, is a car change again.</summary>
+        public void GameEnded()
+        {
+            handledCar = null;
+            handledDash = null;
+            Status = "";
+        }
+
         /// <summary>
         /// Called about once a second by the worker. Reads the wheel's current dash; while driving, a change that
         /// wasn't ours is the driver pressing the dash button, and is remembered for the car.

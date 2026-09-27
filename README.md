@@ -112,7 +112,10 @@ game telemetry: gaps to the cars ahead and behind, fuel per lap, tyre data and e
 game SimHub supports. Units are converted to what the wheel expects (it still shows your SimPro unit settings).
 
 - **Start order matters:** SimPro picks its data source when a game starts and keeps it. Turn this on (or just start
-  SimHub with it on) **before** starting the game. The settings page shows what SimPro is reading.
+  SimHub with it on) **before** starting the game. A coloured status banner on the settings page shows at a glance
+  whether the dash is getting SimHub's data (green) or SimPro is reading the game itself (amber), and what to do.
+- **Turning it off mid-game is one-way until the game restarts:** SimPro switches to reading the game and keeps it
+  until the game closes, so the plugin asks for confirmation first.
 - While it's on, SimPro sees "SimGame" instead of your game: its per-game preset switching doesn't trigger, and the
   dash, rev lights and SimPro's telemetry effects use SimHub's data. Force feedback is unaffected.
 - **Gap ahead / behind:** by race position (in your class by default) in races, nearest cars on track otherwise.

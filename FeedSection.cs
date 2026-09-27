@@ -14,6 +14,15 @@ namespace User.FXProRpmSync
         private static readonly Brush CardBackground = Frozen(Color.FromArgb(0x14, 0xff, 0xff, 0xff));
         private static readonly Brush CardBorder = Frozen(Color.FromArgb(0x26, 0xff, 0xff, 0xff));
 
+        // Status banner tones: one color per state, so a glance says whether the dash shows SimHub's data.
+        private static readonly Color Good = Color.FromRgb(0x3f, 0xb9, 0x50);
+        private static readonly Color Warn = Color.FromRgb(0xf0, 0xa0, 0x20);
+        private static readonly Color Bad = Color.FromRgb(0xe8, 0x47, 0x49);
+        private static readonly Color Info = Color.FromRgb(0x3d, 0x8b, 0xfd);
+        private static readonly Color Idle = Color.FromRgb(0x9a, 0xa0, 0xa6);
+        // Segoe MDL2 Assets glyphs
+        private const string IconOk = "\uE73E", IconWarn = "\uE7BA", IconError = "\uEA39", IconInfo = "\uE946", IconOff = "\uE711";
+
         /// <summary>Values SimHub only has in the raw game data, with what the wheel shows them as.</summary>
         private static readonly (string Field, string Label)[] RawFields =
         {
@@ -30,7 +39,11 @@ namespace User.FXProRpmSync
         };
 
         private readonly FXProRpmSyncPlugin plugin;
-        private readonly TextBlock status, source, readout;
+        private readonly TextBlock bannerIcon, bannerTitle, bannerDetail, bannerProblem, readout;
+        private readonly Border banner, readoutCard;
+        private readonly CheckBox enabled;
+        private bool reverting;
+        private string shownBanner;
         private readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
 
         public FeedSection(FXProRpmSyncPlugin plugin)
@@ -48,25 +61,48 @@ namespace User.FXProRpmSync
                 "per-game preset switching doesn't trigger, and anything SimPro drives from game telemetry (dash, rev lights, " +
                 "telemetry effects) uses SimHub's data. Force feedback is unaffected.", new Thickness(0, 0, 0, 12)));
 
-            var enabled = new CheckBox { Content = "Drive the wheel's dash from SimHub", IsChecked = fs.Enabled, Margin = new Thickness(0, 0, 0, 6) };
+            enabled = new CheckBox { Content = "Drive the wheel's dash from SimHub", IsChecked = fs.Enabled, Margin = new Thickness(0, 0, 0, 6) };
             var demo = new CheckBox
             {
                 Content = "Demo: animate every dash value with a simulated lap (with no game running; off again after a restart)",
                 IsChecked = plugin.DemoOn, Margin = new Thickness(0, 0, 0, 8),
             };
-            enabled.Checked += (s, e) => plugin.SetFeedEnabled(true);
-            enabled.Unchecked += (s, e) => { plugin.SetFeedEnabled(false); demo.IsChecked = false; };
+            enabled.Checked += (s, e) => { if (!reverting) plugin.SetFeedEnabled(true); Refresh(); };
+            enabled.Unchecked += (s, e) =>
+            {
+                if (reverting) return;
+                if (plugin.TurningOffNeedsGameRestart && !ConfirmTurnOff())
+                {
+                    reverting = true;
+                    enabled.IsChecked = true;
+                    reverting = false;
+                    return;
+                }
+                plugin.SetFeedEnabled(false);
+                demo.IsChecked = false;
+                Refresh();
+            };
             demo.Checked += (s, e) => { plugin.SetDemo(true); enabled.IsChecked = plugin.Settings.Feed.Enabled; };
             demo.Unchecked += (s, e) => plugin.SetDemo(false);
             Children.Add(enabled);
             Children.Add(demo);
 
-            status = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.85 };
-            source = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
-            var statusBody = new StackPanel();
-            statusBody.Children.Add(status);
-            statusBody.Children.Add(source);
-            Children.Add(Card(statusBody, new Thickness(0, 0, 0, 12)));
+            // Status banner: icon + headline in the state's color, then what it means / what to do.
+            bannerIcon = new TextBlock { FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 22, Margin = new Thickness(0, 2, 14, 0), VerticalAlignment = VerticalAlignment.Top };
+            bannerTitle = new TextBlock { FontSize = 16, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+            bannerDetail = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.85, Margin = new Thickness(0, 4, 0, 0) };
+            bannerProblem = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Frozen(Bad), Margin = new Thickness(0, 6, 0, 0) };
+            var bannerText = new StackPanel();
+            bannerText.Children.Add(bannerTitle);
+            bannerText.Children.Add(bannerDetail);
+            bannerText.Children.Add(bannerProblem);
+            var bannerBody = new DockPanel();
+            DockPanel.SetDock(bannerIcon, Dock.Left);
+            bannerBody.Children.Add(bannerIcon);
+            bannerBody.Children.Add(bannerText);
+            banner = Card(bannerBody, new Thickness(0, 0, 0, 12));
+            banner.BorderThickness = new Thickness(5, 1, 1, 1);
+            Children.Add(banner);
 
             // Options
             var gaps = new ComboBox { Width = 380 };
@@ -90,7 +126,8 @@ namespace User.FXProRpmSync
             var readoutBody = new StackPanel();
             readoutBody.Children.Add(Small("SENDING TO THE WHEEL (AS THE DASH SHOWS IT, IN SIMPRO'S BASE UNITS)"));
             readoutBody.Children.Add(readout);
-            Children.Add(Card(readoutBody, new Thickness(0, 4, 0, 12)));
+            readoutCard = Card(readoutBody, new Thickness(0, 4, 0, 12));
+            Children.Add(readoutCard);
 
             // Game-specific values
             var raw = new StackPanel();
@@ -118,22 +155,82 @@ namespace User.FXProRpmSync
             Unloaded += (s, e) => timer.Stop();
         }
 
-        private void Refresh()
+        private bool ConfirmTurnOff()
         {
-            status.Text = plugin.FeedStatus;
+            var game = plugin.RunningGameName ?? "the game";
+            return MessageBox.Show(Window.GetWindow(this),
+                $"{game} is running and the wheel's dash is showing SimHub's data.\n\n" +
+                $"If you turn this off now, SimPro switches to reading {game} directly and keeps it until the game closes. " +
+                "Turning this back on won't do anything until you restart the game.\n\n" +
+                "Turn it off anyway?",
+                "FXPro RPM Sync", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+        }
+
+        private void SetBanner(Color tone, string icon, string title, string detail)
+        {
+            var key = title + "|" + detail;
+            if (key == shownBanner) return;
+            shownBanner = key;
+            var brush = Frozen(tone);
+            banner.BorderBrush = brush;
+            banner.Background = Frozen(Color.FromArgb(0x1f, tone.R, tone.G, tone.B));
+            bannerIcon.Foreground = brush;
+            bannerIcon.Text = icon;
+            bannerTitle.Foreground = brush;
+            bannerTitle.Text = title;
+            bannerDetail.Text = detail;
+            bannerDetail.Visibility = detail.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void RefreshBanner()
+        {
             bool on = plugin.Settings.Feed.Enabled;
             var src = plugin.SimProSource;
-            if (!on)
+            var game = plugin.RunningGameName;
+            var status = plugin.FeedStatus ?? "";
+            bool error = status.StartsWith("Error", StringComparison.Ordinal);
+            // Mapper errors don't stop the feed: show them under the state instead of replacing it.
+            bannerProblem.Text = on && error && plugin.FeedRunning ? status : "";
+            bannerProblem.Visibility = bannerProblem.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            readoutCard.Opacity = on && src == null ? 1 : 0.45;
+
+            if (!on && error)
+                SetBanner(Bad, IconError, "Couldn't start sending SimHub's data", status);
+            else if (!on)
+                SetBanner(Idle, IconOff, "Off: SimPro reads the game directly",
+                    "The dash shows SimPro's own game telemetry. Turn this on before starting a game to send SimHub's data instead.");
+            else if (!plugin.FeedRunning)
+                SetBanner(Bad, IconError, "SimGame helper isn't running",
+                    "simgame.exe stopped, so SimPro can't read SimHub's data. Turn this off and on again." + (error ? "\n" + status : ""));
+            else if (!plugin.SimProSourceKnown)
+                SetBanner(Info, IconInfo, "Checking what SimPro is reading...", "");
+            else if (!plugin.SimProReachable)
+                SetBanner(Warn, IconWarn, "Can't reach SimPro Manager",
+                    "SimPro Manager must be running for anything to reach the wheel. Start it and this updates by itself.");
+            else if (src != null)
+                SetBanner(Warn, IconWarn, $"SimPro is reading {src}, not SimHub",
+                    $"The dash shows SimPro's own {src} telemetry: SimPro picked the game before SimHub's data was available, " +
+                    "and it keeps that choice until the game closes.\n" +
+                    "To fix: close the game and start it again (leave this on). If that doesn't help, restart SimPro Manager " +
+                    "(tray icon > Exit, then start it) and, if needed, the wheelbase.");
+            else if (plugin.DemoOn)
+                SetBanner(Info, IconInfo, "Demo running on the dash", "The dash is animating a simulated lap. Untick Demo to stop it.");
+            else if (game != null)
+                SetBanner(Good, IconOk, "Dash is showing SimHub's data",
+                    $"SimPro is reading SimHub's {game} data. Turning this off hands the dash to SimPro until you restart the game.");
+            else
+                SetBanner(Good, IconOk, "Ready: the dash will show SimHub's data",
+                    "Start a game (with SimHub already running) and the dash follows SimHub's data.");
+        }
+
+        private void Refresh()
+        {
+            RefreshBanner();
+            if (!plugin.Settings.Feed.Enabled)
             {
-                source.Text = "";
                 readout.Text = "(off)";
                 return;
             }
-            source.Text = src == null
-                ? "SimPro lists no game, which is normal while it reads SimHub's data (SimPro never lists SimGame)."
-                : "SimPro is reading " + src + " directly, not SimHub's data: it picked the game before SimGame was running. " +
-                  "Close the game and start it again. If the dash still doesn't follow SimHub, restart SimPro " +
-                  "(tray icon > Exit, then start it) and, if needed, the wheelbase.";
 
             var t = plugin.FeedSnapshot;
             if (t.Get("isGameRunning") == 0) { readout.Text = "No game running in SimHub (tick Demo to animate the dash)."; return; }

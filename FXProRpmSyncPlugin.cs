@@ -65,6 +65,8 @@ namespace User.FXProRpmSync
         private readonly object sync = new object();
         internal object SyncRoot => sync;
         private long lastDataTicks; // last DataUpdate with a car, for "driving" checks on the worker
+        private long lastGameTicks; // last DataUpdate where SimHub reported a running game (plugin enabled or not)
+        private volatile string runningGameName;
 
         // SimHub -> SimPro telemetry feed (SimGame source)
         private SimGameFeed feed;
@@ -73,8 +75,23 @@ namespace User.FXProRpmSync
         private volatile bool feedOn;
         private DateTime nextSourceCheckUtc;
         public string FeedStatus { get; private set; } = "";
-        /// <summary>The game SimPro is reading telemetry from (null = none).</summary>
+        /// <summary>The game SimPro is reading telemetry from (null = none, which is what SimPro reports while it reads SimGame).</summary>
         public string SimProSource { get; private set; }
+        /// <summary>SimProSource has been read since the feed was turned on.</summary>
+        public bool SimProSourceKnown { get; private set; }
+        /// <summary>The last attempt to read SimProSource reached SimPro.</summary>
+        public bool SimProReachable { get; private set; }
+        /// <summary>simgame.exe is running, so SimPro can read SimGame.</summary>
+        public bool FeedRunning => feed?.Running == true;
+        /// <summary>SimHub reports a running game (seen in the last 3 s).</summary>
+        public bool GameRunning => DateTime.UtcNow.Ticks - Interlocked.Read(ref lastGameTicks) < TimeSpan.FromSeconds(3).Ticks;
+        /// <summary>The game SimHub reads, while GameRunning.</summary>
+        public string RunningGameName => GameRunning ? runningGameName : null;
+        /// <summary>
+        /// Turning the feed off now would hand SimPro to the running game for good: SimPro keeps a selected game until its
+        /// process exits, so turning the feed back on does nothing until the game restarts.
+        /// </summary>
+        public bool TurningOffNeedsGameRestart => feedOn && FeedRunning && GameRunning && SimProSource == null;
         /// <summary>A copy of the last values sent, for the settings page's live readout.</summary>
         internal SimProTelemetry FeedSnapshot { get; } = new SimProTelemetry();
 
@@ -223,6 +240,11 @@ namespace User.FXProRpmSync
         public void DataUpdate(PluginManager pluginManager, ref GameData data)
         {
             if (feedOn) WriteFeed(pluginManager, data);
+            if (data.GameRunning && data.NewData != null)
+            {
+                Interlocked.Exchange(ref lastGameTicks, DateTime.UtcNow.Ticks);
+                runningGameName = data.GameName;
+            }
             if (!Settings.Enabled || !data.GameRunning || data.NewData == null) return;
             var d = data.NewData;
 
@@ -333,6 +355,7 @@ namespace User.FXProRpmSync
                     {
                         feedData.Clear();
                         feed.Start(feedData.Buffer);
+                        SimProSourceKnown = false;
                         FeedStatus = "Running: SimPro reads SimHub's data while no game is selected in SimPro";
                     }
                     else
@@ -432,8 +455,17 @@ namespace User.FXProRpmSync
         {
             if (!feedOn || DateTime.UtcNow < nextSourceCheckUtc) return;
             nextSourceCheckUtc = DateTime.UtcNow.AddSeconds(5);
-            try { SimProSource = await simPro.GetRunningGameName().ConfigureAwait(false); }
-            catch { SimProSource = null; }
+            try
+            {
+                SimProSource = await simPro.GetRunningGameName().ConfigureAwait(false);
+                SimProReachable = true;
+            }
+            catch
+            {
+                SimProSource = null;
+                SimProReachable = false;
+            }
+            SimProSourceKnown = true;
         }
 
         // ---------- Dash per car ----------
@@ -542,7 +574,7 @@ namespace User.FXProRpmSync
                 lock (sync) { t = pending; pending = null; }
                 if (t == null && await PushGear().ConfigureAwait(false)) continue;
                 if (t == null) t = await CheckGameMaxChanged().ConfigureAwait(false);
-                if (t == null) { await CheckWheelChanged().ConfigureAwait(false); await PollDash().ConfigureAwait(false); await CheckFeedSource().ConfigureAwait(false); continue; }
+                if (t == null) { CheckGameEnded(); await CheckWheelChanged().ConfigureAwait(false); await PollDash().ConfigureAwait(false); await CheckFeedSource().ConfigureAwait(false); continue; }
 
                 try
                 {
@@ -583,6 +615,34 @@ namespace User.FXProRpmSync
             if (wheel == null || !Settings.DashSwitching) return;
             try { await dashes.PollAsync(wheel, Driving, DashCarKey, NewCarDashForCurrentCar).ConfigureAwait(false); }
             catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] dash poll failed: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// The game closed (SimHub has reported no running game for a few seconds): forget the current car, so the settings
+        /// page stops showing it and the next car (even the same one) is applied afresh. The wheel keeps its lights and dash.
+        /// </summary>
+        private void CheckGameEnded()
+        {
+            if ((DashCarKey == null && CurrentCarKey == null) || GameRunning) return;
+            SimHub.Logging.Current.Info("[FXProRpmSync] game ended: " + (DashCarKey ?? CurrentCarKey));
+            lock (sync)
+            {
+                pending = null;
+                lastRequested = null;
+            }
+            DashCarKey = null;
+            dashCarGame = dashCarId = dashCarName = null;
+            CurrentCarKey = CurrentGame = CurrentCarId = CurrentCarName = null;
+            CurrentBaseLayout = null;
+            CurrentBaseSource = null;
+            CurrentCar = "";
+            LightsSource = "";
+            appliedTarget = null; // stops CheckGameMaxChanged re-applying the old car
+            gearLive = false;
+            gearParts = null;
+            pushedGear = null;
+            dashes.GameEnded();
+            Status = "No game running";
         }
 
         /// <summary>
