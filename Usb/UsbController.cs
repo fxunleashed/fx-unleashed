@@ -20,6 +20,8 @@ namespace User.FXProRpmSync
         public string DashId = BuiltInDashes.MustangId;
         public int PadLeft = 10, PadTop = 20;
         public bool LightsEnabled = true;
+        /// <summary>Keep the lights on with no game running (ambient effects; rev lights dark). Off = SimPro's lights until a game starts.</summary>
+        public bool IdleLights = true;
         public string LightPreset = "mustang";
         /// <summary>The user's own lights ("Customize"), used when LightPreset is "custom".</summary>
         public LightProfile CustomLights;
@@ -75,6 +77,8 @@ namespace User.FXProRpmSync
         public string WheelVersion => status?.VersionText;
         public bool SupportedApp => status?.IsSupportedApp == true;
         public bool Active => conn != null;
+        /// <summary>The custom dash is on the wheel's screen now.</summary>
+        public bool DashActive => screen != null;
         public bool DemoOn => demoOn;
         public bool Testing => DateTime.UtcNow.Ticks < Interlocked.Read(ref testUntilTicks);
         public string ActiveDashName => dash?.Name;
@@ -146,16 +150,17 @@ namespace User.FXProRpmSync
                     Probe(force: false);
                     bool allowed = path != null && status?.IsSupportedApp == true && (s.FirmwareConfirmed || testing);
                     bool source = testing || demoOn || LiveFresh;
-                    if (!allowed || !source)
+                    bool idleLights = s.LightsEnabled && s.IdleLights;
+                    if (!allowed || (!source && !idleLights))
                     {
                         Deactivate();
                         SetIdleState(s, allowed);
                         wake.WaitOne(250);
                         continue;
                     }
-                    if (conn == null) Activate();
-                    RunFrame(testing);
-                    Thread.Sleep(15);
+                    if (conn == null) Open();
+                    RunFrame(s, source, testing);
+                    wake.WaitOne(15); // a settings change wakes it early, so the wheel shows it at once
                 }
                 catch (Exception ex)
                 {
@@ -190,62 +195,60 @@ namespace User.FXProRpmSync
             path = p;
         }
 
-        private void Activate()
+        private void Open()
         {
             conn = new FxConnection(path);
             appliedVersion = -1;
             dashKey = null;
-            ApplySettings();
             lastDash = lastDemo = clock.Elapsed.TotalSeconds;
-            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode active: " + (dash?.Name ?? "no dash") + ", lights " + S.ActiveLights.Name);
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode connected to the wheel");
         }
 
-        /// <summary>Copies the lights from the settings; rebuilds and redraws the dash only when its settings changed.</summary>
-        private void ApplySettings()
+        /// <summary>
+        /// Copies the lights from the settings when they changed; takes the screen and draws the dash while `dashWanted`
+        /// (a game, the demo or the test), redrawing only when the dash's own settings changed; gives it back otherwise.
+        /// </summary>
+        private void ApplySettings(UsbSettings s, bool dashWanted)
         {
             int version = Volatile.Read(ref settingsVersion);
-            if (version == appliedVersion) return;
-            appliedVersion = version;
-            var s = S;
-            try { lights = s.ActiveLights.Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
-            reverseRev = s.ReverseRev;
-
-            string key = $"{s.DashEnabled}|{s.DashId}|{s.PadLeft}|{s.PadTop}|{Volatile.Read(ref dashReloads)}";
-            if (key == dashKey && (renderer != null || !s.DashEnabled)) { ApplyLightsOnOff(s); return; }
-            dashKey = key;
-
-            if (s.DashEnabled)
+            if (version != appliedVersion)
             {
-                var errors = new List<string>();
-                dash = DashLibrary.Load(errors).FirstOrDefault(d => d.Id == s.DashId) ?? BuiltInDashes.MustangGt3();
-                if (screen == null) { screen = new FxHostScreen(conn); screen.Take(); }
-                int left = Math.Max(0, s.PadLeft), top = Math.Max(0, s.PadTop);
-                var room = DashRenderer.Room(dash);
-                renderer = new DashRenderer(screen, dash, Math.Min(left, room.Right), Math.Min(top, room.Down));
-                props = dash.Bindings.Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase)).ToArray();
-                DashProblems = renderer.Check();
-                renderer.DrawAll();
+                appliedVersion = version;
+                try { lights = s.ActiveLights.Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
+                reverseRev = s.ReverseRev;
             }
-            else if (screen != null)
-            {
-                screen.Release();
-                screen.Dispose();
-                screen = null;
-                renderer = null;
-                dash = null;
-            }
-            ApplyLightsOnOff(s);
-        }
-
-        private void ApplyLightsOnOff(UsbSettings s)
-        {
             if (s.LightsEnabled && leds == null) { leds = new FxLedWriter(conn); leds.Enable(); }
             else if (!s.LightsEnabled && leds != null) { leds.Disable(); leds = null; LastFrame = null; }
+
+            if (!dashWanted) { ReleaseScreen(); return; }
+            string key = $"{s.DashId}|{s.PadLeft}|{s.PadTop}|{Volatile.Read(ref dashReloads)}";
+            if (screen != null && key == dashKey) return;
+            dashKey = key;
+            var errors = new List<string>();
+            dash = DashLibrary.Load(errors).FirstOrDefault(d => d.Id == s.DashId) ?? BuiltInDashes.MustangGt3();
+            if (screen == null) { screen = new FxHostScreen(conn); screen.Take(); }
+            var room = DashRenderer.Room(dash);
+            renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, s.PadLeft), room.Right), Math.Min(Math.Max(0, s.PadTop), room.Down));
+            props = dash.Bindings.Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase)).ToArray();
+            DashProblems = renderer.Check();
+            renderer.DrawAll();
+            lastDash = clock.Elapsed.TotalSeconds;
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode dash on: " + dash.Name);
         }
 
-        private void RunFrame(bool testing)
+        /// <summary>The wheel's own dash back (`page dp`); the lights stay.</summary>
+        private void ReleaseScreen()
         {
-            ApplySettings();
+            if (screen == null) return;
+            try { screen.Release(); } catch { }
+            screen.Dispose();
+            screen = null; renderer = null; dash = null; dashKey = null;
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode dash off (wheel's own dash back)");
+        }
+
+        private void RunFrame(UsbSettings s, bool source, bool testing)
+        {
+            ApplySettings(s, source && s.DashEnabled);
             double now = clock.Elapsed.TotalSeconds;
             DashValues v;
             if (testing || demoOn)
@@ -258,17 +261,23 @@ namespace User.FXProRpmSync
                 Detail = testing ? "Showing the demo for a few seconds: the dash should be steady, with no stock dash flickering through."
                                  : "Running a simulated lap on the wheel.";
             }
-            else
+            else if (source)
             {
                 v = latest;
                 State = "Active";
                 Detail = "Driving the dash and lights from SimHub.";
             }
+            else
+            {
+                v = new DashValues(); // no game: ambient lights only, rev lights dark, no alerts
+                State = "Lights on";
+                Detail = "Showing your lights. The dash takes over the screen when a game runs.";
+            }
 
             if (leds != null && now - lastLed >= 1.0 / 30)
             {
                 lastLed = now;
-                var frame = engine.Render(lights, v, testing || demoOn ? null : plugin.CurrentLightsLayout, now, reverseRev);
+                var frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
                 for (int i = 0; i < frame.Length; i++) leds.Set(i, frame[i].R, frame[i].G, frame[i].B, Math.Max((byte)1, frame[i].Brightness));
                 leds.Send();
                 LastFrame = frame;

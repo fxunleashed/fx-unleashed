@@ -160,6 +160,10 @@ namespace User.FXProRpmSync
             lightsOn.Checked += (s, e) => { S.LightsEnabled = true; Changed(); };
             lightsOn.Unchecked += (s, e) => { S.LightsEnabled = false; Changed(); };
             body.Children.Add(lightsOn);
+            var idle = new CheckBox { Content = "Keep them on when no game is running (untick to give the lights back to SimPro between sessions)", IsChecked = S.IdleLights, Margin = new Thickness(0, 0, 0, 6) };
+            idle.Checked += (s, e) => { S.IdleLights = true; Changed(); };
+            idle.Unchecked += (s, e) => { S.IdleLights = false; Changed(); };
+            body.Children.Add(idle);
             var reverse = new CheckBox { Content = "Rev lights fill from the right (if they run the wrong way on your wheel)", IsChecked = S.ReverseRev, Margin = new Thickness(0, 0, 0, 10) };
             reverse.Checked += (s, e) => { S.ReverseRev = true; Changed(); };
             reverse.Unchecked += (s, e) => { S.ReverseRev = false; Changed(); };
@@ -219,7 +223,7 @@ namespace User.FXProRpmSync
             Color tone; string icon;
             switch (u.State)
             {
-                case "Active": case "Demo": case "Test": tone = Good; icon = ""; break;
+                case "Active": case "Demo": case "Test": case "Lights on": tone = Good; icon = ""; break;
                 case "Ready": tone = Info; icon = ""; break;
                 case "Error": case "Unsupported wheel firmware": tone = Bad; icon = ""; break;
                 case "Off": tone = Idle; icon = ""; break;
@@ -227,7 +231,7 @@ namespace User.FXProRpmSync
             }
             string title = u.State;
             if (u.WheelFound && u.WheelVersion != null) title += $"   ·   FX Pro app {u.WheelVersion}";
-            if (u.Active && u.ActiveDashName != null) title += "   ·   " + u.ActiveDashName;
+            if (u.DashActive && u.ActiveDashName != null) title += "   ·   " + u.ActiveDashName;
             bannerTitle.Text = title;
             bannerTitle.Foreground = Frozen(tone);
             bannerIcon.Text = icon;
@@ -271,7 +275,7 @@ namespace User.FXProRpmSync
         /// <summary>Draws the selected dash with the same renderer the wheel uses, into a bitmap (4 per second).</summary>
         private void RenderDashPreview()
         {
-            if (!IsVisible || body.Visibility != Visibility.Visible) return;
+            if (body.Visibility != Visibility.Visible) return;
             var d = SelectedDash;
             if (d == null) return;
             string key = d.Id + "|" + S.PadLeft + "|" + S.PadTop;
@@ -289,7 +293,7 @@ namespace User.FXProRpmSync
                 dashProblems.Text = problems.Count == 0 ? "" : "Layout warnings (the screen would cut these off):\n• " + string.Join("\n• ", problems.Take(12));
                 dashProblems.Visibility = problems.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             }
-            DashValues v = Usb?.Active == true ? Usb.Latest : null;
+            DashValues v = Usb?.DashActive == true ? Usb.Latest : null;
             if (v == null)
             {
                 if (previewDemo == null) { previewDemo = new UsbDemo(); previewLast = now; }
@@ -404,7 +408,7 @@ namespace User.FXProRpmSync
 
         private void RenderFrame()
         {
-            if (!IsVisible || body.Visibility != Visibility.Visible) return;
+            if (body.Visibility != Visibility.Visible) return;
             double t = clock.Elapsed.TotalSeconds;
             var sim = SimValues(t);
             var live = Usb?.Active == true ? Usb.LastFrame : null;
