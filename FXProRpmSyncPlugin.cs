@@ -42,6 +42,9 @@ namespace User.FXProRpmSync
 
         /// <summary>Drive the wheel's dash values from SimHub instead of SimPro's own game telemetry.</summary>
         public FeedSettings Feed = new FeedSettings();
+
+        /// <summary>USB mode: custom dashes and every LED over the wheel's own USB (patched wheel firmware).</summary>
+        public UsbSettings Usb = new UsbSettings();
     }
 
     [PluginDescription("Keeps the Simagic FX Pro's rev lights matched to the car you're driving, through SimPro Manager")]
@@ -149,6 +152,12 @@ namespace User.FXProRpmSync
         public string WheelDash => dashes?.WheelDash;
         public string DashStatus => dashes?.Status ?? "";
 
+        // USB mode (patched wheel firmware): custom dash + all LEDs over the wheel's own USB.
+        internal UsbController Usb { get; private set; }
+        private long lastUsbPublishTicks;
+        /// <summary>The current car's rev lights in real RPM, after any per-car override (null = not known).</summary>
+        public RpmLayout CurrentLightsLayout { get; private set; }
+
         private class Target
         {
             public string CarKey;
@@ -175,6 +184,7 @@ namespace User.FXProRpmSync
             if (Settings.ScreensOriginals == null) Settings.ScreensOriginals = new Dictionary<string, string>();
             if (Settings.Feed == null) Settings.Feed = new FeedSettings();
             if (Settings.Feed.Overrides == null) Settings.Feed.Overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (Settings.Usb == null) Settings.Usb = new UsbSettings();
             simPro.BaseUrl = Settings.SimProUrl;
             dashes = new DashSwitcher(this, simPro);
             feed = new SimGameFeed(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync"));
@@ -199,6 +209,9 @@ namespace User.FXProRpmSync
             this.AddAction("KeepWheelDashForCurrentCar", (a, b) => KeepWheelDashForCurrentCar());
             this.AttachDelegate("WheelDash", () => DashCatalog.NameOf(WheelDash));
             this.AttachDelegate("CurrentCarDash", () => DashCatalog.NameOf(GetCarDash(DashCarKey)?.DashId));
+            this.AttachDelegate("UsbModeState", () => Usb?.State ?? "");
+            this.AddAction("UsbModeToggleDemo", (a, b) => Usb?.SetDemo(!Usb.DemoOn));
+            Usb = new UsbController(this);
 
             cts = new CancellationTokenSource();
             worker = Task.Run(() => WorkerLoop(cts.Token));
@@ -240,6 +253,12 @@ namespace User.FXProRpmSync
         public void DataUpdate(PluginManager pluginManager, ref GameData data)
         {
             if (feedOn) WriteFeed(pluginManager, data);
+            if (Settings.Usb.Enabled && Usb != null && DateTime.UtcNow.Ticks - lastUsbPublishTicks >= TimeSpan.FromMilliseconds(30).Ticks)
+            {
+                lastUsbPublishTicks = DateTime.UtcNow.Ticks;
+                try { Usb.Publish(DashValues.FromSimHub(data, pluginManager, Usb.Props)); }
+                catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] USB values: " + ex.Message); }
+            }
             if (data.GameRunning && data.NewData != null)
             {
                 Interlocked.Exchange(ref lastGameTicks, DateTime.UtcNow.Ticks);
@@ -554,6 +573,7 @@ namespace User.FXProRpmSync
             cts?.Cancel();
             wake.Set();
             try { worker?.Wait(2000); } catch { }
+            try { Usb?.Dispose(); } catch { } // gives the screen and LEDs back to the wheel
 
             // Leave SimPro as we found it.
             try { RestoreAsync().Wait(3000); } catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] restore on exit failed: " + ex.Message); }
@@ -635,6 +655,7 @@ namespace User.FXProRpmSync
             CurrentCarKey = CurrentGame = CurrentCarId = CurrentCarName = null;
             CurrentBaseLayout = null;
             CurrentBaseSource = null;
+            CurrentLightsLayout = null;
             CurrentCar = "";
             LightsSource = "";
             appliedTarget = null; // stops CheckGameMaxChanged re-applying the old car
@@ -775,6 +796,7 @@ namespace User.FXProRpmSync
                 source += " + override (" + ov.Summary + ")";
             }
             LightsSource = source;
+            CurrentLightsLayout = layout;
 
             // 3) To SimPro's percent-of-game-max settings.
             if (scaleMax <= 0) return;

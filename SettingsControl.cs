@@ -42,6 +42,7 @@ namespace User.FXProRpmSync
 
             var page = new StackPanel { Margin = new Thickness(16), MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Left };
             page.Children.Add(BuildGeneral());
+            page.Children.Add(new UsbSection(plugin));
             page.Children.Add(new DashSection(plugin));
             page.Children.Add(new FeedSection(plugin));
             page.Children.Add(new OverridesSection(plugin));
