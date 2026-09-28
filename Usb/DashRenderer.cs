@@ -123,6 +123,7 @@ namespace User.FXProRpmSync
             public int[] Px;                // shape pixels for Key (Transparent = not drawn)
             public string PxKey;
             public bool? PxOpaque;          // Px has no transparent pixel
+            public bool CrowdedKnown, IsCrowded;
             // bar
             public int FillEnd;
             public int? BarAt;              // fill end as last drawn in full (null: the whole bar must be drawn again)
@@ -168,6 +169,18 @@ namespace User.FXProRpmSync
                 if (n.Kind == "label" && !e.IsDynamic && !overDynamic) { n.Colour = DashColors.Parse(e.Color, Color.White); staticLabels.Add(n); }
                 else if (e.IsDynamic || n.Kind != "shape" || overDynamic) dynamic.Add(n);
             }
+            // a fixed label touching something that changes after it in the list (text, a bar, a pop-up) can be wiped by
+            // it: it has to be drawn again after, so it's dynamic too (dynamic stays in element order)
+            for (bool moved = true; moved;)
+            {
+                moved = false;
+                foreach (var l in staticLabels.ToList())
+                    if (dynamic.Any(m => m.R.IntersectsWith(l.R)))
+                    {
+                        staticLabels.Remove(l); dynamic.Add(l); moved = true;
+                    }
+            }
+            dynamic.Sort((a, b) => a.Index.CompareTo(b.Index));
             staticPx = BuildStatic();
             foreach (var n in dynamic) n.StaticBg = Uniform(staticPx, Width, Clip(n.R));
         }
@@ -784,7 +797,7 @@ namespace User.FXProRpmSync
             Trace?.Invoke($"repaint {area} layer {layer}");
             // Text drawn back over the area must have all of it under the repaint: drawn again over its own old pixels
             // (no background), its anti-aliased edges would thicken. So the area grows to take in the text it touches.
-            for (int pass = 0; pass < 4; pass++)
+            for (int pass = 0; pass < 64; pass++) // until nothing more joins (a row of labels can chain)
             {
                 var grown = area;
                 foreach (var l in staticLabels) { var ink = LabelInk(l); if (ink.IntersectsWith(area)) grown = Rectangle.Union(grown, ink); }
@@ -981,6 +994,16 @@ namespace User.FXProRpmSync
             return new Rectangle(x, n.R.Y, w, n.R.Height);
         }
 
+        /// <summary>Another text, picture or gradient reaches into this element's box.</summary>
+        private bool Crowded(Node n)
+        {
+            if (n.CrowdedKnown) return n.IsCrowded;
+            n.CrowdedKnown = true;
+            n.IsCrowded = def.Elements.Any(e => e != n.E && (e.Type == "value" || e.Type == "label" || e.Type == "image" || e.Type == "gradient")
+                                                && new Rectangle(e.X, e.Y, e.W, e.H).IntersectsWith(n.R));
+            return n.IsCrowded;
+        }
+
         /// <summary>The background colour under a value/bar now, or null when it isn't one colour (then: repaint).</summary>
         private int? BackgroundUnder(Node n)
         {
@@ -1004,7 +1027,9 @@ namespace User.FXProRpmSync
         private void DrawValue(Node n)
         {
             int colour = DashColors.To565(n.Colour);
-            var bg = n.Kind == "value" ? BackgroundUnder(n) : null; // a label's box may reach over other things: its band only
+            // the whole box painted in one go only when nothing else is in it (a box reaching over its neighbour's text
+            // would wipe it, then it's drawn again: a flash); else its text band. A label's box: always its band.
+            var bg = n.Kind == "value" && !Crowded(n) ? BackgroundUnder(n) : null;
             if (bg.HasValue) { screen.Cmd(Xstr(n.R, n.E.Font, colour, bg.Value, n.XCen, 1, n.Text)); n.TextAt = n.R; n.SolidAt = true; n.SolidBg = bg.Value; return; }
             // Not one colour under the whole box (an image, a bar, a border line through it): only the band the text is
             // drawn in (the font's height, centred like the text; the old and the new text's width) is redrawn. Centred /

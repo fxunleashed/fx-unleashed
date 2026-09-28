@@ -41,6 +41,7 @@ right.
 $FX simhub > dashes.json                    # installed dashes: find the name
 $FX simhub-screens "NAME"                   # screens; the importer picks the main in-game one unless --screen
 $FX import "NAME" out.json --fit 790,460 --png out.png > report.json
+$FX tune out.json > tune.json               # the automatic fixes below (1-5); lists what it changed
 ```
 
 - `--fit 790,460` scales it into the area the wheel shows: 800x480 minus the default 10 px left and 20 px top
@@ -53,10 +54,18 @@ $FX import "NAME" out.json --fit 790,460 --png out.png > report.json
   `C:\Program Files (x86)\SimHub\DashTemplates\<dash>\`).
 - Run `$FX verify out.json` right away as a baseline. It tells you where the import costs and flashes.
 
-**An import never passes as it comes out.** Put every fix in a tune script, not hand edits: re-importing and
+**An import never passes as it comes out.** `fxdash tune` does the fixes every import needs:
+- samples from a demo lap;
+- fonts re-picked;
+- labels that fit no font widened;
+- the gear font;
+- value text running into other text trimmed;
+- pictures that toggle often (ABS/TC working icons) turned into coloured labels or lamps.
+
+Run it first, then the loop in 3. What's left after it, put in a tune script, not hand edits: re-importing and
 re-tuning is then one command, and the reasons stay written down. The worked example is
 `docs/examples/lmgt3-mclaren-tune.py`. Its import went from 16 KB/s, 727 of 1200 updates flashing and RPM showing
-"573", to 5 KB/s, no flashes, and a gear as big as the original's. What every import needs:
+"573", to 5 KB/s, no flashes, and a gear as big as the original's. What every import needs, and what `tune` automates:
 
 1. **Real `Samples` for every value.** The importer copies SimHub's preview text, which is often `"0"`, so `check`
    can't tell that "5730" doesn't fit: the screen dropped the last digit and showed "573". Write each value's widest

@@ -264,7 +264,8 @@ static class UsbTestMain
                     if (k % 3 != 0) continue;
                     log.Clear(); log.Add($"-- update {k / 30.0:0.00}s text={DashRenderer.Format(el, tv, out _)}");
                     tr.Update(tv, k / 30.0);
-                    foreach (var c in log) if (c.StartsWith("--") || c.Contains("#" + idx + " ") || c.Contains(" " + sx) || c.Contains("xstr " + sx) || c.Contains("fill " + sx)) Console.WriteLine(c);
+                    bool all = Environment.GetEnvironmentVariable("TRACE_ALL") == "1" && k == 6;
+                    foreach (var c in log) if (all || c.StartsWith("--") || c.Contains("#" + idx + " ") || c.Contains(" " + sx) || c.Contains("xstr " + sx) || c.Contains("fill " + sx)) Console.WriteLine(c);
                 }
                 return 0;
             }

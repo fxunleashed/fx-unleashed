@@ -23,6 +23,8 @@ internal static class FxDash
   fxdash verify DASH.json [--seconds N] [--pad L,T]
                                              the demo lap on a simulated wheel: USB traffic, flashes, drawing
                                              errors, top senders (exit 1 if not ok; default pad 10,20, 120 s)
+  fxdash tune DASH.json [OUT.json]           automatic fixes for an import: samples from a demo lap, fonts, labels,
+                                             gear font, value boxes overlapping text
   fxdash fit-bands DASH.json [OUT.json]      values whose text crosses a border line: nudged or a smaller font
   fxdash builtin [ID] [OUT.json]             list built-in dashes, or write one out as a starting point
   fxdash simhub                              installed SimHub dashes
@@ -76,6 +78,16 @@ internal static class FxDash
                     var vr = DashVerify.Run(Load(pos[1]), vpad.Item1, vpad.Item2, vsec);
                     Out(vr);
                     return vr.Ok ? 0 : 1;
+                }
+                case "tune":
+                {
+                    // automatic fixes for an import: samples from a demo lap, fonts, labels, gear, overlapping boxes
+                    Need(pos, 2);
+                    var dash = Load(pos[1]);
+                    var changes = DashTune.Run(dash);
+                    string outPath = pos.Count > 2 ? pos[2] : pos[1];
+                    File.WriteAllText(outPath, DashTools.Serialize(dash));
+                    return Out(new { changes, written = Path.GetFullPath(outPath) });
                 }
                 case "fit-bands":
                 {

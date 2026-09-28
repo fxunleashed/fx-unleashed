@@ -145,6 +145,7 @@ namespace User.FXProRpmSync
                     DashElement found = null;
                     foreach (var dy in new[] { 0, -1, 1, -2, 2, -3, 3, -4, 4 })
                     {
+                        if (e.Y + dy < 0 || e.Y + e.H + dy > DashRenderer.Height - 20) continue; // stays on the screen with the padding
                         foreach (var inset in new[] { 0, 1, 2, 3 })
                         {
                             var x = Nudged(e, dy, inset);
@@ -170,6 +171,7 @@ namespace User.FXProRpmSync
                         if (score >= bestScore) continue;
                         foreach (var dy in new[] { 0, -1, 1, -2, 2, -3, 3 })
                         {
+                            if (e.Y + dy < 0 || e.Y + e.H + dy > DashRenderer.Height - 20) continue;
                             var x = Nudged(e, dy, 0);
                             if (Fits(x, f) && Clean(x, f)) { best = f; bestBox = x; bestScore = score; break; }
                         }
