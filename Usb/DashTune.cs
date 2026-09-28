@@ -221,6 +221,65 @@ namespace User.FXProRpmSync
                 }
             }
 
+            // 5b. a pop-up's background that partly covers a value always shown: while it shows, every change of the value
+            //     redraws the pop-up over it (a flash). If nothing else of the pop-up is in the part over the value's text,
+            //     that part of the background goes: the background is trimmed back to just clear of it.
+            foreach (var v in values.Where(x => x.Visible == null || x.Visible.Count == 0 || !InPopup(d, x)))
+            {
+                string vs = Widest(v);
+                var vb = Band(v, vs);
+                foreach (var bg in d.Elements.Where(x => (x.Type == "rect" || x.Type == "box" || x.Type == "gradient" || x.Type == "image")
+                                                         && x.Visible != null && x.Visible.Count > 0 && d.Elements.IndexOf(x) > d.Elements.IndexOf(v)).ToList())
+                {
+                    var bb = Box(bg);
+                    if (!bb.IntersectsWith(vb) || bb.Contains(vb)) continue;
+                    var members = d.Elements.Where(m => m != bg && m.Visible != null && m.Visible.SequenceEqual(bg.Visible)).ToList();
+                    Rectangle trimmed = bb;
+                    var ov = Rectangle.Intersect(bb, vb);
+                    if (ov.Width >= ov.Height)
+                    {
+                        if (bb.Y > vb.Y) trimmed = Rectangle.FromLTRB(bb.Left, vb.Bottom + 2, bb.Right, bb.Bottom);   // cut its top
+                        else trimmed = Rectangle.FromLTRB(bb.Left, bb.Top, bb.Right, vb.Top - 2);                     // cut its bottom
+                    }
+                    else
+                    {
+                        if (bb.X > vb.X) trimmed = Rectangle.FromLTRB(vb.Right + 2, bb.Top, bb.Right, bb.Bottom);
+                        else trimmed = Rectangle.FromLTRB(bb.Left, bb.Top, vb.Left - 2, bb.Bottom);
+                    }
+                    if (trimmed.Width < 8 || trimmed.Height < 8) continue;
+                    // the strip cut away must hold none of the pop-up's own content (its text, frames, pictures)
+                    var cut = trimmed.Y > bb.Y ? Rectangle.FromLTRB(bb.Left, bb.Top, bb.Right, trimmed.Top)
+                            : trimmed.Bottom < bb.Bottom ? Rectangle.FromLTRB(bb.Left, trimmed.Bottom, bb.Right, bb.Bottom)
+                            : trimmed.X > bb.X ? Rectangle.FromLTRB(bb.Left, bb.Top, trimmed.Left, bb.Bottom)
+                            : Rectangle.FromLTRB(trimmed.Right, bb.Top, bb.Right, bb.Bottom);
+                    if (members.Any(m => (m.Type == "value" || m.Type == "label" ? Band(m, Widest(m)) : Box(m)).IntersectsWith(cut)))
+                    {
+                        // content there: a plain filled rect can instead get a notch around the value's text (the value
+                        // then shows through it, drawn once, never under the pop-up); replaced by the rects around it
+                        var hole = vb; hole.Inflate(2, 2); hole.Intersect(bb);
+                        if (bg.Type != "rect" || members.Any(m => (m.Type == "value" || m.Type == "label" ? Band(m, Widest(m)) : Box(m)).IntersectsWith(hole))) continue;
+                        var pieces = new List<Rectangle>();
+                        if (hole.Top > bb.Top) pieces.Add(Rectangle.FromLTRB(bb.Left, bb.Top, bb.Right, hole.Top));
+                        if (hole.Bottom < bb.Bottom) pieces.Add(Rectangle.FromLTRB(bb.Left, hole.Bottom, bb.Right, bb.Bottom));
+                        if (hole.Left > bb.Left) pieces.Add(Rectangle.FromLTRB(bb.Left, hole.Top, hole.Left, hole.Bottom));
+                        if (hole.Right < bb.Right) pieces.Add(Rectangle.FromLTRB(hole.Right, hole.Top, bb.Right, hole.Bottom));
+                        string bgName = Name(bg); int at = d.Elements.IndexOf(bg);
+                        d.Elements.RemoveAt(at);
+                        for (int k = 0; k < pieces.Count; k++)
+                        {
+                            var copy = JsonClone(bg);
+                            copy.Name = bg.Name + (k == 0 ? "" : " " + (k + 1));
+                            copy.X = pieces[k].X; copy.Y = pieces[k].Y; copy.W = pieces[k].Width; copy.H = pieces[k].Height;
+                            d.Elements.Insert(at + k, copy);
+                        }
+                        changes.Add($"{bgName}: a notch around {Name(v)}'s text ({pieces.Count} parts), so the pop-up never covers half of it");
+                        continue;
+                    }
+                    changes.Add($"{Name(bg)}: {Str(bb)} -> {Str(trimmed)}, clear of {Name(v)} (a pop-up half over it flashes)");
+                    bg.X = trimmed.X; bg.Y = trimmed.Y; bg.W = trimmed.Width; bg.H = trimmed.Height;
+                }
+            }
+
             // 7. pictures that come and go often (shown while ABS/TC works, blinking): every toggle redraws the picture.
             //    A short-named one becomes a label in its main colour, others a lamp (a rect) in that colour.
             var toggles = new Dictionary<DashElement, int>();
@@ -265,6 +324,9 @@ namespace User.FXProRpmSync
         }
 
         private static Rectangle Box(DashElement e) => new Rectangle(e.X, e.Y, e.W, e.H);
+
+        private static DashElement JsonClone(DashElement e) =>
+            Newtonsoft.Json.JsonConvert.DeserializeObject<DashElement>(Newtonsoft.Json.JsonConvert.SerializeObject(e));
 
         /// <summary>
         /// Part of a pop-up: shown under a condition, inside a shape shown under the same one (a value that only shows

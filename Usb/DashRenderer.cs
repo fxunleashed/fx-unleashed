@@ -736,6 +736,8 @@ namespace User.FXProRpmSync
             int fh = FontHeight(n.E.Font);
             if (fh > 0 && fh <= n.R.Height) area = Rectangle.Intersect(area, new Rectangle(n.R.X, n.R.Y + (n.R.Height - fh) / 2, n.R.Width, fh));
             if (area.Width <= 0 || area.Height <= 0) return false;
+            // covered all over by solid shapes after it (together: a pop-up background can come in pieces)
+            if (Subtract(area, SolidShapesAbove(n.Index)).Count == 0) return true;
             foreach (var m in dynamic)
             {
                 // text drawn later with its own background over all of this one (two values in the same place)
@@ -773,7 +775,7 @@ namespace User.FXProRpmSync
         private bool CoveredAbove(int index, Rectangle area)
         {
             area = Clip(area);
-            return area.Width > 0 && area.Height > 0 && SolidShapesAbove(index).Any(r => r.Contains(area));
+            return area.Width > 0 && area.Height > 0 && Subtract(area, SolidShapesAbove(index)).Count == 0;
         }
 
         private static bool Opaque(int[] px, int stride, Rectangle r)
