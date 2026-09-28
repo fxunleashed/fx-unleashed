@@ -13,7 +13,9 @@ namespace User.FXProRpmSync
     /// </summary>
     internal sealed class SimHubFormulas
     {
-        private readonly NCalcEngineBase engine = new NCalcEngineBase();
+        // created on first use: its constructor needs SimHub's JavascriptExtensions folder, i.e. a running SimHub
+        private NCalcEngineBase engine;
+        private bool unavailable;
         private readonly Dictionary<string, ExpressionValue> compiled = new Dictionary<string, ExpressionValue>();
         private readonly Dictionary<string, DateTime> failing = new Dictionary<string, DateTime>();
         private string jsDirectory;
@@ -26,12 +28,24 @@ namespace User.FXProRpmSync
         {
             if (directory == jsDirectory) return;
             jsDirectory = directory;
-            try { if (!string.IsNullOrEmpty(directory)) engine.SetExtraJavasccriptExtensionsDirectory(directory); } catch { }
+            try { if (!string.IsNullOrEmpty(directory) && Engine() != null) engine.SetExtraJavasccriptExtensionsDirectory(directory); } catch { }
+        }
+
+        private NCalcEngineBase Engine()
+        {
+            if (engine != null || unavailable) return engine;
+            try { engine = new NCalcEngineBase(); }
+            catch (Exception ex)
+            {
+                unavailable = true;
+                SimHub.Logging.Current.Warn("[FXProRpmSync] SimHub's formula engine isn't available (dash formulas stay empty): " + ex.Message);
+            }
+            return engine;
         }
 
         public object Eval(string bind)
         {
-            if (!IsFormula(bind)) return null;
+            if (!IsFormula(bind) || Engine() == null) return null;
             if (failing.TryGetValue(bind, out var until) && DateTime.UtcNow < until) return null;
             try
             {

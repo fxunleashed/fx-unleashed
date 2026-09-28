@@ -149,7 +149,15 @@ namespace User.FXProRpmSync
                 Changed();
                 ShowDashInfo();
             };
-            body.Children.Add(Row("Dash", dashBox));
+            // New or edited dash files show up without a restart: the list refreshes each time it's opened, and ⟳ also
+            // redraws the wheel's dash from its file
+            dashBox.PreviewMouseLeftButtonDown += (s, e) => { if (!dashBox.IsDropDownOpen) LoadDashes(); };
+            var refreshDashes = new Button { Content = "⟳", ToolTip = "Reload the dash list and the dash files (new dashes from the designer or the dashes folder)", Width = 30, Margin = new Thickness(6, 0, 0, 0) };
+            refreshDashes.Click += (s, e) => { LoadDashes(); Usb?.ReloadDashes(); };
+            var dashRow = new StackPanel { Orientation = Orientation.Horizontal };
+            dashRow.Children.Add(dashBox);
+            dashRow.Children.Add(refreshDashes);
+            body.Children.Add(Row("Dash", dashRow));
             dashInfo = Muted("", new Thickness(150, -4, 0, 8));
             body.Children.Add(dashInfo);
 
@@ -355,7 +363,7 @@ namespace User.FXProRpmSync
             dashBox.SelectedItem = dashBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == S.DashId) ?? dashBox.Items[0];
             loading = false;
             loadErrors = errors;
-            previewKey = null;
+            previewKey = null; // redraws the preview from the (possibly edited) file
             ShowDashInfo();
         }
 
