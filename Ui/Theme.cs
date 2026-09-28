@@ -116,6 +116,38 @@ namespace User.FXProRpmSync
             return b;
         }
 
+        /// <summary>The prefix SimHub gives this plugin's actions.</summary>
+        public const string ActionPrefix = "FXProRpmSyncPlugin.";
+
+        /// <summary>
+        /// A control binding: SimHub's own "click to configure" editor for one of the plugin's actions (press any wheel
+        /// button, button box button or key), so nothing has to be set up in Controls and events. Outside SimHub (tests)
+        /// it falls back to the action's name.
+        /// </summary>
+        public static FrameworkElement Binding(string label, string action, string hint = null)
+        {
+            UIElement editor;
+            try
+            {
+                editor = new SimHub.Plugins.UI.ControlsEditor { ActionName = ActionPrefix + action, FriendlyName = "", MinWidth = 200 };
+            }
+            catch
+            {
+                editor = new TextBlock { Text = ActionPrefix + action, Foreground = Text3, FontFamily = Mono, VerticalAlignment = VerticalAlignment.Center };
+            }
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8), LastChildFill = true };
+            var text = new StackPanel { Width = 190, VerticalAlignment = VerticalAlignment.Center };
+            var name = new StackPanel { Orientation = Orientation.Horizontal };
+            name.Children.Add(new TextBlock { Text = "", FontFamily = Icons, FontSize = 14, Foreground = Red, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            name.Children.Add(new TextBlock { Text = label, Foreground = Text, VerticalAlignment = VerticalAlignment.Center });
+            text.Children.Add(name);
+            if (hint != null) text.Children.Add(new TextBlock { Text = hint, Foreground = Text3, FontSize = 11, Margin = new Thickness(22, 1, 0, 0), TextWrapping = TextWrapping.Wrap });
+            DockPanel.SetDock(text, Dock.Left);
+            row.Children.Add(text);
+            row.Children.Add(new Border { Background = Raised, CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 4, 8, 4), HorizontalAlignment = HorizontalAlignment.Left, Child = editor });
+            return row;
+        }
+
         /// <summary>A label on the left, a control on the right.</summary>
         public static FrameworkElement Field(string label, UIElement control, double labelWidth = 170)
         {

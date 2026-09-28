@@ -85,7 +85,9 @@ namespace User.FXProRpmSync
             sleepState = new TextBlock { Foreground = Theme.Text2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 8), FontFamily = Theme.Display };
             row.Children.Add(sleepState);
             sleep.Children.Add(row);
-            sleep.Children.Add(new TextBlock { Text = "SimHub actions for a wheel button: FXProRpmSync.UsbSleepNow, FXProRpmSync.UsbWake.", Foreground = Theme.Text3, FontSize = 11.5, Margin = new Thickness(0, 4, 0, 0) });
+            sleep.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 8, 0, 14) });
+            sleep.Children.Add(Theme.Binding("Sleep now", "UsbSleepNow"));
+            sleep.Children.Add(Theme.Binding("Wake", "UsbWake"));
             Children.Add(Theme.CardBox(sleep));
 
             slowTimer.Tick += (s, e) => Refresh();

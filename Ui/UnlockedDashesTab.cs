@@ -66,12 +66,12 @@ namespace User.FXProRpmSync
             list.Children.Add(head);
             listPanel = new StackPanel();
             list.Children.Add(listPanel);
-            list.Children.Add(new TextBlock
-            {
-                Text = "Switch between them while driving: bind the SimHub actions FXProRpmSync.UsbNextDash and UsbPreviousDash " +
-                       "(SimHub > Controls and events) to any wheel button, button box or key.",
-                Foreground = Theme.Text3, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0),
-            });
+            var bindings = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
+            bindings.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 0, 0, 14) });
+            bindings.Children.Add(Theme.Eyebrow("Switch while driving"));
+            bindings.Children.Add(Theme.Binding("Next dash", "UsbNextDash", "any button or key"));
+            bindings.Children.Add(Theme.Binding("Previous dash", "UsbPreviousDash"));
+            list.Children.Add(bindings);
             Children.Add(Theme.CardBox(list));
 
             // ----- Library -----
