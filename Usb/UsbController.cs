@@ -6,6 +6,9 @@ using System.Threading;
 
 namespace User.FXProRpmSync
 {
+    [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+    public enum LightsSource { BuiltIn, AtsrHub }
+
     /// <summary>USB mode settings (part of the plugin's settings).</summary>
     public class UsbSettings
     {
@@ -29,6 +32,15 @@ namespace User.FXProRpmSync
         public LightProfile CustomLights;
         /// <summary>Rev LED 23 is the rightmost (flip the rev bar).</summary>
         public bool ReverseRev = false;
+
+        /// <summary>Where the lights come from: the built-in effects, or ATSR-Hub (see AtsrBridge).</summary>
+        public LightsSource LightsFrom = LightsSource.BuiltIn;
+        /// <summary>The device name ATSR-Hub publishes (its wheel setup for the FX Pro).</summary>
+        public string AtsrDevice;
+        /// <summary>"" = ATSR-Hub LED N -> FX Pro LED N; else 38 ATSR-Hub indexes (see AtsrBridge.ParseMap).</summary>
+        public string AtsrMap = "";
+        /// <summary>Follow ATSR-Hub's brightness (night mode).</summary>
+        public bool AtsrBrightness = true;
 
         public LightProfile ActiveLights =>
             (LightPreset == LightPresets.CustomId ? CustomLights : null) ?? LightPresets.Find(LightPreset) ?? LightPresets.All[0];
@@ -56,6 +68,10 @@ namespace User.FXProRpmSync
         private string path;
         private FxUsb.Status status;
         private DateTime nextProbe;
+
+        // Lights from ATSR-Hub (read in DataUpdate, where SimHub's properties live)
+        private LedColor[] external;
+        private long externalTicks;
 
         // Active session
         private FxConnection conn;
@@ -118,6 +134,19 @@ namespace User.FXProRpmSync
             Volatile.Write(ref latest, v);
             Interlocked.Exchange(ref latestTicks, DateTime.UtcNow.Ticks);
         }
+
+        /// <summary>A frame of lights from ATSR-Hub (DataUpdate, ~30/s).</summary>
+        public void PublishExternal(LedColor[] frame)
+        {
+            Volatile.Write(ref external, frame);
+            Interlocked.Exchange(ref externalTicks, DateTime.UtcNow.Ticks);
+        }
+
+        /// <summary>ATSR-Hub sent a frame in the last second.</summary>
+        public bool ExternalFresh => Volatile.Read(ref external) != null && DateTime.UtcNow.Ticks - Interlocked.Read(ref externalTicks) < TimeSpan.FromSeconds(1).Ticks;
+
+        /// <summary>What the lights show now: "built-in", "ATSR-Hub", or why ATSR-Hub isn't used.</summary>
+        public string LightsState { get; private set; } = "";
 
         public void SetDemo(bool on)
         {
@@ -299,7 +328,14 @@ namespace User.FXProRpmSync
             if (leds != null && now - lastLed >= 1.0 / 30)
             {
                 lastLed = now;
-                var frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
+                LedColor[] frame = null;
+                if (s.LightsFrom == LightsSource.AtsrHub && !testing)
+                {
+                    if (ExternalFresh) { frame = Volatile.Read(ref external); LightsState = "ATSR-Hub"; }
+                    else LightsState = "no data from ATSR-Hub" + (string.IsNullOrEmpty(s.AtsrDevice) ? " (no device picked)" : " for \"" + s.AtsrDevice + "\"") + ", showing the built-in lights";
+                }
+                else LightsState = testing && s.LightsFrom == LightsSource.AtsrHub ? "built-in (test)" : "built-in";
+                if (frame == null) frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
                 for (int i = 0; i < frame.Length; i++) leds.Set(i, frame[i].R, frame[i].G, frame[i].B, Math.Max((byte)1, frame[i].Brightness));
                 leds.Send();
                 LastFrame = frame;

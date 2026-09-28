@@ -154,7 +154,9 @@ namespace User.FXProRpmSync
 
         // USB mode (patched wheel firmware): custom dash + all LEDs over the wheel's own USB.
         internal UsbController Usb { get; private set; }
-        private long lastUsbPublishTicks;
+        private long lastUsbPublishTicks, lastAtsrTicks;
+        private string atsrMapText;
+        private int[] atsrMap;
         /// <summary>The current car's rev lights in real RPM, after any per-car override (null = not known).</summary>
         public RpmLayout CurrentLightsLayout { get; private set; }
 
@@ -258,6 +260,18 @@ namespace User.FXProRpmSync
                 lastUsbPublishTicks = DateTime.UtcNow.Ticks;
                 try { Usb.Publish(DashValues.FromSimHub(data, pluginManager, Usb.Props)); }
                 catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] USB values: " + ex.Message); }
+            }
+            var usb = Settings.Usb;
+            if (usb.Enabled && Usb != null && usb.LightsFrom == User.FXProRpmSync.LightsSource.AtsrHub && DateTime.UtcNow.Ticks - lastAtsrTicks >= TimeSpan.FromMilliseconds(30).Ticks)
+            {
+                lastAtsrTicks = DateTime.UtcNow.Ticks;
+                try
+                {
+                    if (atsrMap == null || atsrMapText != usb.AtsrMap) { atsrMapText = usb.AtsrMap; atsrMap = AtsrBridge.ParseMap(usb.AtsrMap, out _); }
+                    var frame = AtsrBridge.Read(pluginManager, usb.AtsrDevice, atsrMap, usb.AtsrBrightness);
+                    if (frame != null) Usb.PublishExternal(frame);
+                }
+                catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] ATSR-Hub lights: " + ex.Message); }
             }
             if (data.GameRunning && data.NewData != null)
             {

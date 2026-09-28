@@ -51,6 +51,9 @@ namespace User.FXProRpmSync
 
         // Lights
         private readonly WrapPanel presetGallery;
+        private readonly StackPanel atsrPanel, builtInPanel;
+        private readonly ComboBox atsrDevice;
+        private readonly TextBlock atsrState, atsrMapError;
         private readonly List<(string Id, Border Card, WheelLedPreview Preview)> presetCards = new List<(string, Border, WheelLedPreview)>();
         private readonly WheelLedPreview bigPreview;
         private readonly TextBlock bigTitle;
@@ -173,10 +176,62 @@ namespace User.FXProRpmSync
             reverse.Unchecked += (s, e) => { S.ReverseRev = false; Changed(); };
             body.Children.Add(reverse);
 
+            // ----- Where the lights come from -----
+            var from = new ComboBox { Width = 360 };
+            from.Items.Add(new ComboBoxItem { Content = "FXPro RPM Sync's own effects (below)", Tag = LightsSource.BuiltIn });
+            from.Items.Add(new ComboBoxItem { Content = "ATSR-Hub", Tag = LightsSource.AtsrHub });
+            from.SelectedItem = from.Items.Cast<ComboBoxItem>().First(i => (LightsSource)i.Tag == S.LightsFrom);
+            body.Children.Add(Row("Lights come from", from));
+
+            atsrPanel = new StackPanel();
+            atsrPanel.Children.Add(Muted("ATSR-Hub works out every LED's colour (shift lights, flags, spotter, TC/ABS, animations) and this " +
+                "plugin sends them to the FX Pro, which SimHub can't drive itself. In ATSR-Hub, add the FX Pro as a steering wheel " +
+                "(VID 0483, PID 0529) and number its LEDs like the FX Pro does: buttons 0-11, encoders 12-16, the lights beside " +
+                "the rev lights 17-22 (left 17-19, right 20-22), rev lights 23-37. If your ATSR-Hub layout numbers them " +
+                "differently, enter the map below. While ATSR-Hub sends nothing, the built-in lights below stay on.", new Thickness(0, 0, 0, 8)));
+            atsrDevice = new ComboBox { Width = 300, IsEditable = true, Text = S.AtsrDevice ?? "" };
+            atsrDevice.LostFocus += (s, e) => SetAtsrDevice(atsrDevice.Text);
+            atsrDevice.SelectionChanged += (s, e) => { if (atsrDevice.SelectedItem is string d) SetAtsrDevice(d); };
+            var deviceRow = new StackPanel { Orientation = Orientation.Horizontal };
+            deviceRow.Children.Add(atsrDevice);
+            var refresh = MakeButton("Refresh", RefreshAtsrDevices);
+            refresh.Margin = new Thickness(8, 0, 0, 0);
+            deviceRow.Children.Add(refresh);
+            atsrPanel.Children.Add(Row("ATSR-Hub device", deviceRow));
+            var nm = new CheckBox { Content = "Follow ATSR-Hub's brightness (night mode)", IsChecked = S.AtsrBrightness, Margin = new Thickness(150, 0, 0, 8) };
+            nm.Checked += (s, e) => { S.AtsrBrightness = true; Changed(); };
+            nm.Unchecked += (s, e) => { S.AtsrBrightness = false; Changed(); };
+            atsrPanel.Children.Add(nm);
+            var map = new TextBox { Width = 560, Text = S.AtsrMap ?? "", ToolTip = "38 ATSR-Hub LED numbers, one per FX Pro LED in FX Pro order, -1 = off. Empty = same numbers." };
+            atsrMapError = new TextBlock { Foreground = Frozen(Warn), Margin = new Thickness(150, -4, 0, 8), TextWrapping = TextWrapping.Wrap };
+            map.LostFocus += (s, e) =>
+            {
+                AtsrBridge.ParseMap(map.Text, out var err);
+                atsrMapError.Text = err == null ? "" : "Map not used: " + err;
+                if (err == null) { S.AtsrMap = map.Text.Trim(); Changed(); }
+            };
+            atsrPanel.Children.Add(Row("LED map (optional)", map));
+            atsrPanel.Children.Add(atsrMapError);
+            atsrState = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.85, Margin = new Thickness(150, 0, 0, 12) };
+            atsrPanel.Children.Add(atsrState);
+            body.Children.Add(atsrPanel);
+
+            builtInPanel = new StackPanel();
+            body.Children.Add(builtInPanel);
+            from.SelectionChanged += (s, e) =>
+            {
+                if (!(from.SelectedItem is ComboBoxItem i)) return;
+                S.LightsFrom = (LightsSource)i.Tag;
+                Changed();
+                ShowLightsSource();
+                if (S.LightsFrom == LightsSource.AtsrHub) RefreshAtsrDevices();
+            };
+
             presetGallery = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             foreach (var p in LightPresets.All) AddPresetCard(p.Id, p.Name, p.Description);
             AddPresetCard(LightPresets.CustomId, "Your own", "Start from the selected preset and change every group, colour, rev light and alert.");
-            body.Children.Add(presetGallery);
+            builtInPanel.Children.Add(Muted("Built-in lights (also shown while ATSR-Hub sends nothing):", new Thickness(0, 4, 0, 8)));
+            builtInPanel.Children.Add(presetGallery);
 
             bigTitle = new TextBlock { FontWeight = FontWeights.SemiBold, FontSize = 14, Margin = new Thickness(0, 0, 0, 8) };
             bigPreview = new WheelLedPreview(1.6);
@@ -185,13 +240,13 @@ namespace User.FXProRpmSync
             bigBody.Children.Add(bigPreview);
             bigBody.Children.Add(Muted("Layout is schematic. The preview revs up and down and triggers ABS and TC now and then; while the " +
                                        "wheel is in USB mode it shows what the wheel shows.", new Thickness(0, 8, 0, 0)));
-            body.Children.Add(Card(bigBody, new Thickness(0, 4, 0, 12)));
+            builtInPanel.Children.Add(Card(bigBody, new Thickness(0, 4, 0, 12)));
 
             var customize = MakeButton("Customize these lights", Customize);
             customize.HorizontalAlignment = HorizontalAlignment.Left;
-            body.Children.Add(customize);
+            builtInPanel.Children.Add(customize);
             editor = new StackPanel();
-            body.Children.Add(editor);
+            builtInPanel.Children.Add(editor);
 
             frameTimer.Tick += (s, e) => RenderFrame();
             slowTimer.Tick += (s, e) => { RefreshStatus(); RenderDashPreview(); };
@@ -206,6 +261,8 @@ namespace User.FXProRpmSync
 
             LoadDashes();
             RefreshLights();
+            ShowLightsSource();
+            if (S.LightsFrom == LightsSource.AtsrHub) RefreshAtsrDevices();
             RefreshStatus();
         }
 
@@ -242,7 +299,34 @@ namespace User.FXProRpmSync
             bannerIcon.Foreground = Frozen(tone);
             banner.BorderBrush = Frozen(tone);
             bannerDetail.Text = u.Detail;
+            if (S.LightsFrom == LightsSource.AtsrHub)
+                atsrState.Text = !u.Active ? "Not sending (USB mode isn't driving the wheel now)."
+                               : "Lights now: " + u.LightsState + ".";
             UpdateDemoButton();
+        }
+
+        private void ShowLightsSource()
+        {
+            atsrPanel.Visibility = S.LightsFrom == LightsSource.AtsrHub ? Visibility.Visible : Visibility.Collapsed;
+            builtInPanel.Opacity = S.LightsFrom == LightsSource.AtsrHub ? 0.75 : 1;
+        }
+
+        private void SetAtsrDevice(string name)
+        {
+            name = (name ?? "").Trim();
+            if (name == (S.AtsrDevice ?? "")) return;
+            S.AtsrDevice = name;
+            Changed();
+        }
+
+        private void RefreshAtsrDevices()
+        {
+            var pm = plugin.PluginManager;
+            var devices = pm == null ? new List<string>() : AtsrBridge.Devices(pm);
+            string current = S.AtsrDevice ?? "";
+            atsrDevice.ItemsSource = devices;
+            atsrDevice.Text = current;
+            if (string.IsNullOrEmpty(current) && devices.Count == 1) SetAtsrDevice(atsrDevice.Text = devices[0]);
         }
 
         private void UpdateDemoButton() => demoButton.Content = Usb?.DemoOn == true ? "Stop the demo" : "Start the demo on the wheel";
