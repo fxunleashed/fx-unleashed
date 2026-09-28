@@ -794,7 +794,14 @@ namespace User.FXProRpmSync
                 return e.Empty ?? "";
             }
             var fmt = e.Format ?? "0";
-            if (fmt == "text") return Convert.ToString(raw, CultureInfo.InvariantCulture);
+            if (fmt == "text")
+            {
+                // an unformatted decimal (SimHub items without a format) would print every digit: at most 2 places
+                if (raw is double dd && !double.IsNaN(dd)) return dd.ToString("0.##", CultureInfo.InvariantCulture);
+                if (raw is float ff) return ff.ToString("0.##", CultureInfo.InvariantCulture);
+                if (raw is TimeSpan ts) return ts.TotalSeconds > 0 ? FormatNumber(ts.TotalSeconds, "laptime") : e.Empty ?? ""; // lap times
+                return Convert.ToString(raw, CultureInfo.InvariantCulture);
+            }
             if (fmt == "gear" && raw is string gs) return gs;
             var n = DashValues.ToNumber(raw);
             if (n == null) return Convert.ToString(raw, CultureInfo.InvariantCulture); // text data under a number format
@@ -874,11 +881,24 @@ namespace User.FXProRpmSync
                 if (e.Background != null && t.StaticBg.HasValue && t.StaticBg.Value != Rgb565(e.Background))
                     Add("warning", e, "its Background differs from what's drawn under it");
             }
-            var always = texts.Where(t => t.E.Visible == null || t.E.Visible.Count == 0).ToList();
+            // Overlaps between text shown together: a label only covers its text (no background), a value its whole box
+            // (its background is redrawn); touching by a pixel or two doesn't count.
+            Rectangle Covers(Node t)
+            {
+                if (t.Kind != "label") return t.R;
+                int w = Math.Max(0, TextWidth(t.E.Font, Clean(t.Text)));
+                int x = t.XCen == 1 ? t.R.X + (t.R.Width - w) / 2 : t.XCen == 2 ? t.R.Right - w : t.R.X;
+                return new Rectangle(x, t.R.Y, w, t.R.Height);
+            }
+            var always = texts.Where(t => (t.E.Visible == null || t.E.Visible.Count == 0) || t.E.PreviewVisible != false).ToList();
             for (int i = 0; i < always.Count; i++)
                 for (int j = i + 1; j < always.Count; j++)
-                    if (always[i].R.IntersectsWith(always[j].R))
+                {
+                    if (always[i].Kind == "label" && always[j].Kind == "label") continue; // both transparent: harmless
+                    var o = Rectangle.Intersect(Covers(always[i]), Covers(always[j]));
+                    if (o.Width > 2 && o.Height > 2)
                         Add("warning", always[i].E, $"overlaps {Name(always[j].E)}");
+                }
 
             var fills = MergeRects(staticPx, Width, new Rectangle(0, 0, Width, Height)).Where(r => r[4] != 0).ToList();
             cost = new DashCost

@@ -242,6 +242,7 @@ namespace User.FXProRpmSync
                     Screen(main, frame, false);
                     foreach (var layer in screens.Where(x => (bool?)x["IsForegroundLayer"] == true && (bool?)x["IsOverlayLayer"] != true && x != main)) Screen(layer, frame, true);
                     MarkOverlays();
+                    Declutter();
                     int overlays = screens.Count(x => (bool?)x["IsOverlayLayer"] == true);
                     if (overlays > 0) Report.Note($"{overlays} overlay screen(s) not imported (pop-ups shown over the dash in SimHub)");
                 }
@@ -257,12 +258,97 @@ namespace User.FXProRpmSync
             {
                 bool Filled(DashElement e) =>
                     (e.Type == "rect" || e.Type == "image" || e.Type == "gradient" || (e.Type == "box" && e.Fill != null) || (e.Type == "ellipse" && (e.Border == 0 || e.Fill != null)))
-                    && e.W * e.H >= 0.03 * DashRenderer.Width * DashRenderer.Height;
+                    && e.W * e.H >= 0.015 * DashRenderer.Width * DashRenderer.Height;
                 var overlayConditions = new HashSet<string>(def.Elements.Where(e => e.Visible != null && Filled(e)).SelectMany(e => e.Visible));
                 int hidden = 0;
                 foreach (var e in def.Elements)
                     if (e.Visible != null && e.Visible.Any(overlayConditions.Contains) && e.PreviewVisible != false) { e.PreviewVisible = false; hidden++; }
                 if (hidden > 0) Report.Note($"{hidden} elements of pop-ups/warnings hidden in previews (they show when SimHub's conditions say so)");
+            }
+
+            /// <summary>
+            /// SimHub's fonts are narrower than the screen's, so a label and its value that share a row in SimHub can collide
+            /// here, and a value's background would erase the label on the wheel. For text shown together on one row whose
+            /// texts overlap: step the bigger font down until they don't, then trim the value's box off the other text.
+            /// </summary>
+            private void Declutter()
+            {
+                var texts = def.Elements.Where(e => (e.Type == "label" || e.Type == "value") && e.PreviewVisible != false).ToList();
+                int fixedPairs = 0;
+                for (int i = 0; i < texts.Count; i++)
+                    for (int j = i + 1; j < texts.Count; j++)
+                    {
+                        var a = texts[i]; var b = texts[j];
+                        if (!SameRow(a, b)) continue;
+                        bool changed = false;
+                        for (int step = 0; step < 8 && Collide(a, b); step++)
+                        {
+                            var big = DashRenderer.FontHeight(a.Font) >= DashRenderer.FontHeight(b.Font) ? a : b;
+                            if (!Smaller(big) && !Smaller(big == a ? b : a)) break;
+                            changed = true;
+                        }
+                        foreach (var (v, other) in new[] { (a, b), (b, a) })
+                            if (v.Type == "value" && Extent(other) is var o && o.Width > 0) changed |= Trim(v, o);
+                        if (changed) fixedPairs++;
+                    }
+                if (fixedPairs > 0) Report.Note($"{fixedPairs} label/value pairs sharing a row made smaller or narrower so they don't collide");
+            }
+
+            private static bool SameRow(DashElement a, DashElement b)
+            {
+                int top = Math.Max(a.Y, b.Y), bottom = Math.Min(a.Y + a.H, b.Y + b.H);
+                return bottom - top >= 0.5 * Math.Min(a.H, b.H) && a.X < b.X + b.W && b.X < a.X + a.W;
+            }
+
+            private static string Widest(DashElement e) =>
+                e.Type == "label" ? e.Text ?? "" :
+                new[] { e.PreviewText }.Concat(e.Samples ?? new string[0]).Where(x => !string.IsNullOrEmpty(x))
+                    .OrderByDescending(x => DashRenderer.TextWidth(e.Font, x)).FirstOrDefault() ?? "";
+
+            /// <summary>Where the text itself is drawn (x range; y of the box).</summary>
+            private static System.Drawing.Rectangle Extent(DashElement e)
+            {
+                int w = Math.Max(0, DashRenderer.TextWidth(e.Font, Widest(e)));
+                int x = e.Align == "center" ? e.X + (e.W - w) / 2 : e.Align == "right" ? e.X + e.W - w : e.X;
+                return new System.Drawing.Rectangle(x, e.Y, w, e.H);
+            }
+
+            private static bool Collide(DashElement a, DashElement b)
+            {
+                var ea = Extent(a); var eb = Extent(b);
+                ea.Inflate(2, 0);
+                return ea.IntersectsWith(eb);
+            }
+
+            /// <summary>The next smaller font that still fits the element's box and text; false if there's none.</summary>
+            private static bool Smaller(DashElement e)
+            {
+                int h = DashRenderer.FontHeight(e.Font);
+                int f = DashFonts.Pick(h - 1, e.W, h - 1, Widest(e));
+                if (f < 0 || DashRenderer.FontHeight(f) >= h) return false;
+                e.Font = f;
+                return true;
+            }
+
+            /// <summary>Shrinks a value's box so it doesn't cover `other` (a text's extent), keeping its own text inside.</summary>
+            private static bool Trim(DashElement v, System.Drawing.Rectangle other)
+            {
+                var own = Extent(v);
+                if (!new System.Drawing.Rectangle(v.X, v.Y, v.W, v.H).IntersectsWith(other)) return false;
+                int need = DashRenderer.TextWidth(v.Font, Widest(v));
+                if (other.X + other.Width / 2 < own.X + own.Width / 2)
+                {
+                    int left = other.Right + 4, right = v.X + v.W;
+                    if (left <= v.X || right - left < need) return false;
+                    v.W = right - left; v.X = left;
+                }
+                else
+                {
+                    int right = other.X - 4;
+                    if (right >= v.X + v.W || right - v.X < need) return false;
+                    v.W = right - v.X;
+                }
+                return true;
             }
 
             private JObject PickScreen(List<JObject> screens)
@@ -406,7 +492,7 @@ namespace User.FXProRpmSync
                 var bs = it["BorderStyle"] as JObject;
                 int border = bs == null ? 0 : (int)Math.Round(Px(new[] { "BorderTop", "BorderBottom", "BorderLeft", "BorderRight" }.Average(k => (double?)bs[k] ?? 0), f));
                 int radius = bs == null ? 0 : (int)Math.Round(Px(new[] { "RadiusTopLeft", "RadiusTopRight", "RadiusBottomLeft", "RadiusBottomRight" }.Average(k => (double?)bs[k] ?? 0), f));
-                var borderColour = bs == null ? null : Color((string)bs["BorderColor"]);
+                var borderColour = bs == null ? (Color?)null : Color((string)bs["BorderColor"]) ?? System.Drawing.Color.White; // SimHub draws borders white by default
                 string colourBind = Formula(binds, "BackgroundColor"); var stops = Stops(binds, "BackgroundColor");
                 bool hasFill = (fill.HasValue && fill.Value.A > 0) || colourBind != null;
                 bool hasBorder = border > 0 && borderColour.HasValue && borderColour.Value.A > 0;
@@ -612,7 +698,7 @@ namespace User.FXProRpmSync
                 var back = Color((string)it["BackgroundColor"]);
                 var bs = it["BorderStyle"] as JObject;
                 int border = bs == null ? 0 : (int)Math.Round(Px(new[] { "BorderTop", "BorderBottom", "BorderLeft", "BorderRight" }.Average(k => (double?)bs[k] ?? 0), f));
-                var borderColour = bs == null ? null : Color((string)bs["BorderColor"]);
+                var borderColour = bs == null ? (Color?)null : Color((string)bs["BorderColor"]) ?? System.Drawing.Color.White; // SimHub draws borders white by default
                 bool framed = border > 0 && borderColour.HasValue && borderColour.Value.A > 0;
                 if (framed || (back.HasValue && back.Value.A > 0))
                 {
@@ -633,6 +719,7 @@ namespace User.FXProRpmSync
                 var fs = (string)binds?["Text"]?["FormatString"];
                 if (textBind == null) BuiltIn(type, ref textBind, ref format, ref sample);
                 else if (!string.IsNullOrEmpty(fs)) format = TimeSpanFormat(fs) ? "time:" + fs : fs;
+                else if (Regex.IsMatch(textBind, @"^ncalc:\[[^\]]*(LapTime|BestLap|LastLap|Laptime)[^\]]*\]$", RegexOptions.IgnoreCase)) format = "laptime"; // a bare lap time, shown m:ss.fff
 
                 double em = Px(size, f);
                 int font = DashFonts.Pick(em, r.Width, Math.Max(r.Height, (int)Math.Ceiling(em * 1.2)), Clean(sample).Length > 0 ? Clean(sample) : "0");
