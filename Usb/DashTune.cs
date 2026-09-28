@@ -137,6 +137,23 @@ namespace User.FXProRpmSync
             // 6. gear values: as wide as the free space around them allows, then the tallest gear font that fits
             foreach (var g in values.Where(e => (e.Format == "gear" || (e.Bind ?? "").IndexOf("gear", StringComparison.OrdinalIgnoreCase) >= 0) && (e.Visible == null || e.Visible.Count == 0)))
             {
+                // in a panel of its own (a filled shape around it, nothing else in it): the gear takes the panel's inside
+                var panel = d.Elements.Where(sh => (sh.Type == "rect" || sh.Type == "box" || sh.Type == "ellipse") && (sh.Visible == null || sh.Visible.Count == 0)
+                                                   && Box(sh).Contains(Box(g)) && sh.W * sh.H < 4 * Math.Max(1, g.W * g.H) * 4)
+                                      .OrderBy(sh => sh.W * sh.H).FirstOrDefault();
+                if (panel != null && !d.Elements.Any(o => o != g && o != panel && (o.Type == "value" || o.Type == "label") && (o.Visible == null || o.Visible.Count == 0) && Box(o).IntersectsWith(Box(panel))))
+                {
+                    int inset = Math.Max(2, panel.Border + 2);
+                    var inner = new Rectangle(panel.X + inset, panel.Y + inset, panel.W - 2 * inset, panel.H - 2 * inset);
+                    if (inner.Width * inner.Height > g.W * g.H)
+                    {
+                        changes.Add($"{Name(g)}: gear box {Str(Box(g))} -> {Str(inner)}, the inside of {Name(panel)}");
+                        g.X = inner.X; g.Y = inner.Y; g.W = inner.Width; g.H = inner.Height;
+                        int pf = BestFont(g, new List<string> { "8", "N", "R" }, g.H, preferNarrow: false, gearOnly: true);
+                        if (pf >= 0) g.Font = pf;
+                        continue;
+                    }
+                }
                 int left = 0, right = DashRenderer.Width - 10;
                 foreach (var o in d.Elements)
                 {
@@ -191,7 +208,15 @@ namespace User.FXProRpmSync
                             v.Font = nf;
                         }
                     }
-                    if (Band(v, vs).IntersectsWith(obox())) { v.X = before.X; v.Y = before.Y; v.W = before.Width; v.H = before.Height; v.Font = f0; continue; }
+                    // not cleared, or only by shrinking the text by more than a quarter (a gear or speed that a rare pop-up
+                    // overlaps): left as it was; it flashes only while that pop-up shows
+                    bool popupObstacle = o.Visible != null && o.Visible.Count > 0;
+                    if (Band(v, vs).IntersectsWith(obox()) || (popupObstacle && DashRenderer.FontHeight(v.Font) < 0.75 * DashRenderer.FontHeight(f0)))
+                    {
+                        v.X = before.X; v.Y = before.Y; v.W = before.Width; v.H = before.Height; v.Font = f0;
+                        if (popupObstacle) changes.Add($"{Name(v)}: left as it is; {Name(o)} (shown at times) overlaps it and it will flash while that shows");
+                        continue;
+                    }
                     if (Box(v) != before) changes.Add($"{Name(v)}: box {Str(before)} -> {Str(Box(v))}{(v.Font != f0 ? $", font {f0} -> {v.Font}" : "")}, its text clear of {Name(o)}");
                 }
             }
