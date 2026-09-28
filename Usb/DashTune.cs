@@ -330,6 +330,7 @@ namespace User.FXProRpmSync
             OffFrames(d, changes, Name);
             FitText(d, changes, Name);
             ClearOverlaps(d, changes, Name);
+            OffPopups(d, changes, Name);
 
             // 9. values on a busy background (a picture or gradient under them): each change redraws all those fills.
             //    They get a plain Background: the colour most of the area under them has.
@@ -534,6 +535,27 @@ namespace User.FXProRpmSync
                 }
                 if (Box(e) != before || e.Font != f0)
                     changes.Add($"{name(e)}: box {Str(before)} -> {Str(Box(e))}{(e.Font != f0 ? $", font {f0} -> {e.Font}" : "")}, so its text fits");
+            }
+        }
+
+        /// <summary>
+        /// A value box reaching under a pop-up's shape (a flag box beside the gear) while its text is clear of it: the
+        /// room the renderer leaves beside the text reaches the pop-up, so each change redraws the pop-up over it while
+        /// it shows. The box is trimmed off the shape, when its text still fits.
+        /// </summary>
+        private static void OffPopups(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            foreach (var v in d.Elements.Where(x => x.Type == "value").ToList())
+            {
+                int vi = d.Elements.IndexOf(v);
+                foreach (var sh in d.Elements.Skip(vi + 1).Where(x => (x.Type == "rect" || x.Type == "box" || x.Type == "ellipse" || x.Type == "image")
+                                                                     && x.Visible != null && x.Visible.Count > 0
+                                                                     && !(v.Visible != null && x.Visible.SequenceEqual(v.Visible))).ToList())
+                {
+                    var sb = Box(sh);
+                    if (!Clash(Box(v), sb) || sb.Contains(Band(v, Widest(v))) || Clash(Band(v, Widest(v)), sb)) continue;
+                    Trim(v, sb, changes, name(v), name(sh));
+                }
             }
         }
 
