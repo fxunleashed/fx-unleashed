@@ -28,6 +28,9 @@ namespace User.FXProRpmSync
         public List<VerifyFlash> Flashes = new List<VerifyFlash>();
         /// <summary>The elements that send the most, with what they send per second (including what they make redraw).</summary>
         public List<VerifyTraffic> Traffic = new List<VerifyTraffic>();
+        /// <summary>The busiest second: when, and what sent the most in it (bytes).</summary>
+        public double WorstSecondAt;
+        public Dictionary<string, long> WorstSecondBy = new Dictionary<string, long>();
         /// <summary>null when every checked update matched a full redraw; else when and where it first didn't.</summary>
         public string RedrawMismatch;
     }
@@ -55,6 +58,7 @@ namespace User.FXProRpmSync
                 r.DrawCounts = new Dictionary<DashElement, int>();
                 bool[] wasVis = null;
                 long start = screen.Bytes, secStart = screen.Bytes;
+                var secBy = new Dictionary<string, long>();
                 int steps = (int)Math.Round(seconds * 30);
                 for (int k = 1; k <= steps; k++)
                 {
@@ -82,7 +86,17 @@ namespace User.FXProRpmSync
                             res.Flashes.Add(new VerifyFlash { Time = Math.Round(now, 2), Pixels = flash.Pixels, Box = Rect(flash.Box, left, top), Elements = names });
                         }
                     }
-                    if (k % 30 == 0) { res.WorstSecondBytes = (int)Math.Max(res.WorstSecondBytes, screen.Bytes - secStart); secStart = screen.Bytes; }
+                    if (k % 30 == 0)
+                    {
+                        int sec = (int)(screen.Bytes - secStart);
+                        if (sec > res.WorstSecondBytes)
+                        {
+                            res.WorstSecondBytes = sec; res.WorstSecondAt = Math.Round(now, 1);
+                            res.WorstSecondBy = bytesBy.Select(kv => (kv.Key, V: kv.Value - (secBy.TryGetValue(kv.Key, out var b0) ? b0 : 0)))
+                                .Where(x => x.V > 0).OrderByDescending(x => x.V).Take(5).ToDictionary(x => x.Key, x => x.V);
+                        }
+                        secStart = screen.Bytes; secBy = new Dictionary<string, long>(bytesBy);
+                    }
                     if (res.RedrawMismatch == null && !r.PopupShowing && (res.Updates % compareEvery == 0 || k + 3 > steps))
                     {
                         using (var full = new PreviewScreen())
