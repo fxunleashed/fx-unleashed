@@ -9,59 +9,100 @@ namespace User.FXProRpmSync
     /// <summary>
     /// A custom dash for the FX Pro screen in USB mode: an 800x480 page of elements drawn with the screen's own commands
     /// (no screen reflash). Built-in dashes are made in code (BuiltInDashes); user dashes are the same thing as JSON
-    /// files in PluginsData\Common\FXProRpmSync\Dashes (what a dash editor would write).
+    /// files in PluginsData\Common\FXProRpmSync\Dashes, written by the dash designer, the SimHub importer or by hand.
+    /// Full reference: docs/dash-format.md.
     ///
     /// Elements, in drawing order:
-    ///  - rect, ellipse, box: shapes drawn once (ellipse with a rim, box = rounded border). Colours "#RRGGBB".
-    ///  - label: fixed text, drawn once with no background.
-    ///  - value: text bound to data, redrawn on change on a solid background (the screen can't erase otherwise).
-    ///  - deltabar: two rows of segments filling from the centre: positive values fill the left half, negative the right.
+    ///  - rect, ellipse, box, gradient, image: shapes. Drawn once, unless they have a Visible condition or a ColorBind,
+    ///    then they're drawn and erased as those change.
+    ///  - label: fixed text, no background.
+    ///  - value: text bound to data, redrawn on change.
+    ///  - bar: a fill from Min to Max (horizontal or vertical).
+    ///  - deltabar: two rows of segments filling from the centre (positive = left half, negative = right).
     ///  - popup: a box shown for a few seconds when one of its watched values changes (TC, ABS, map...).
-    /// Text uses the screen's fonts by id; their real sizes are in FontMetrics (a digit in the S* fonts is as wide as
-    /// the font is tall, and text wider than its box wraps onto a clipped line, so DashRenderer.Check measures it).
+    /// Colours "#RRGGBB" or "#AARRGGBB" (alpha blends shapes over what's under them). Text uses the screen's fonts by id;
+    /// their real sizes are in FontMetrics (text wider than its box wraps onto a line the screen doesn't show, so
+    /// DashRenderer.Check measures it).
     /// </summary>
     public class DashDefinition
     {
-        public int FormatVersion = 1;
+        public const int CurrentFormat = 2;
+
+        public int FormatVersion = CurrentFormat;
         public string Id;
         public string Name;
         public string Author;
         public string Description;
         public List<DashElement> Elements = new List<DashElement>();
+        /// <summary>Pictures used by image elements, by name: base64 PNG. Keeps a dash one self-contained file.</summary>
+        public Dictionary<string, string> Images;
+        /// <summary>Where it came from (e.g. "SimHub: LMGT3 Ford Mustang GT3 / MAIN"), for imports.</summary>
+        public string Source;
+        /// <summary>Folder of JavaScript helpers its js: bindings call (an imported SimHub dash's JavascriptExtensions).</summary>
+        public string ScriptsFolder;
 
         [JsonIgnore] public bool BuiltIn;
         [JsonIgnore] public string FilePath;
 
+        /// <summary>Every data binding the dash uses (values, conditions, colours, pop-up watches).</summary>
         public IEnumerable<string> Bindings =>
-            Elements.SelectMany(e => new[] { e.Bind }.Concat(e.Watch?.Select(w => w.Bind) ?? Enumerable.Empty<string>()))
+            Elements.SelectMany(e => new[] { e.Bind, e.ColorBind }
+                        .Concat(e.Visible ?? Enumerable.Empty<string>())
+                        .Concat(e.Watch?.Select(w => w.Bind) ?? Enumerable.Empty<string>()))
                     .Where(b => !string.IsNullOrEmpty(b)).Distinct();
+
+        public DashDefinition Clone() => JsonConvert.DeserializeObject<DashDefinition>(JsonConvert.SerializeObject(this));
     }
 
     public class DashElement
     {
-        /// <summary>rect | ellipse | box | label | value | deltabar | popup</summary>
+        /// <summary>rect | ellipse | box | gradient | image | label | value | bar | deltabar | popup</summary>
         public string Type;
         public string Name;
         public int X, Y, W, H;
 
-        /// <summary>Shape fill (rect), rim (ellipse), border (box), text colour (label, value).</summary>
+        /// <summary>Shape fill (rect), rim (ellipse), border (box), text colour (label, value), fill (bar).</summary>
         public string Color = "#FFFFFF";
-        /// <summary>Ellipse / box inside (default black).</summary>
+        /// <summary>Ellipse / box inside, bar background (default: nothing drawn / black).</summary>
         public string Fill;
         /// <summary>Ellipse rim / box border width in px.</summary>
         public int Border;
         public int Radius;
+        /// <summary>0-100: shapes blend over what's under them.</summary>
+        public int Opacity = 100;
+
+        /// <summary>Shown only while every condition is true (a number != 0, true, or a non-empty text). A single
+        /// string or a list; bindings as for Bind.</summary>
+        [JsonConverter(typeof(StringOrListConverter))] public List<string> Visible;
+        /// <summary>
+        /// In previews (designer, fxdash), where SimHub formulas can't be evaluated: show this element (null = yes).
+        /// Imports set false for overlays (flashes, pit screens) so they don't hide the dash in the preview.
+        /// </summary>
+        public bool? PreviewVisible;
+        /// <summary>Colour from data: a binding giving "#RRGGBB"/"#AARRGGBB"/a colour name, or a number mapped through
+        /// ColorStops. Replaces Color (text, rect, bar) or Fill (ellipse, box).</summary>
+        public string ColorBind;
+        /// <summary>For a numeric ColorBind: colours at values, blended between (like SimHub's colour gradients).</summary>
+        public List<ColorStop> ColorStops;
 
         public string Text;
         public int Font = 14;
         /// <summary>left | center | right</summary>
         public string Align = "left";
-        /// <summary>Value background (default black); must match what's drawn under it.</summary>
+        /// <summary>
+        /// Value background. Empty = automatic: the colour under the box when that's one colour, else the area is redrawn
+        /// from the shapes before each new text (costs more). Set it only to force a colour.
+        /// </summary>
         public string Background;
 
-        /// <summary>Data key (see DashValues.Keys) or "prop:" + a SimHub property path.</summary>
+        /// <summary>
+        /// Data: a key from DashValues.Keys ("speed", "gear"...), "prop:" + a SimHub property, or a SimHub formula:
+        /// "ncalc:" + NCalc expression / "js:" + JavaScript (evaluated by SimHub's own engine while SimHub runs).
+        /// </summary>
         public string Bind;
-        /// <summary>"0", "0.0", "0.00", "0.000" | int | laptime | gear | delta | text</summary>
+        /// <summary>
+        /// "0", "0.0", "0.00"... (any .NET number format) | int | laptime | gear | delta | text | time:&lt;TimeSpan format&gt;
+        /// </summary>
         public string Format = "0";
         /// <summary>Multiplier applied before formatting.</summary>
         public double Scale = 1;
@@ -71,6 +112,23 @@ namespace User.FXProRpmSync
         public string PositiveColor, NegativeColor;
         /// <summary>The widest texts this value shows, checked against its box.</summary>
         public string[] Samples;
+        /// <summary>What the designer shows for a value when there's no data (defaults to the first sample).</summary>
+        public string PreviewText;
+
+        // bar
+        public double Min = 0, Max = 100;
+        /// <summary>horizontal | vertical</summary>
+        public string Orientation = "horizontal";
+        /// <summary>Fill from the right (horizontal) or the top (vertical).</summary>
+        public bool Reverse;
+
+        // gradient: Colors spread from start to end; Angle 90 = top to bottom, 0 = left to right
+        public List<string> Colors;
+        public double Angle = 90;
+
+        // image: a name in DashDefinition.Images; drawn with at most MaxColors colours (fewer = faster to draw)
+        public string Image;
+        public int MaxColors = 8;
 
         // deltabar
         public int Segments = 7;         // per side
@@ -90,6 +148,18 @@ namespace User.FXProRpmSync
             if (SegmentX != null && SegmentX.Length == Segments * 2) return SegmentX;
             return Enumerable.Range(0, Segments * 2).Select(k => X + (int)Math.Round(k * Pitch)).ToArray();
         }
+
+        /// <summary>Drawn and erased at runtime rather than once (conditions, data colours, data itself).</summary>
+        [JsonIgnore]
+        public bool IsDynamic =>
+            (Visible != null && Visible.Count > 0) || !string.IsNullOrEmpty(ColorBind) ||
+            Type == "value" || Type == "bar" || Type == "deltabar" || Type == "popup";
+    }
+
+    public class ColorStop
+    {
+        public double Value;
+        public string Color;
     }
 
     public class PopupWatch
@@ -100,10 +170,34 @@ namespace User.FXProRpmSync
         public string Format = "int";
     }
 
+    /// <summary>Reads "x" as ["x"], so a single condition can be written as a plain string.</summary>
+    public class StringOrListConverter : JsonConverter
+    {
+        public override bool CanConvert(Type t) => t == typeof(List<string>);
+
+        public override object ReadJson(JsonReader reader, Type t, object existing, JsonSerializer serializer)
+        {
+            if (reader.TokenType == JsonToken.Null) return null;
+            if (reader.TokenType == JsonToken.String) return new List<string> { (string)reader.Value };
+            return serializer.Deserialize<List<string>>(reader);
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            var list = (List<string>)value;
+            if (list == null) writer.WriteNull();
+            else if (list.Count == 1) writer.WriteValue(list[0]);
+            else serializer.Serialize(writer, list);
+        }
+    }
+
     /// <summary>Built-in dashes plus JSON dashes from the user's folder.</summary>
     public static class DashLibrary
     {
-        public static string Folder => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync", "Dashes");
+        /// <summary>SimHub's folder (default: where this runs, i.e. SimHub itself; fxdash sets it).</summary>
+        public static string Root;
+        public static string SimHubFolder => Root ?? AppDomain.CurrentDomain.BaseDirectory;
+        public static string Folder => Path.Combine(SimHubFolder, "PluginsData", "Common", "FXProRpmSync", "Dashes");
 
         /// <summary>Loaded dashes; files that fail to load come back with their error.</summary>
         public static List<DashDefinition> Load(List<string> errors)

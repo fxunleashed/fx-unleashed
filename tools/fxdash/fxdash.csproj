@@ -1,18 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Offline checks for USB mode (docs/usb-mode.md, "Checking without the wheel"): compiles all of the plugin's sources
-       against SimHub's DLLs and draws what the wheel would get. Needs SimHub installed; nothing is sent to the wheel.
-       Build with "dotnet build -c Release", then run bin\Release\net48\UsbTest.exe OUTDIR [saver | atsr | ui]
-         no mode: dash layout checks, USB budget, light presets, JSON round trip (PNG snapshots in OUTDIR)
-         saver:   the logo screensaver
-         atsr:    ATSR-Hub layer stacking and LED maps
-         ui:      the settings section, rendered offscreen to PNG -->
+  <!-- fxdash: the FX Pro dash designer's command line (docs/dash-designer.md). Compiles the plugin's own sources, so its
+       checks, fonts and renders are exactly what the plugin and the wheel use. Needs SimHub installed (its DLLs);
+       SimHub itself doesn't have to run. Build with "dotnet build -c Release"; run bin\Release\net48\fxdash.exe help -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWPF>true</UseWPF>
     <LangVersion>latest</LangVersion>
     <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>fxdash</AssemblyName>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <SimHubPath Condition="'$(SIMHUB_INSTALL_PATH)' != ''">$(SIMHUB_INSTALL_PATH)</SimHubPath>
     <SimHubPath Condition="'$(SimHubPath)' == ''">C:\Program Files (x86)\SimHub\</SimHubPath>
@@ -23,6 +20,7 @@
     <Compile Include="..\..\*.cs" />
     <Compile Include="..\..\Usb\*.cs" />
     <EmbeddedResource Include="..\..\assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
+    <EmbeddedResource Include="..\..\Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
     <Reference Include="GameReaderCommon"><HintPath>$(SimHubPath)GameReaderCommon.dll</HintPath></Reference>
     <Reference Include="SimHub.Plugins"><HintPath>$(SimHubPath)SimHub.Plugins.dll</HintPath></Reference>
     <Reference Include="SimHub.Logging"><HintPath>$(SimHubPath)SimHub.Logging.dll</HintPath></Reference>

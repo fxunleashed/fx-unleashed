@@ -111,6 +111,8 @@ namespace User.FXProRpmSync
         public List<string> DashProblems { get; private set; } = new List<string>();
         /// <summary>SimHub properties the active dash binds to ("prop:" bindings), read in DataUpdate.</summary>
         public string[] Props => props;
+        /// <summary>The active dash's JavascriptExtensions folder (imported SimHub dashes), for js: bindings.</summary>
+        public string ScriptsFolder { get; private set; }
 
         public UsbController(FXProRpmSyncPlugin plugin)
         {
@@ -279,7 +281,8 @@ namespace User.FXProRpmSync
             if (screen == null) { screen = new FxHostScreen(conn); screen.Take(); }
             var room = DashRenderer.Room(dash);
             renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, s.PadLeft), room.Right), Math.Min(Math.Max(0, s.PadTop), room.Down));
-            props = dash.Bindings.Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase)).ToArray();
+            props = dash.Bindings.Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
+            ScriptsFolder = dash.ScriptsFolder;
             DashProblems = renderer.Check();
             renderer.DrawAll();
             lastDash = clock.Elapsed.TotalSeconds;

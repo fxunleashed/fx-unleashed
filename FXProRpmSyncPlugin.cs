@@ -154,7 +154,9 @@ namespace User.FXProRpmSync
 
         // USB mode (patched wheel firmware): custom dash + all LEDs over the wheel's own USB.
         internal UsbController Usb { get; private set; }
-        private long lastUsbPublishTicks, lastAtsrTicks;
+        private long lastUsbPublishTicks, lastAtsrTicks, lastFormulaTicks;
+        private readonly SimHubFormulas formulas = new SimHubFormulas();
+        private readonly Dictionary<string, object> formulaResults = new Dictionary<string, object>();
         private string atsrMapText;
         private DateTime nextAtsrPickUtc;
         private int[] atsrMap;
@@ -259,7 +261,19 @@ namespace User.FXProRpmSync
             if (Settings.Usb.Enabled && Usb != null && DateTime.UtcNow.Ticks - lastUsbPublishTicks >= TimeSpan.FromMilliseconds(30).Ticks)
             {
                 lastUsbPublishTicks = DateTime.UtcNow.Ticks;
-                try { Usb.Publish(DashValues.FromSimHub(data, pluginManager, Usb.Props)); }
+                try
+                {
+                    // SimHub formulas of imported dashes: evaluated 10 times a second (the dash's rate), reused between
+                    var binds = Usb.Props;
+                    if (binds.Length > 0 && DateTime.UtcNow.Ticks - lastFormulaTicks >= TimeSpan.FromMilliseconds(100).Ticks)
+                    {
+                        lastFormulaTicks = DateTime.UtcNow.Ticks;
+                        formulas.SetJavascriptDirectory(Usb.ScriptsFolder);
+                        foreach (var b in binds)
+                            if (SimHubFormulas.IsFormula(b)) formulaResults[b] = formulas.Eval(b);
+                    }
+                    Usb.Publish(DashValues.FromSimHub(data, pluginManager, binds, b => formulaResults.TryGetValue(b, out var r) ? r : null));
+                }
                 catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] USB values: " + ex.Message); }
             }
             var usb = Settings.Usb;

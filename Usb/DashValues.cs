@@ -3,6 +3,7 @@ using SimHub.Plugins;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace User.FXProRpmSync
 {
@@ -28,6 +29,8 @@ namespace User.FXProRpmSync
             ("tcSlip", "TC slip (LMU)"), ("engineMap", "Engine map"), ("throttleMap", "Throttle map (not provided yet)"),
             ("pas", "PAS (not provided yet)"), ("sessionTypeName", "Session type"),
             ("waterTemp", "Water temperature"), ("oilTemp", "Oil temperature"),
+            ("gearText", "Gear as text (R, N, 1...)"), ("rpmPercent", "RPM as % of max"), ("gameRunning", "A game is running"),
+            ("absActive", "ABS working now"), ("tcActive", "TC working now"), ("pitLimiter", "Pit limiter on"),
         };
 
         private readonly Dictionary<string, object> v = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
@@ -40,13 +43,38 @@ namespace User.FXProRpmSync
         public double FuelPercent = 100;
         public bool Running;
 
+        /// <summary>
+        /// A preview (designer, offline tools): bindings that can't be evaluated here (SimHub formulas without SimHub)
+        /// count as visible, and values show their preview text, so a dash looks like it does in its designer.
+        /// </summary>
+        public bool Preview;
+
         public void Set(string key, object value) { if (value != null) v[key] = value; }
 
-        public double? Number(string key)
+        /// <summary>The raw value of a binding: its own entry, else a built-in key it's an alias of (see Alias).</summary>
+        public object Raw(string key)
         {
-            if (key == null || !v.TryGetValue(key, out var o) || o == null) return null;
+            if (key == null) return null;
+            if (v.TryGetValue(key, out var o)) return o;
+            var alias = Alias(key);
+            return alias != null && v.TryGetValue(alias, out o) ? o : null;
+        }
+
+        private static readonly HashSet<string> keySet = new HashSet<string>(Keys.Select(k => k.Key), StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>A built-in key, or a SimHub binding that's an alias of one: it has a value without SimHub.</summary>
+        public static bool KnownKey(string bind) => !string.IsNullOrEmpty(bind) && (keySet.Contains(bind) || Alias(bind) != null);
+
+        /// <summary>The binding has a value here (or is an alias of a key that has one).</summary>
+        public bool Has(string key) => Raw(key) != null;
+
+        public double? Number(string key) => ToNumber(Raw(key));
+
+        public static double? ToNumber(object o)
+        {
             switch (o)
             {
+                case null: return null;
                 case double d: return double.IsNaN(d) ? (double?)null : d;
                 case bool b: return b ? 1 : 0;
                 case TimeSpan ts: return ts.TotalSeconds;
@@ -56,14 +84,69 @@ namespace User.FXProRpmSync
             }
         }
 
-        public string Text(string key) => key != null && v.TryGetValue(key, out var o) && o != null ? Convert.ToString(o, CultureInfo.InvariantCulture) : null;
+        public string Text(string key)
+        {
+            var o = Raw(key);
+            return o == null ? null : Convert.ToString(o, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>For conditions: true, a number other than 0, or a text other than "", "0", "false".</summary>
+        public bool? Truthy(string key)
+        {
+            var o = Raw(key);
+            switch (o)
+            {
+                case null: return null;
+                case bool b: return b;
+                case string s: s = s.Trim(); return s.Length > 0 && s != "0" && !s.Equals("false", StringComparison.OrdinalIgnoreCase);
+                default: var n = ToNumber(o); return n.HasValue ? Math.Abs(n.Value) > 1e-9 : (bool?)true;
+            }
+        }
+
+        /// <summary>
+        /// Common SimHub properties as built-in keys, so imported SimHub bindings like "ncalc:[SpeedKmh]" or
+        /// "prop:DataCorePlugin.GameData.NewData.Gear" show demo values offline. Live, SimHub evaluates them itself.
+        /// </summary>
+        public static string Alias(string bind)
+        {
+            if (string.IsNullOrEmpty(bind)) return null;
+            string name = bind;
+            if (name.StartsWith("prop:", StringComparison.OrdinalIgnoreCase)) name = name.Substring(5);
+            else if (name.StartsWith("ncalc:", StringComparison.OrdinalIgnoreCase))
+            {
+                name = name.Substring(6).Trim();
+                if (!(name.StartsWith("[") && name.EndsWith("]") && name.IndexOf('[', 1) < 0)) return null; // only a bare [Property]
+                name = name.Substring(1, name.Length - 2);
+            }
+            else return null;
+            foreach (var prefix in new[] { "DataCorePlugin.GameData.NewData.", "DataCorePlugin.GameData.", "GameData.NewData.", "DataCorePlugin.Computed.", "DataCorePlugin.", "PersistantTrackerPlugin." })
+                if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { name = name.Substring(prefix.Length); break; }
+            return AliasTable.TryGetValue(name, out var key) ? key : null;
+        }
+
+        private static readonly Dictionary<string, string> AliasTable = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "SpeedKmh", "speed" }, { "SpeedLocal", "speed" }, { "FilteredSpeedLocal", "speed" }, { "FilteredSpeedKmh", "speed" },
+            { "Gear", "gearText" }, { "Rpms", "rpm" }, { "FilteredRpms", "rpm" }, { "MaxRpm", "maxRpm" }, { "CarSettings_MaxRPM", "maxRpm" },
+            { "CarSettings_CurrentDisplayedRPMPercent", "rpmPercent" }, { "Throttle", "throttle" }, { "Brake", "brake" }, { "Clutch", "clutch" },
+            { "CurrentLapTime", "currentLapTime" }, { "LastLapTime", "lastLapTime" }, { "BestLapTime", "bestLapTime" },
+            { "Position", "position" }, { "CurrentLap", "lap" }, { "CompletedLaps", "completedLaps" },
+            { "Fuel", "fuel" }, { "FuelPercent", "fuelPercent" }, { "Fuel_LastLapConsumption", "fuelLastLap" },
+            { "Fuel_CurrentLapConsumption", "fuelThisLap" }, { "Fuel_RemainingLaps", "fuelRemainingLaps" },
+            { "SessionBestLiveDeltaSeconds", "delta" }, { "DeltaToSessionBest", "delta" }, { "EstimatedLapTime_SessionBestBased", "predictedLap" },
+            { "BrakeBias", "brakeBias" }, { "TCLevel", "tcLevel" }, { "ABSLevel", "absLevel" }, { "EngineMap", "engineMap" },
+            { "WaterTemperature", "waterTemp" }, { "OilTemperature", "oilTemp" }, { "SessionTypeName", "sessionTypeName" },
+            { "ABSActive", "absActive" }, { "TCActive", "tcActive" }, { "PitLimiterOn", "pitLimiter" }, { "GameRunning", "gameRunning" },
+        };
 
         // ---------- Live: SimHub ----------
 
-        private const string Raw = "DataCorePlugin.GameRawData.";
+        private const string RawData = "DataCorePlugin.GameRawData.";
 
         /// <summary>From SimHub's data; `props` = the "prop:" bindings of the active dash.</summary>
-        public static DashValues FromSimHub(GameData data, PluginManager pm, IEnumerable<string> props)
+        /// <param name="binds">The active dash's "prop:" / "ncalc:" / "js:" bindings.</param>
+        /// <param name="formula">Evaluates "ncalc:" / "js:" bindings (SimHubFormulas); null = leave them out.</param>
+        public static DashValues FromSimHub(GameData data, PluginManager pm, IEnumerable<string> binds, Func<string, object> formula = null)
         {
             var r = new DashValues();
             var d = data.NewData;
@@ -75,11 +158,14 @@ namespace User.FXProRpmSync
                 int gear = SimHubFeedMapper.ParseGear(d.Gear);
                 r.Set("gear", (double)gear);
                 r.GearKey = gear < 0 ? "R" : gear == 0 ? "N" : gear.ToString(CultureInfo.InvariantCulture);
+                r.Set("gearText", r.GearKey);
                 r.Set("rpm", d.Rpms);
                 r.MaxRpm = d.CarSettings_MaxRPM > 0 ? d.CarSettings_MaxRPM : d.MaxRpm;
                 r.Redline = d.CarSettings_RedLineRPM > 0 ? d.CarSettings_RedLineRPM : d.Redline;
                 r.Rpm = d.Rpms;
                 r.Set("maxRpm", r.MaxRpm);
+                if (r.MaxRpm > 0) r.Set("rpmPercent", d.Rpms / r.MaxRpm * 100);
+                r.Set("gameRunning", true);
                 r.Set("throttle", d.Throttle); r.Set("brake", d.Brake); r.Set("clutch", d.Clutch);
             });
             Try(() =>
@@ -106,7 +192,7 @@ namespace User.FXProRpmSync
                 r.Set("fuelLastLap", Positive(Prop(pm, "DataCorePlugin.Computed.Fuel_LastLapConsumption")));
                 r.Set("fuelThisLap", Prop(pm, "DataCorePlugin.Computed.Fuel_CurrentLapConsumption"));
                 r.Set("fuelRemainingLaps", Positive(Prop(pm, "DataCorePlugin.Computed.Fuel_RemainingLaps")));
-                var ve = Prop(pm, Raw + "PlayerNativeTelemetry.mVirtualEnergy");
+                var ve = Prop(pm, RawData + "PlayerNativeTelemetry.mVirtualEnergy");
                 if (ve.HasValue) r.Set("virtualEnergy", ve.Value * 100);
                 r.Set("brakeBias", d.BrakeBias);
                 r.Set("waterTemp", d.WaterTemperature);
@@ -119,19 +205,22 @@ namespace User.FXProRpmSync
                 r.Set("engineMap", (double)d.EngineMap);
                 foreach (var kv in SimHubFeedMapper.BuiltInRawFields(data.GameName))
                     if (kv.Key == "tcCut") r.Set("tcCut", Prop(pm, kv.Value));
-                if (r.Number("tcCut") == null) r.Set("tcCut", Prop(pm, Raw + "PlayerNativeTelemetry.mTCCut"));
-                r.Set("tcSlip", Prop(pm, Raw + "PlayerNativeTelemetry.mTCSlip"));
+                if (r.Number("tcCut") == null) r.Set("tcCut", Prop(pm, RawData + "PlayerNativeTelemetry.mTCCut"));
+                r.Set("tcSlip", Prop(pm, RawData + "PlayerNativeTelemetry.mTCSlip"));
                 r.AbsActive = d.ABSActive != 0;
                 r.TcActive = d.TCActive != 0;
                 r.PitLimiter = d.PitLimiterOn != 0;
+                r.Set("absActive", r.AbsActive); r.Set("tcActive", r.TcActive); r.Set("pitLimiter", r.PitLimiter);
                 r.Drs = d.DRSEnabled != 0;
                 r.BlueFlag = d.Flag_Blue != 0; r.YellowFlag = d.Flag_Yellow != 0; r.GreenFlag = d.Flag_Green != 0;
                 r.WhiteFlag = d.Flag_White != 0; r.CheckeredFlag = d.Flag_Checkered != 0; r.BlackFlag = d.Flag_Black != 0;
             });
-            if (props != null)
-                foreach (var p in props)
+            if (binds != null)
+                foreach (var p in binds)
                     if (p.StartsWith("prop:", StringComparison.OrdinalIgnoreCase))
                         Try(() => r.Set(p, pm.GetPropertyValue(p.Substring(5))));
+                    else if (formula != null && SimHubFormulas.IsFormula(p))
+                        Try(() => r.Set(p, formula(p)));
             return r;
         }
 
@@ -164,8 +253,11 @@ namespace User.FXProRpmSync
             r.Set("speed", t.Get("speed"));
             r.Set("gear", (double)gear);
             r.GearKey = gear < 0 ? "R" : gear == 0 ? "N" : gear.ToString(CultureInfo.InvariantCulture);
+            r.Set("gearText", r.GearKey);
             r.Rpm = t.Get("rpm"); r.MaxRpm = t.Get("maxRpm"); r.Redline = r.MaxRpm * 0.96;
             r.Set("rpm", r.Rpm); r.Set("maxRpm", r.MaxRpm);
+            if (r.MaxRpm > 0) r.Set("rpmPercent", r.Rpm / r.MaxRpm * 100);
+            r.Set("gameRunning", true);
             r.Set("throttle", t.Get("throttle")); r.Set("brake", t.Get("brake"));
             double best = t.Get("bestLapTime") / 1000;
             r.Set("currentLapTime", t.Get("currentLapTime") / 1000);
@@ -195,6 +287,7 @@ namespace User.FXProRpmSync
             r.AbsActive = t.Get("isAbsActive") > 0;
             r.TcActive = t.Get("isTcActive") > 0;
             r.PitLimiter = t.Get("isPitLimiterOn") > 0;
+            r.Set("absActive", r.AbsActive); r.Set("tcActive", r.TcActive); r.Set("pitLimiter", r.PitLimiter);
             r.BlueFlag = t.Get("blueFlag") > 0; r.YellowFlag = t.Get("yellowFlag") > 0;
             return r;
         }

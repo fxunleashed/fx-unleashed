@@ -23,11 +23,14 @@
     <Reference Include="Newtonsoft.Json"><HintPath>$(SimHubPath)Newtonsoft.Json.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\menu-icon.png" LogicalName="User.FXProRpmSync.menu-icon.png" />
     <EmbeddedResource Include="assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
+    <EmbeddedResource Include="Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- simgame.exe (SimGameStub/) is built first and embedded; the plugin extracts it at runtime (see SimGameFeed). -->
