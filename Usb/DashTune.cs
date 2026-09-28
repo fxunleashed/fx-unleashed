@@ -694,7 +694,7 @@ namespace User.FXProRpmSync
                 {
                     var lb = Covers(l);
                     if (lb.Width <= 0 || !Box(v).IntersectsWith(lb) || Box(v).Contains(lb)) continue;
-                    Trim(v, lb, changes, name(v), name(l), slack: 0);
+                    Trim(v, Rectangle.Inflate(lb, 2, 0), changes, name(v), name(l), slack: 0); // (2 px for the glyphs' overhang)
                 }
         }
 
@@ -760,6 +760,50 @@ namespace User.FXProRpmSync
                     // a label over a value it can't be trimmed off: the label moves just clear of it
                     var lab = a.Type == "label" ? a : b.Type == "label" ? b : null;
                     if (lab != null && Nudge(lab, texts, changes, name(lab))) continue;
+                    // or its text gets smaller (a caption beside its value), down to the smallest screen font, until
+                    // the value can be trimmed clear of it
+                    if (lab != null)
+                    {
+                        var val = lab == a ? b : a;
+                        int f0 = lab.Font; var vb0 = Box(val); int vf0 = val.Font; bool ok = false;
+                        foreach (var f in Enumerable.Range(0, FontMetrics.Fonts.Length)
+                                                    .Where(f => DashRenderer.FontHeight(f) >= 16 && DashRenderer.FontHeight(f) < DashRenderer.FontHeight(f0)
+                                                                && DashFonts.FullAscii.Contains(f) && Width(f, DashRenderer.Clean(lab.Text)) >= 0
+                                                                && Width(f, DashRenderer.Clean(lab.Text)) <= lab.W)
+                                                    .OrderByDescending(f => DashRenderer.FontHeight(f)).ThenBy(f => Width(f, lab.Text ?? "")))
+                        {
+                            lab.Font = f;
+                            if (!Clash(Covers(lab), Box(val)) || Trim(val, Covers(lab), new List<string>(), "", "")) { ok = true; break; }
+                        }
+                        if (ok)
+                        {
+                            changes.Add($"{name(lab)}: font {f0} -> {lab.Font}, so {name(val)} fits beside it" + (Box(val) != vb0 ? $" ({name(val)}: box {Str(vb0)} -> {Str(Box(val))})" : ""));
+                            continue;
+                        }
+                        lab.Font = f0; val.X = vb0.X; val.Y = vb0.Y; val.W = vb0.Width; val.H = vb0.Height; val.Font = vf0;
+                        // no room for both: the caption is shortened (abbreviations, then letters) to clear the value's
+                        // text, in the tallest font that allows it
+                        string t0 = lab.Text; var vband = Band(val, Widest(val));
+                        // three letters or more ("WAT"): anything shorter reads as noise, so the overlap stays for a person to fix
+                        var fonts = new[] { f0 }.Concat(Enumerable.Range(0, FontMetrics.Fonts.Length)
+                                                    .Where(f => DashRenderer.FontHeight(f) >= 16 && DashRenderer.FontHeight(f) < DashRenderer.FontHeight(f0) && DashFonts.FullAscii.Contains(f))
+                                                    .OrderByDescending(f => DashRenderer.FontHeight(f))).ToList();
+                        int want = Math.Min(3, t0.Replace(" ", "").Length);
+                        foreach (var (f, min) in fonts.Select(f => (f, want)))
+                        {
+                            lab.Font = f;
+                            string t = Shorten(t0, x => { lab.Text = x; return Width(f, x) >= 0 && Width(f, x) <= lab.W && !Covers(lab).IntersectsWith(vband); });
+                            lab.Text = t;
+                            if (t.Length >= min && !Clash(Covers(lab), vband) && !Covers(lab).IntersectsWith(vband))
+                            {
+                                // the value's box trimmed off the (now shorter) caption
+                                if (Covers(lab).IntersectsWith(Box(val))) Trim(val, Rectangle.Inflate(Covers(lab), 2, 0), new List<string>(), "", "", slack: 0);
+                                if (!Rectangle.Inflate(Covers(lab), 2, 0).IntersectsWith(Box(val))) { ok = true; break; }
+                            }
+                        }
+                        if (ok) { changes.Add($"{name(lab)}: \"{t0}\" -> \"{lab.Text}\", font {f0} -> {lab.Font}, so {name(val)} fits beside it"); continue; }
+                        lab.Text = t0; lab.Font = f0; val.X = vb0.X; val.Y = vb0.Y; val.W = vb0.Width; val.H = vb0.Height; val.Font = vf0;
+                    }
                     changes.Add($"{name(a)} still overlaps {name(b)}: fix by hand");
                 }
         }
