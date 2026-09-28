@@ -86,8 +86,11 @@ namespace User.FXProRpmSync
             row.Children.Add(sleepState);
             sleep.Children.Add(row);
             sleep.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 8, 0, 14) });
-            sleep.Children.Add(Theme.Binding("Sleep now", "UsbSleepNow"));
-            sleep.Children.Add(Theme.Binding("Wake", "UsbWake"));
+            sleep.Children.Add(new WheelButtonBinding(plugin, "sleep", "Sleep / wake"));
+            var other = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            other.Children.Add(Theme.Binding("Sleep now", "UsbSleepNow"));
+            other.Children.Add(Theme.Binding("Wake", "UsbWake"));
+            sleep.Children.Add(new Expander { Header = "A keyboard key or another controller instead (through SimHub)", Content = other, Margin = new Thickness(0, 6, 0, 0) });
             Children.Add(Theme.CardBox(sleep));
 
             slowTimer.Tick += (s, e) => Refresh();

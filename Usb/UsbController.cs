@@ -63,6 +63,9 @@ namespace User.FXProRpmSync
         /// <summary>The last session driven (pit board screensaver).</summary>
         public LastSession LastSession;
 
+        /// <summary>FX Pro buttons bound to actions: "next" / "prev" / "sleep" -> button number (1-32). See WheelButtons.</summary>
+        public Dictionary<string, int> WheelButtons = new Dictionary<string, int>();
+
         public bool SleepEnabled = false;
         public int SleepMinutes = 10;
 

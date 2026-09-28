@@ -69,8 +69,12 @@ namespace User.FXProRpmSync
             var bindings = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
             bindings.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 0, 0, 14) });
             bindings.Children.Add(Theme.Eyebrow("Switch while driving"));
-            bindings.Children.Add(Theme.Binding("Next dash", "UsbNextDash", "any button or key"));
-            bindings.Children.Add(Theme.Binding("Previous dash", "UsbPreviousDash"));
+            bindings.Children.Add(new WheelButtonBinding(plugin, "next", "Next dash"));
+            bindings.Children.Add(new WheelButtonBinding(plugin, "prev", "Previous dash"));
+            var other = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            other.Children.Add(Theme.Binding("Next dash", "UsbNextDash"));
+            other.Children.Add(Theme.Binding("Previous dash", "UsbPreviousDash"));
+            bindings.Children.Add(new Expander { Header = "A keyboard key or another controller instead (through SimHub)", Content = other, Margin = new Thickness(0, 6, 0, 0) });
             list.Children.Add(bindings);
             Children.Add(Theme.CardBox(list));
 

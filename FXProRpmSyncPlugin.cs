@@ -158,6 +158,8 @@ namespace User.FXProRpmSync
 
         // USB mode (patched wheel firmware): custom dash + all LEDs over the wheel's own USB.
         internal UsbController Usb { get; private set; }
+        /// <summary>The FX Pro's buttons read directly (bindings for next/previous dash, sleep).</summary>
+        internal WheelButtons Buttons { get; private set; }
         private long lastUsbPublishTicks, lastAtsrTicks, lastFormulaTicks;
         private readonly SimHubFormulas formulas = new SimHubFormulas();
         private readonly Dictionary<string, object> formulaResults = new Dictionary<string, object>();
@@ -256,6 +258,8 @@ namespace User.FXProRpmSync
             this.AddAction("UsbWake", (a, b) => Usb?.Wake());
             this.AttachDelegate("UsbDash", () => Usb?.ActiveDashName ?? "");
             Usb = new UsbController(this);
+            if (Settings.Usb.WheelButtons == null) Settings.Usb.WheelButtons = new Dictionary<string, int>();
+            Buttons = new WheelButtons(this);
             if (Settings.Usb.DesignerServer) StartDesigner();
 
             cts = new CancellationTokenSource();
@@ -791,6 +795,7 @@ namespace User.FXProRpmSync
             wake.Set();
             try { worker?.Wait(2000); } catch { }
             try { Designer?.Dispose(); } catch { }
+            try { Buttons?.Dispose(); } catch { }
             try { Usb?.Dispose(); } catch { } // gives the screen and LEDs back to the wheel
 
             // Leave SimPro as we found it.

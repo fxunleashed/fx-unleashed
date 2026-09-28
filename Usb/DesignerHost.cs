@@ -33,6 +33,7 @@ namespace User.FXProRpmSync
                 // the last LED frame sent, in the wheel's LED order (0-11 buttons, 12-16 encoders, 17-22 side, 23-37 rev)
                 leds = u?.LastFrame?.Select(f => $"#{f.R:X2}{f.G:X2}{f.B:X2}/{f.Brightness}").ToArray(),
                 lights = u?.LightsState,
+                wheelButtons = plugin.Buttons?.Found == true ? "found" : "not found",
             };
         }
 
