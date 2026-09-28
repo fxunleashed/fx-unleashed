@@ -260,6 +260,9 @@ namespace User.FXProRpmSync
             this.AttachDelegate("UsbDash", () => Usb?.ActiveDashName ?? "");
             Usb = new UsbController(this);
             if (Settings.Usb.WheelButtons == null) Settings.Usb.WheelButtons = new Dictionary<string, int>();
+            // The dash button (build 5) steps through the dashes unless the user bound it or "next" elsewhere
+            if (!Settings.Usb.WheelButtons.ContainsKey("next") && !Settings.Usb.WheelButtons.ContainsValue(WheelButtons.DashButton))
+                Settings.Usb.WheelButtons["next"] = WheelButtons.DashButton;
             Buttons = new WheelButtons(this);
             if (Settings.Usb.DesignerServer) StartDesigner();
 

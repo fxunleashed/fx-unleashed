@@ -1,28 +1,28 @@
 using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 namespace User.FXProRpmSync
 {
     /// <summary>
-    /// The FX Pro's own buttons, read straight from its USB game controller (VID 0483 / PID 0529, 32 buttons) through
-    /// Windows' joystick API, 50 times a second. Bound buttons run the plugin's actions (next / previous dash, sleep)
-    /// without going through SimHub's Controls and events, which can lose this controller (seen 2026-09-27: its joystick
-    /// manager reported "device lost" and didn't find it again until a restart). Learn() waits for the next press, for
-    /// the settings page's "press a wheel button" binding.
+    /// The FX Pro's own buttons, read straight from its USB input report (report 01: two axes, then 40 button bits),
+    /// on a thread of their own. Bound buttons run the plugin's actions (next / previous dash, sleep) without going
+    /// through SimHub's Controls and events, which can lose this controller (seen 2026-09-27: its joystick manager
+    /// reported "device lost" and didn't find it again until a restart). Windows' joystick API only shows the first 32
+    /// buttons, so the report is read raw: with wheel app build 5 the dash button is button 40 (DashButton).
+    /// Learn() waits for the next press, for the settings page's "press a wheel button" binding.
     /// </summary>
     internal sealed class WheelButtons : IDisposable
     {
-        private const ushort Vid = 0x0483, Pid = 0x0529;
+        /// <summary>The dash button with wheel app build 5 (while the plugin has set the button mode).</summary>
+        public const int DashButton = 40;
 
         private readonly FXProRpmSyncPlugin plugin;
-        private readonly Timer timer;
-        private int joystick = -1;
-        private DateTime nextScan;
-        private uint last;
+        private readonly Thread thread;
+        private volatile bool stop;
+        private volatile SafeFileHandle handle;
+        private ulong last;
         private volatile Action<int> learner;
-        private int busy;
 
         /// <summary>Action ids a wheel button can run, with their names on the settings page.</summary>
         public static readonly (string Id, string Name)[] Actions =
@@ -33,44 +33,60 @@ namespace User.FXProRpmSync
         public WheelButtons(FXProRpmSyncPlugin plugin)
         {
             this.plugin = plugin;
-            timer = new Timer(_ => Poll(), null, 500, 20);
+            thread = new Thread(Loop) { IsBackground = true, Name = "FXProRpmSync wheel buttons" };
+            thread.Start();
         }
 
-        /// <summary>The wheel's controller is visible to Windows.</summary>
-        public bool Found => joystick >= 0;
+        /// <summary>The wheel's input reports are being read.</summary>
+        public bool Found => handle != null;
 
-        /// <summary>Buttons held now (1-32), for the settings page.</summary>
-        public uint Down => last;
+        /// <summary>Buttons held now (bit n = button n+1).</summary>
+        public ulong Down => last;
 
-        /// <summary>Calls `pressed` (on the timer's thread) with the next button pressed, instead of running its action.</summary>
+        /// <summary>A button's name on the settings page.</summary>
+        public static string Name(int button) => button == DashButton ? "Dash button" : "Wheel button " + button;
+
+        /// <summary>Calls `pressed` (on the reader's thread) with the next button pressed, instead of running its action.</summary>
         public void Learn(Action<int> pressed) => learner = pressed;
 
         public void CancelLearn() => learner = null;
 
-        private void Poll()
+        private void Loop()
         {
-            if (Interlocked.Exchange(ref busy, 1) == 1) return;
-            try
+            var buf = new byte[64];
+            while (!stop)
             {
-                if (!plugin.Unlocked) { joystick = -1; return; }
-                if (joystick < 0)
+                try
                 {
-                    if (DateTime.UtcNow < nextScan) return;
-                    nextScan = DateTime.UtcNow.AddSeconds(3);
-                    joystick = Find();
-                    if (joystick < 0) return;
-                    last = Read(joystick) ?? 0;
+                    string path = plugin.Unlocked ? FxUsb.FindPath() : null;
+                    if (path == null) { Thread.Sleep(2000); continue; }
+                    using (var h = FxUsb.CreateFile(path, 0x80000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero)) // GENERIC_READ, shared
+                    {
+                        if (h.IsInvalid) { Thread.Sleep(2000); continue; }
+                        handle = h;
+                        last = 0;
+                        while (!stop && plugin.Unlocked)
+                        {
+                            if (!FxUsb.ReadFile(h, buf, buf.Length, out int n, IntPtr.Zero)) break; // unplugged, or closed by Dispose
+                            if (n >= 8 && buf[0] == 1) Report(buf);
+                        }
+                    }
                 }
-                var now = Read(joystick);
-                if (now == null) { joystick = -1; return; }
-                uint pressed = now.Value & ~last;
-                last = now.Value;
-                if (pressed == 0) return;
-                for (int b = 0; b < 32; b++)
-                    if ((pressed >> b & 1) != 0) Pressed(b + 1);
+                catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] wheel buttons: " + ex.Message); }
+                finally { handle = null; }
+                if (!stop) Thread.Sleep(500);
             }
-            catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] wheel buttons: " + ex.Message); }
-            finally { Interlocked.Exchange(ref busy, 0); }
+        }
+
+        /// <summary>Report 01: [id, axis, axis, 40 button bits in bytes 3-7].</summary>
+        private void Report(byte[] r)
+        {
+            ulong now = 0;
+            for (int i = 0; i < 5; i++) now |= (ulong)r[3 + i] << (8 * i);
+            ulong pressed = now & ~last;
+            last = now;
+            for (int b = 0; b < 40 && pressed != 0; b++)
+                if ((pressed >> b & 1) != 0) Pressed(b + 1);
         }
 
         private void Pressed(int button)
@@ -93,42 +109,11 @@ namespace User.FXProRpmSync
             }
         }
 
-        private static int Find()
+        public void Dispose()
         {
-            var caps = new JOYCAPSW();
-            for (int i = 0; i < 16; i++)
-                if (joyGetDevCapsW(i, ref caps, Marshal.SizeOf(caps)) == 0 && caps.wMid == Vid && caps.wPid == Pid && Read(i) != null)
-                    return i;
-            return -1;
+            stop = true;
+            try { handle?.Dispose(); } catch { } // ends the blocking read
+            thread.Join(1000);
         }
-
-        private static uint? Read(int i)
-        {
-            var j = new JOYINFOEX { dwSize = Marshal.SizeOf(typeof(JOYINFOEX)), dwFlags = 0x80 }; // JOY_RETURNBUTTONS
-            return joyGetPosEx(i, ref j) == 0 ? j.dwButtons : (uint?)null;
-        }
-
-        public void Dispose() => timer.Dispose();
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private struct JOYCAPSW
-        {
-            public ushort wMid, wPid;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string szPname;
-            public uint wXmin, wXmax, wYmin, wYmax, wZmin, wZmax, wNumButtons, wPeriodMin, wPeriodMax, wRmin, wRmax, wUmin, wUmax, wVmin, wVmax,
-                        wCaps, wMaxAxes, wNumAxes, wMaxButtons;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string szRegKey;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szOEMVxD;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct JOYINFOEX
-        {
-            public int dwSize, dwFlags;
-            public uint dwXpos, dwYpos, dwZpos, dwRpos, dwUpos, dwVpos, dwButtons, dwButtonNumber, dwPOV, dwReserved1, dwReserved2;
-        }
-
-        [DllImport("winmm.dll", CharSet = CharSet.Unicode)] private static extern int joyGetDevCapsW(int id, ref JOYCAPSW caps, int size);
-        [DllImport("winmm.dll")] private static extern int joyGetPosEx(int id, ref JOYINFOEX info);
     }
 }

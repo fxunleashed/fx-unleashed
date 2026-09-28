@@ -330,6 +330,9 @@ namespace User.FXProRpmSync
         private void Open()
         {
             conn = new FxConnection(path);
+            // Wheel app build 5: the dash button becomes controller button 40 and stops switching the wheel's own
+            // pages (no flash save). Harmless on older builds (unused RAM). Cleared again in Deactivate.
+            try { conn.WriteRam(FxConnection.Ctrl + 0x160, BitConverter.GetBytes(ButtonMagic)); } catch { }
             appliedVersion = -1;
             screenKey = null;
             lastDash = lastDemo = clock.Elapsed.TotalSeconds;
@@ -497,6 +500,9 @@ namespace User.FXProRpmSync
 
         private string shownPage;
 
+        /// <summary>'FXB1' at CTRL+0x160: wheel app build 5 reports the dash button (FXProDashes build_btnpatch.py).</summary>
+        private const uint ButtonMagic = 0x46584231;
+
         /// <summary>A wheel dash is on the screen with the plugin feeding it: its page ("" = the wheel's choice), else null.</summary>
         public string WheelPage { get; private set; }
 
@@ -623,6 +629,7 @@ namespace User.FXProRpmSync
             if (conn == null) return;
             try { leds?.Disable(); } catch { }
             try { screen?.Release(); } catch { }
+            try { conn.WriteRam(FxConnection.Ctrl + 0x160, BitConverter.GetBytes(0u)); } catch { }
             screen?.Dispose();
             try { conn.Dispose(); } catch { }
             conn = null; screen = null; leds = null; renderer = null; dash = null; demo = null; saver = null; screenKey = null; dimmed = false;

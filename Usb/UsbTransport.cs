@@ -30,6 +30,7 @@ namespace User.FXProRpmSync
         [DllImport("setupapi.dll", CharSet = CharSet.Auto)] private static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr s, ref DID di, IntPtr b, int sz, out int req, IntPtr d);
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)] internal static extern SafeFileHandle CreateFile(string n, uint a, uint s, IntPtr sa, uint c, uint f, IntPtr t);
         [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool WriteFile(SafeFileHandle h, byte[] b, int n, out int w, IntPtr o);
+        [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool ReadFile(SafeFileHandle h, byte[] b, int n, out int r, IntPtr o);
         [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetFeature(SafeFileHandle h, byte[] b, int n);
 
         /// <summary>Device path of the wheel's HID interface, or null when it isn't plugged in.</summary>

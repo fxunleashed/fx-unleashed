@@ -64,7 +64,7 @@ namespace User.FXProRpmSync
             }
             else
             {
-                value.Text = Bound is int b ? $"Wheel button {b}" : "Not set";
+                value.Text = Bound is int b ? WheelButtons.Name(b) : "Not set";
                 value.Foreground = Bound != null ? Theme.Text : Theme.Text3;
                 set.Content = Bound != null ? "Change" : "Set";
             }
