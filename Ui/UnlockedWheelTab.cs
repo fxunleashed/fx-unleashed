@@ -85,6 +85,16 @@ namespace User.FXProRpmSync
             sleepButton = Theme.Btn("Sleep now", () => { if (Usb?.Sleeping == true) Usb.Wake(); else Usb?.SleepNow(); }, icon: "");
             actions.Children.Add(sleepButton);
             status.Children.Add(actions);
+            var bright = Theme.SliderField(5, 100, S.ScreenBrightness, 5, v => $"{v:0}%", v =>
+            {
+                if ((int)v == S.ScreenBrightness) return;
+                S.ScreenBrightness = (int)v;
+                Usb?.SettingsChanged();
+                plugin.SaveSettings();
+            }, 200);
+            var brightRow = Theme.Field("Screen brightness", bright, 140);
+            brightRow.Margin = new Thickness(0, 6, 0, 0);
+            status.Children.Add(brightRow);
             status.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 10, 0, 14) });
             status.Children.Add(Shortcut("", "Dashes", out dashTile, () => openTab("Dashes")));
             status.Children.Add(Shortcut("", "Lights", out lightsTile, () => openTab("Lights")));

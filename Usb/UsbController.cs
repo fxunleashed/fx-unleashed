@@ -66,6 +66,9 @@ namespace User.FXProRpmSync
         /// <summary>FX Pro buttons bound to actions: "next" / "prev" / "sleep" -> button number (1-32). See WheelButtons.</summary>
         public Dictionary<string, int> WheelButtons = new Dictionary<string, int>();
 
+        /// <summary>The screen's backlight, 5-100 (the plugin sends it on connect, on change and after sleep).</summary>
+        public int ScreenBrightness = 100;
+
         public bool SleepEnabled = false;
         public int SleepMinutes = 10;
 
@@ -310,6 +313,7 @@ namespace User.FXProRpmSync
         private void SetIdleState(UsbSettings s, bool allowed)
         {
             if (path == null) { State = "Waiting for the wheel"; Detail = "Plug the FX Pro's USB cable into the PC."; }
+            else if (status == null && DateTime.UtcNow - appearedAt < BootGrace) { State = "Wheel found"; Detail = "Letting it finish starting up."; }
             else if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
             else if (!status.IsSupportedApp) { State = "Unsupported wheel firmware"; Detail = $"The wheel runs app {status.VersionText}{(status.RunMode != 0 ? " (in its bootloader)" : "")}; USB mode needs the patched 1.3.11 app."; }
             else if (!allowed) { State = "Firmware not confirmed"; Detail = "Confirm that the wheel runs the patched firmware below."; }
@@ -323,13 +327,20 @@ namespace User.FXProRpmSync
             nextProbe = DateTime.UtcNow.AddSeconds(2);
             var p = FxUsb.FindPath();
             if (p == null) { path = null; status = null; return; }
-            if (p != path || status == null) status = FxUsb.ReadStatus(p);
-            path = p;
+            // A wheel that just appeared may still be booting: talking to it then (even reading its status) can
+            // freeze its screen, so leave it alone for BootGrace first.
+            if (p != path) { path = p; status = null; appearedAt = DateTime.UtcNow; nextProbe = appearedAt + BootGrace; return; }
+            if (DateTime.UtcNow - appearedAt < BootGrace) return;
+            if (status == null) status = FxUsb.ReadStatus(p);
         }
+
+        private static readonly TimeSpan BootGrace = TimeSpan.FromSeconds(6);
+        private DateTime appearedAt;
 
         private void Open()
         {
             conn = new FxConnection(path);
+            sentBrightness = -1; // sent with the first settings pass
             // Wheel app build 5: the dash button becomes controller button 40 and stops switching the wheel's own
             // pages (no flash save). Harmless on older builds (unused RAM). Cleared again in Deactivate.
             try { conn.WriteRam(FxConnection.Ctrl + 0x160, BitConverter.GetBytes(ButtonMagic)); } catch { }
@@ -352,6 +363,7 @@ namespace User.FXProRpmSync
             {
                 appliedVersion = version;
                 try { lights = s.ActiveLights.Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
+                if (!sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
                 reverseRev = s.ReverseRev;
             }
             bool wantLeds = s.LightsEnabled || sleeping;
@@ -398,7 +410,13 @@ namespace User.FXProRpmSync
             if (screen != null && key == screenKey) return;
             screenKey = key;
             renderer = null; dash = null; saver = null;
-            if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); shownPage = null; }
+            if (screen == null)
+            {
+                // coming from one of the wheel's own dashes: draw on its page rather than load page 0 (see KeepPage)
+                screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds), KeepPage = shownPage != null };
+                screen.Take();
+                shownPage = null;
+            }
 
             if (key == "sleep")
             {
@@ -458,6 +476,21 @@ namespace User.FXProRpmSync
             s.LastSession = ls;
         }
 
+        private int sentBrightness = -1;
+
+        private static int Brightness(UsbSettings s) => Math.Max(5, Math.Min(100, s.ScreenBrightness));
+
+        /// <summary>The backlight setting straight to the screen (works whether the plugin owns the screen or not).</summary>
+        private void SendBrightness(UsbSettings s)
+        {
+            sentBrightness = Brightness(s);
+            var cmd = System.Text.Encoding.ASCII.GetBytes("dim=" + sentBrightness);
+            var bytes = new byte[cmd.Length + 3];
+            Array.Copy(cmd, bytes, cmd.Length);
+            bytes[cmd.Length] = bytes[cmd.Length + 1] = bytes[cmd.Length + 2] = 0xFF;
+            try { conn.ScreenBytes(bytes, bytes.Length); } catch { }
+        }
+
         private string screenKey;             // what the screen shows now (see ApplySettings)
         private bool dimmed;
 
@@ -466,7 +499,7 @@ namespace User.FXProRpmSync
         {
             if (!dimmed || screen == null) return;
             dimmed = false;
-            screen.Cmd("dim=100");
+            screen.Cmd("dim=" + Brightness(plugin.Settings.Usb));
             screen.Flush();
             SimHub.Logging.Current.Info("[FXProRpmSync] USB mode awake");
         }
