@@ -150,10 +150,12 @@ namespace User.FXProRpmSync
                     }
                     bool Hits(Rectangle a, Rectangle b) { var o = Rectangle.Intersect(a, b); return o.Width > 2 && o.Height > 2; }
                     var others = d.Elements.Where(o => o != e && (o.Type == "value" || o.Type == "label") && (o.Visible == null || o.Visible.Count == 0 || o.PreviewVisible != false))
-                                           .Select(Covers).ToList();
+                                           .Select(o => (R: Covers(o), Label: o.Type == "label")).ToList();
                     var own = new Rectangle(e.X, e.Y, e.W, e.H);
-                    // a new position mustn't run into text it was clear of
-                    bool Clear(DashElement x) { var xb = new Rectangle(x.X, x.Y, x.W, x.H); return !others.Any(o => Hits(xb, o) && !Hits(own, o)); }
+                    // a new position mustn't run into text it was clear of (a label's text rows: not by a pixel, as the
+                    // label would redraw with every change)
+                    bool Touch(Rectangle a, (Rectangle R, bool Label) o) => o.Label ? a.IntersectsWith(o.R) : Hits(a, o.R);
+                    bool Clear(DashElement x) { var xb = new Rectangle(x.X, x.Y, x.W, x.H); return !others.Any(o => Touch(xb, o) && !Touch(own, o)); }
                     bool Fits(DashElement x, int f) => texts.All(t => { int tw = DashRenderer.TextWidth(f, t); return tw >= 0 && tw + 2 <= x.W; }) && DashRenderer.FontHeight(f) <= x.H && Clear(x);
                     if (Clean(e, e.Font)) continue;
                     int h0 = DashRenderer.FontHeight(e.Font);

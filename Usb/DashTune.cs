@@ -340,6 +340,7 @@ namespace User.FXProRpmSync
             //    shown with it): the value's box trimmed from the side that clears it with the least loss, keeping its
             //    widest text; a smaller font if no trim keeps it; a label moved out of the way as the last resort
             MergeColourTwins(d, changes, Name);
+            SplitStackedBars(d, changes, Name);
             FlattenGradients(d, changes, Name);
             SwapOverlaid(d, changes, Name);
             MergeTurnTwins(d, changes, Name);
@@ -348,6 +349,7 @@ namespace User.FXProRpmSync
             FitText(d, changes, Name);
             ClearOverlaps(d, changes, Name);
             OffPopups(d, changes, Name);
+            OffLabels(d, changes, Name);
 
             // 9. values on a busy background (a picture or gradient under them): each change redraws all those fills.
             //    They get a plain Background: the colour most of the area under them has.
@@ -645,6 +647,59 @@ namespace User.FXProRpmSync
                 changes.Add($"{an} + {bn}: one value, coloured while {bn} would show (they took turns in the same place)");
             }
         }
+
+        /// <summary>
+        /// Bars drawn in the same place (throttle and brake on one strip, the later one on top): each change of either
+        /// redraws the other over it, a flash. They're laid side by side across the strip instead, each keeping its
+        /// length.
+        /// </summary>
+        private static void SplitStackedBars(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            var bars = d.Elements.Where(x => x.Type == "bar").ToList();
+            var done = new HashSet<DashElement>();
+            foreach (var a in bars)
+            {
+                if (done.Contains(a)) continue;
+                var group = bars.Where(b => !done.Contains(b) && b.Orientation == a.Orientation && SameVis(a, b)
+                                            && Rectangle.Intersect(Box(a), Box(b)).Width * Rectangle.Intersect(Box(a), Box(b)).Height >= 0.8 * Math.Min(a.W * a.H, b.W * b.H)).ToList();
+                if (group.Count < 2) continue;
+                var r = Box(a);
+                bool horizontal = a.Orientation != "vertical";
+                int across = horizontal ? r.Height : r.Width;
+                if (across < 2 * group.Count) continue;
+                int each = across / group.Count;
+                for (int k = 0; k < group.Count; k++)
+                {
+                    var b = group[k];
+                    var before = Box(b);
+                    if (horizontal) { b.X = r.X; b.W = r.Width; b.Y = r.Y + k * each; b.H = k == group.Count - 1 ? r.Bottom - b.Y : each; }
+                    else { b.Y = r.Y; b.H = r.Height; b.X = r.X + k * each; b.W = k == group.Count - 1 ? r.Right - b.X : each; }
+                    done.Add(b);
+                    changes.Add($"{name(b)}: {Str(before)} -> {Str(Box(b))}, beside the bars drawn in the same place");
+                }
+            }
+        }
+
+        private static bool SameVis(DashElement a, DashElement b) =>
+            (a.Visible == null || a.Visible.Count == 0) ? (b.Visible == null || b.Visible.Count == 0) : (b.Visible != null && a.Visible.SequenceEqual(b.Visible));
+
+        /// <summary>
+        /// A value box touching a label's text rows (by a pixel or two, which check lets pass): each change of the value
+        /// redraws the label too. The box is trimmed clear of it when its text still fits.
+        /// </summary>
+        private static void OffLabels(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            foreach (var v in d.Elements.Where(x => x.Type == "value").ToList())
+                foreach (var l in d.Elements.Where(x => x.Type == "label" && SameOrAlways(x, v)).ToList())
+                {
+                    var lb = Covers(l);
+                    if (lb.Width <= 0 || !Box(v).IntersectsWith(lb) || Box(v).Contains(lb)) continue;
+                    Trim(v, lb, changes, name(v), name(l), slack: 0);
+                }
+        }
+
+        private static bool SameOrAlways(DashElement l, DashElement v) =>
+            l.Visible == null || l.Visible.Count == 0 || SameVis(l, v);
 
         private static void GrowTags(DashDefinition d, List<string> changes, Func<DashElement, string> name)
         {
