@@ -652,15 +652,14 @@ namespace User.FXProRpmSync
                         // Only the level changed: just the part between the old and the new level is drawn, and only
                         // what's over that part is drawn again (text on a bar would otherwise blink at every change).
                         var changed = n.R;
-                        if (n.Shown && n.BarAt.HasValue && n.BarColour == n.Colour)
-                        {
-                            changed = BarRange(n, n.BarAt.Value, n.FillEnd);
-                            if (changed.Width > 0 && changed.Height > 0) DrawBar(n, changed);
-                        }
-                        else DrawBar(n);
+                        if (n.Shown && n.BarAt.HasValue && n.BarColour == n.Colour) changed = BarRange(n, n.BarAt.Value, n.FillEnd);
+                        // only what no solid shape drawn after it covers (a pop-up over the bar): the rest shows once
+                        // that goes (its repaint draws the bar as it is then)
+                        var parts = changed.Width > 0 && changed.Height > 0 ? Subtract(Clip(changed), SolidShapesAbove(n.Index)) : new List<Rectangle>();
+                        foreach (var part in parts) DrawBar(n, part);
                         n.Shown = true; n.Sent = n.Key;
                         n.BarAt = n.FillEnd; n.BarColour = n.Colour;
-                        if (changed.Width > 0 && changed.Height > 0) MarkAbove(n, changed, keepSolidText: true); // painted over
+                        foreach (var part in parts) MarkAbove(n, part, keepSolidText: true); // painted over
                         foreach (var m in dynamic)
                             if (m.Index > n.Index && SolidText(m) && m.TextAt.Value.IntersectsWith(n.R) && BackgroundIn(m.TextAt.Value, m.Index) != m.SolidBg)
                                 Invalidate(m); // the bar's edge crossed the text's centre: the text's background changes

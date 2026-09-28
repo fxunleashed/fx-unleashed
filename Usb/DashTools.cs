@@ -283,7 +283,7 @@ namespace User.FXProRpmSync
                 if (values != null) r.Update(values, 0);
                 else if (mode == "demo")
                 {
-                    var demo = new UsbDemo(d);
+                    var demo = new UsbDemo(d) { BudgetMs = null };
                     for (double t = 0.1; t <= seconds; t += 0.1) r.Update(demo.Step(0.1), t);
                 }
                 else r.Update(new DashValues { Preview = true, Running = true }, 0);

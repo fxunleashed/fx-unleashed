@@ -399,7 +399,7 @@ namespace User.FXProRpmSync
                 case "airtemp": return 24.0 + 0.2 * Wave(n, t, 300);
                 case "tracktemp": return 33.0 + 0.3 * Wave(n, t, 300);
                 case "voltage": return 13.8 + 0.1 * Wave(n, t, 40);
-                case "currentdatetime": return DateTime.Now;
+                case "currentdatetime": return new DateTime(2026, 6, 13, 15, 0, 0).AddSeconds(t); // fixed: runs repeat exactly
                 case "carsettings_redlinerpm": return (v.Number("maxRpm") ?? 9000) * 0.96;
                 case "carsettings_rpmredlinereached": return (v.Number("rpmPercent") ?? 0) >= 96 ? 1 : 0;
                 case "carsettings_redlinedisplayedpercent": return 96.0;

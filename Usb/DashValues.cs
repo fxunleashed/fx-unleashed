@@ -321,6 +321,12 @@ namespace User.FXProRpmSync
 
         public UsbDemo(DashDefinition dash = null) { UseDash(dash); }
 
+        /// <summary>
+        /// Milliseconds of formula evaluation per frame (the wheel's lights share the thread); null = all of them every
+        /// round (tools: verify and tune must give the same answer on a busy machine as on an idle one).
+        /// </summary>
+        public double? BudgetMs = 4;
+
         /// <summary>The dash the demo feeds (null: built-in keys only).</summary>
         public void UseDash(DashDefinition d)
         {
@@ -390,7 +396,7 @@ namespace User.FXProRpmSync
             if (t - lastFormulas >= 0.099 && toEval.Length > 0)
             {
                 budget.Restart();
-                for (int k = 0; k < toEval.Length && (k == 0 || budget.Elapsed.TotalMilliseconds < 4); k++)
+                for (int k = 0; k < toEval.Length && (k == 0 || BudgetMs == null || budget.Elapsed.TotalMilliseconds < BudgetMs); k++)
                 {
                     var b = toEval[cursor];
                     cursor = (cursor + 1) % toEval.Length;

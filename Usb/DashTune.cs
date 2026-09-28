@@ -46,7 +46,7 @@ namespace User.FXProRpmSync
 
             // 1. samples from a demo lap: the widest text each value shows, digits made 8s (the widest digit)
             var widest = new Dictionary<DashElement, string>();
-            var demo = new UsbDemo(d);
+            var demo = new UsbDemo(d) { BudgetMs = null };
             var values = d.Elements.Where(e => e.Type == "value").ToList();
             for (int k = 1; k <= demoSeconds * 10; k++)
             {
@@ -301,7 +301,7 @@ namespace User.FXProRpmSync
             var imgs = d.Elements.Where(e => e.Type == "image" && e.Visible != null && e.Visible.Count > 0).ToList();
             if (imgs.Count > 0)
             {
-                var demo2 = new UsbDemo(d);
+                var demo2 = new UsbDemo(d) { BudgetMs = null };
                 var last = new Dictionary<DashElement, bool>();
                 for (int k = 1; k <= demoSeconds * 10; k++)
                 {
@@ -350,6 +350,7 @@ namespace User.FXProRpmSync
             ClearOverlaps(d, changes, Name);
             OffPopups(d, changes, Name);
             OffLabels(d, changes, Name);
+            OffFrames(d, changes, Name); // again: fonts and boxes have settled since
 
             // 9. values on a busy background (a picture or gradient under them): each change redraws all those fills.
             //    They get a plain Background: the colour most of the area under them has.
@@ -696,6 +697,24 @@ namespace User.FXProRpmSync
                     if (lb.Width <= 0 || !Box(v).IntersectsWith(lb) || Box(v).Contains(lb)) continue;
                     Trim(v, Rectangle.Inflate(lb, 2, 0), changes, name(v), name(l), slack: 0); // (2 px for the glyphs' overhang)
                 }
+            // bars too: a bar running under a label's text (a scale printed over a gauge) redraws the label at each move;
+            // the bar gets thinner, off the text, keeping at least half its thickness
+            foreach (var bar in d.Elements.Where(x => x.Type == "bar").ToList())
+                foreach (var l in d.Elements.Where(x => x.Type == "label" && ((x.Visible == null || x.Visible.Count == 0) || (bar.Visible != null && x.Visible != null && x.Visible.Any(bar.Visible.Contains)))).ToList())
+                {
+                    var lb = Rectangle.Inflate(Covers(l), 0, 1);
+                    var bb = Box(bar);
+                    if (lb.Width <= 0 || !bb.IntersectsWith(lb) || lb.Contains(bb)) continue;
+                    bool horizontal = bar.Orientation != "vertical";
+                    Rectangle cut = bb;
+                    if (horizontal)
+                        cut = lb.Top > bb.Top ? Rectangle.FromLTRB(bb.Left, bb.Top, bb.Right, lb.Top) : Rectangle.FromLTRB(bb.Left, lb.Bottom, bb.Right, bb.Bottom);
+                    else
+                        cut = lb.Left > bb.Left ? Rectangle.FromLTRB(bb.Left, bb.Top, lb.Left, bb.Bottom) : Rectangle.FromLTRB(lb.Right, bb.Top, bb.Right, bb.Bottom);
+                    if ((horizontal ? cut.Height : cut.Width) < (horizontal ? bb.Height : bb.Width) / 2) continue;
+                    bar.X = cut.X; bar.Y = cut.Y; bar.W = cut.Width; bar.H = cut.Height;
+                    changes.Add($"{name(bar)}: {Str(bb)} -> {Str(cut)}, off {name(l)}'s text");
+                }
         }
 
         private static bool SameOrAlways(DashElement l, DashElement v) =>
@@ -728,12 +747,21 @@ namespace User.FXProRpmSync
                 int pad = panel ? Math.Max(tag.Border, 0) + Math.Max(0, tag.Radius / 2) + 1 : 1;
                 if (tb.Contains(Rectangle.Inflate(band, panel ? pad : 0, 0))) continue;
                 var grown = Rectangle.Union(tb, Rectangle.Inflate(band, pad, panel ? 0 : 1));
-                // a panel only grows a little (its layout is the designer's), and only sideways
-                if (panel && (grown.Width - tb.Width > 12 || grown.Height != tb.Height)) continue;
-                if (!Usable.Contains(grown)) continue;
-                bool hits = d.Elements.Any(o => o != v && o != tag && (o.Type == "value" || o.Type == "label") && Clash(grown, Covers(o)) && !Clash(tb, Covers(o))
+                // (a panel only grows a little, as its layout is the designer's, and only sideways)
+                bool hits = !Usable.Contains(grown) || (panel && (grown.Width - tb.Width > 12 || grown.Height != tb.Height)) ||
+                            d.Elements.Any(o => o != v && o != tag && (o.Type == "value" || o.Type == "label") && Clash(grown, Covers(o)) && !Clash(tb, Covers(o))
                                                 && !(o.Visible != null && o.Visible.Count > 0));
-                if (hits) continue;
+                if (hits)
+                {
+                    // no room to grow the tag: the value comes inside it instead, if its text fits there
+                    var inside = Rectangle.Intersect(Box(v), Rectangle.Inflate(tb, -pad, 0));
+                    if (!panel && inside.Width >= NeedWidth(v, v.Font) + 2 && inside.Height >= DashRenderer.FontHeight(v.Font))
+                    {
+                        changes.Add($"{name(v)}: box {Str(Box(v))} -> {Str(inside)}, inside {name(tag)} (no room to widen it)");
+                        v.X = inside.X; v.Y = inside.Y; v.W = inside.Width; v.H = inside.Height;
+                    }
+                    continue;
+                }
                 changes.Add($"{name(tag)}: {Str(tb)} -> {Str(grown)}, so {name(v)}'s widest text sits on it");
                 tag.X = grown.X; tag.Y = grown.Y; tag.W = grown.Width; tag.H = grown.Height;
             }

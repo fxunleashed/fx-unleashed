@@ -49,7 +49,7 @@ namespace User.FXProRpmSync
                 r.Trace = t => { if (t.StartsWith("#")) current = Trim(t, d); };
                 screen.Owner = () => current;
                 r.DrawAll();
-                var demo = new UsbDemo(d);
+                var demo = new UsbDemo(d) { BudgetMs = null };
                 var bytesBy = new Dictionary<string, long>();
                 var drawsBy = new Dictionary<string, int>();
                 r.DrawCounts = new Dictionary<DashElement, int>();
