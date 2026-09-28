@@ -163,6 +163,28 @@ namespace User.FXProRpmSync
         /// <summary>The current car's rev lights in real RPM, after any per-car override (null = not known).</summary>
         public RpmLayout CurrentLightsLayout { get; private set; }
 
+        /// <summary>The dash designer's local web server (docs/dash-designer.md); null when off.</summary>
+        internal DesignerServer Designer { get; private set; }
+
+        /// <summary>Starts the designer server if it isn't running; returns its URL (null + logged error if the port is taken).</summary>
+        internal string StartDesigner()
+        {
+            if (Designer?.Running == true) return Designer.Url;
+            try
+            {
+                Designer?.Dispose();
+                Designer = new DesignerServer(Settings.Usb.DesignerPort, new DesignerHost(this));
+                Designer.Start();
+                SimHub.Logging.Current.Info("[FXProRpmSync] dash designer on " + Designer.Url);
+                return Designer.Url;
+            }
+            catch (Exception ex)
+            {
+                SimHub.Logging.Current.Warn("[FXProRpmSync] dash designer couldn't start on port " + Settings.Usb.DesignerPort + ": " + ex.Message);
+                return null;
+            }
+        }
+
         private class Target
         {
             public string CarKey;
@@ -217,6 +239,7 @@ namespace User.FXProRpmSync
             this.AttachDelegate("UsbModeState", () => Usb?.State ?? "");
             this.AddAction("UsbModeToggleDemo", (a, b) => Usb?.SetDemo(!Usb.DemoOn));
             Usb = new UsbController(this);
+            if (Settings.Usb.DesignerServer) StartDesigner();
 
             cts = new CancellationTokenSource();
             worker = Task.Run(() => WorkerLoop(cts.Token));
@@ -614,6 +637,7 @@ namespace User.FXProRpmSync
             cts?.Cancel();
             wake.Set();
             try { worker?.Wait(2000); } catch { }
+            try { Designer?.Dispose(); } catch { }
             try { Usb?.Dispose(); } catch { } // gives the screen and LEDs back to the wheel
 
             // Leave SimPro as we found it.

@@ -33,6 +33,10 @@ namespace User.FXProRpmSync
         /// <summary>Rev LED 23 is the rightmost (flip the rev bar).</summary>
         public bool ReverseRev = false;
 
+        /// <summary>Run the dash designer's local web server (and API for agents) while SimHub runs.</summary>
+        public bool DesignerServer = true;
+        public int DesignerPort = User.FXProRpmSync.DesignerServer.DefaultPort;
+
         /// <summary>Where the lights come from: the built-in effects, or ATSR-Hub (see AtsrBridge).</summary>
         public LightsSource LightsFrom = LightsSource.BuiltIn;
         /// <summary>The device name ATSR-Hub publishes (its wheel setup for the FX Pro).</summary>
@@ -150,6 +154,29 @@ namespace User.FXProRpmSync
         /// <summary>What the lights show now: "built-in", "ATSR-Hub", or why ATSR-Hub isn't used.</summary>
         public string LightsState { get; private set; } = "";
 
+        // Designer preview: a dash being edited, shown until StopPreview or a minute without updates
+        private volatile DashDefinition previewDash;
+        private int previewLeft, previewTop;
+        private string previewKey;
+        private long previewUntilTicks;
+
+        public bool PreviewActive => previewDash != null && DateTime.UtcNow.Ticks < Interlocked.Read(ref previewUntilTicks);
+
+        /// <summary>Shows a dash from the designer on the wheel (live data while a game runs, else the demo lap).</summary>
+        public void SetPreviewDash(DashDefinition d, int left, int top)
+        {
+            previewLeft = left; previewTop = top;
+            previewKey = Newtonsoft.Json.JsonConvert.SerializeObject(d).GetHashCode() + "|" + left + "|" + top;
+            previewDash = d;
+            Interlocked.Exchange(ref previewUntilTicks, DateTime.UtcNow.AddSeconds(60).Ticks);
+            wake.Set();
+        }
+
+        public void StopPreview() { previewDash = null; wake.Set(); }
+
+        /// <summary>SimHub's current values while a game runs (else null), for the designer's live render.</summary>
+        public DashValues LiveNow => LiveFresh ? latest : null;
+
         public void SetDemo(bool on)
         {
             demoOn = on;
@@ -185,7 +212,9 @@ namespace User.FXProRpmSync
                     }
                     Probe(force: false);
                     bool allowed = path != null && status?.IsSupportedApp == true && (s.FirmwareConfirmed || testing);
-                    bool source = testing || demoOn || LiveFresh;
+                    bool preview = PreviewActive;
+                    if (!preview && previewDash != null) previewDash = null; // timed out
+                    bool source = testing || demoOn || preview || LiveFresh;
                     bool idle = (s.LightsEnabled && s.IdleLights) || s.ScreenSaver;
                     if (!allowed || (!source && !idle))
                     {
@@ -273,14 +302,16 @@ namespace User.FXProRpmSync
                 return;
             }
             saver = null;
-            string key = $"{s.DashId}|{s.PadLeft}|{s.PadTop}|{Volatile.Read(ref dashReloads)}";
+            var pd = previewDash;
+            string key = pd != null ? "preview|" + previewKey : $"{s.DashId}|{s.PadLeft}|{s.PadTop}|{Volatile.Read(ref dashReloads)}";
             if (screen != null && key == dashKey) return;
             dashKey = key;
             var errors = new List<string>();
-            dash = DashLibrary.Load(errors).FirstOrDefault(d => d.Id == s.DashId) ?? BuiltInDashes.MustangGt3();
+            dash = pd ?? DashLibrary.Load(errors).FirstOrDefault(d => d.Id == s.DashId) ?? BuiltInDashes.MustangGt3();
             if (screen == null) { screen = new FxHostScreen(conn); screen.Take(); }
             var room = DashRenderer.Room(dash);
-            renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, s.PadLeft), room.Right), Math.Min(Math.Max(0, s.PadTop), room.Down));
+            int padL = pd != null ? previewLeft : s.PadLeft, padT = pd != null ? previewTop : s.PadTop;
+            renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, padL), room.Right), Math.Min(Math.Max(0, padT), room.Down));
             props = dash.Bindings.Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
             ScriptsFolder = dash.ScriptsFolder;
             DashProblems = renderer.Check();
@@ -304,21 +335,22 @@ namespace User.FXProRpmSync
             ApplySettings(s, source);
             double now = clock.Elapsed.TotalSeconds;
             DashValues v;
-            if (testing || demoOn)
+            bool previewDemo = previewDash != null && !LiveFresh;
+            if (testing || demoOn || previewDemo)
             {
                 if (demo == null) { demo = new UsbDemo(); lastDemo = now; }
                 v = demo.Step(now - lastDemo);
                 lastDemo = now;
                 Volatile.Write(ref latest, v);
-                State = testing ? "Test" : "Demo";
+                State = testing ? "Test" : previewDemo ? "Designer preview" : "Demo";
                 Detail = testing ? "Showing the demo for a few seconds: the dash should be steady, with no stock dash flickering through."
-                                 : "Running a simulated lap on the wheel.";
+                       : previewDemo ? "Showing the dash from the designer with the simulated lap." : "Running a simulated lap on the wheel.";
             }
             else if (source)
             {
                 v = latest;
-                State = "Active";
-                Detail = "Driving the dash and lights from SimHub.";
+                State = previewDash != null ? "Designer preview" : "Active";
+                Detail = previewDash != null ? "Showing the dash from the designer with live data." : "Driving the dash and lights from SimHub.";
             }
             else
             {

@@ -194,7 +194,7 @@ namespace User.FXProRpmSync
             ("POST", "/api/render[?mode=preview|demo|live&seconds=N&left=L&top=T]", "body = dash: PNG as the wheel shows it"),
             ("GET", "/api/simhub", "installed SimHub dashes"),
             ("GET", "/api/simhub/screens?name=NAME", "screens of a SimHub dash"),
-            ("POST", "/api/import", "body = {name|path, screen?, images?, colors?, maxSeconds?}: convert a SimHub dash -> {dash, report, check}"),
+            ("POST", "/api/import", "body = {name|path, screen?, images?, colors?, maxSeconds?, fitWidth?, fitHeight?}: convert a SimHub dash -> {dash, report, check}"),
             ("GET", "/api/wheel", "wheel status (plugin only)"),
             ("POST", "/api/wheel/show[?left=L&top=T]", "body = dash: show it on the wheel now (plugin only)"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
@@ -266,6 +266,8 @@ namespace User.FXProRpmSync
                     Images = (bool?)o["images"] ?? true,
                     ImageColors = (int?)o["colors"] ?? 6,
                     MaxDrawSeconds = (double?)o["maxSeconds"] ?? 8,
+                    FitWidth = (int?)o["fitWidth"] ?? DashRenderer.Width,
+                    FitHeight = (int?)o["fitHeight"] ?? DashRenderer.Height,
                 };
                 var (dash, report) = DashTools.Import((string)o["path"] ?? (string)o["name"] ?? throw new Exception("name or path needed"), opt);
                 return Json(new { dash, report, check = DashTools.Check(dash) });

@@ -131,6 +131,16 @@ namespace User.FXProRpmSync
             saverBox.Unchecked += (s, e) => { S.ScreenSaver = false; Changed(); };
             body.Children.Add(saverBox);
 
+            // Dash designer (local web page + API for agents)
+            var designerRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 4) };
+            var openDesigner = MakeButton("Open the dash designer", OpenDesigner);
+            designerRow.Children.Add(openDesigner);
+            designerInfo = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75, Margin = new Thickness(4, 0, 0, 8), TextWrapping = TextWrapping.Wrap };
+            designerRow.Children.Add(designerInfo);
+            body.Children.Add(designerRow);
+            body.Children.Add(Muted("Design dashes in your browser, import SimHub dashes and fine-tune them, and see your changes on the wheel as you " +
+                                    "make them. AI agents can use the same thing through its API (GET /api) or the fxdash command line.", new Thickness(0, 0, 0, 10)));
+
             dashBox = new ComboBox { Width = 360 };
             dashBox.SelectionChanged += (s, e) =>
             {
@@ -299,6 +309,7 @@ namespace User.FXProRpmSync
             bannerIcon.Foreground = Frozen(tone);
             banner.BorderBrush = Frozen(tone);
             bannerDetail.Text = u.Detail;
+            designerInfo.Text = plugin.Designer?.Running == true ? "running at " + plugin.Designer.Url + "   (API for agents: " + plugin.Designer.Url + "api)" : "not running";
             if (S.LightsFrom == LightsSource.AtsrHub)
                 atsrState.Text = !u.Active ? "Not sending (USB mode isn't driving the wheel now)."
                                : "Lights now: " + u.LightsState + ".";
@@ -403,6 +414,17 @@ namespace User.FXProRpmSync
                 return src;
             }
             finally { bmp.UnlockBits(data); }
+        }
+
+        private TextBlock designerInfo;
+
+        private void OpenDesigner()
+        {
+            var url = plugin.StartDesigner();
+            if (url == null) { MessageBox.Show("The designer couldn't start: port " + S.DesignerPort + " is in use. See SimHub's log.", "FXPro RPM Sync"); return; }
+            var sel = S.DashId;
+            try { Process.Start(url + (string.IsNullOrEmpty(sel) ? "" : "?dash=" + Uri.EscapeDataString(sel))); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "FXPro RPM Sync"); }
         }
 
         private void OpenDashFolder()

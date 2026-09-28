@@ -53,6 +53,8 @@ namespace User.FXProRpmSync
         public int ImageColors = 6;
         /// <summary>If drawing the static layer would take longer than this, image colours are cut, then the largest images dropped.</summary>
         public double MaxDrawSeconds = 8;
+        /// <summary>The area the dash is scaled into (top left at 0,0): the screen minus the padding the wheel uses.</summary>
+        public int FitWidth = DashRenderer.Width, FitHeight = DashRenderer.Height;
     }
 
     public class ImportReport
@@ -215,8 +217,9 @@ namespace User.FXProRpmSync
                     var d = Load(path);
                     string name = Path.GetFileNameWithoutExtension(path);
                     double bw = (double?)d["BaseWidth"] ?? 1280, bh = (double?)d["BaseHeight"] ?? 720;
-                    s = Math.Min(DashRenderer.Width / bw, DashRenderer.Height / bh);
-                    ox = (DashRenderer.Width - bw * s) / 2; oy = (DashRenderer.Height - bh * s) / 2;
+                    int fw = Math.Max(100, Math.Min(DashRenderer.Width, opt.FitWidth)), fh = Math.Max(100, Math.Min(DashRenderer.Height, opt.FitHeight));
+                    s = Math.Min(fw / bw, fh / bh);
+                    ox = (fw - bw * s) / 2; oy = (fh - bh * s) / 2;
                     var screens = (d["Screens"] as JArray ?? new JArray()).OfType<JObject>().ToList();
                     Report.Dash = name;
                     Report.Screens = screens.Select((x, i) => (string)x["Name"] ?? ("Screen " + (i + 1))).ToList();

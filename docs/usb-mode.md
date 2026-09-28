@@ -8,7 +8,7 @@ SimPro (which keeps doing force feedback and settings). It needs the wheel's app
 build 4 image; on stock firmware nothing here works (and nothing breaks either, see [Firmware](#firmware)).
 
 Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) · [Dash file format](#dash-file-format) ·
-[Lights](#lights) · [ATSR-Hub](#atsr-hub) · [How it talks to the wheel](#how-it-talks-to-the-wheel) ·
+[Lights](#lights) · [ATSR-Hub](#atsr-hub) · [Dash designer](dash-designer.md) · [How it talks to the wheel](#how-it-talks-to-the-wheel) ·
 [Checking without the wheel](#checking-without-the-wheel) · [Troubleshooting](#troubleshooting) ·
 [Before publishing](#before-publishing)
 
@@ -43,9 +43,9 @@ asks the user to confirm the rest once.
 - **Padding** (left 0-20, top 0-38 px; default 10 / 20): moves the whole dash away from the screen's edges. On the
   user's wheel the top needed 20 px; the part below the divider is squeezed ~18 px so the dash still fits.
 - **Logo screensaver** between sessions: `assets/logo-nobg.png` on black, its 13 rev dots running a 4 s sweep.
-- User dashes: JSON files in `SimHub\PluginsData\Common\FXProRpmSync\Dashes\*.json` appear in the dash list.
-  **Save a copy of this dash to edit** writes the selected dash there as a starting point; **Reload dashes** picks up
-  edits. The settings page shows a live preview (drawn the way the screen draws it) and layout warnings.
+- User dashes: JSON files in `SimHub\PluginsData\Common\FXProRpmSync\Dashes\*.json` appear in the dash list. Make
+  them in the **dash designer** (button on the settings page; [dash-designer.md](dash-designer.md)), which also imports
+  SimHub dashes and shows the dash on the wheel while you edit. The settings page shows a live preview and warnings.
 
 What the screen can and can't do (all measured on the wheel, FXProDashes `docs/custom-dash.md`):
 
@@ -60,52 +60,8 @@ What the screen can and can't do (all measured on the wheel, FXProDashes `docs/c
 
 ## Dash file format
 
-A dash is a `DashDefinition` (`Usb/DashModel.cs`): JSON, 800x480 screen pixels, elements drawn in order. The built-in
-Mustang saved with **Save a copy** is a complete example (~45 KB).
-
-```json
-{
-  "FormatVersion": 1, "Id": "my-dash", "Name": "My dash", "Author": "...", "Description": "...",
-  "Elements": [
-    { "Type": "rect",    "X": 30, "Y": 268, "W": 747, "H": 3, "Color": "#428AED" },
-    { "Type": "ellipse", "X": 209, "Y": 36, "W": 380, "H": 153, "Color": "#FFFFFF", "Fill": "#1B1F3C", "Border": 4 },
-    { "Type": "box",     "X": 27, "Y": 379, "W": 87, "H": 62, "Color": "#3277AE", "Border": 3, "Radius": 10 },
-    { "Type": "label",   "X": 0, "Y": 0, "W": 231, "H": 25, "Text": "Fuel Last Lap", "Font": 14, "Color": "#D3D3D3", "Align": "left" },
-    { "Type": "value",   "X": 57, "Y": 318, "W": 309, "H": 50, "Bind": "currentLapTime", "Format": "laptime",
-      "Font": 100, "Color": "#D3D3D3", "Align": "left", "Empty": "-:--.---", "Samples": ["8:88.888"] },
-    { "Type": "deltabar", "Bind": "delta", "Y": 303, "H": 70, "Segments": 7, "SegmentX": [383, 409, ...],
-      "SegmentWidth": 20, "Range": 1, "PositiveColor": "#FF0000", "NegativeColor": "#00FF00", "SegmentColor": "#808080" },
-    { "Type": "popup", "X": 280, "Y": 229, "W": 237, "H": 167, "Radius": 10, "Font": 101, "ValueFont": 35,
-      "Duration": 2, "Color": "#000000",
-      "Watch": [ { "Bind": "tcLevel", "Label": "TC", "Color": "#28598B", "Format": "int" } ] }
-  ]
-}
-```
-
-| Type | Drawn | Fields |
-|---|---|---|
-| `rect` | once | `Color` |
-| `ellipse` | once | `Color` (rim), `Fill` (inside), `Border` (rim width) |
-| `box` | once | rounded frame: `Color` (border), `Fill`, `Border`, `Radius` |
-| `label` | once, no background | `Text`, `Font`, `Color`, `Align` (left / center / right) |
-| `value` | on change, solid `Background` (default black; must match what's under it) | `Bind`, `Format`, `Scale`, `Empty`, `Font`, `Color`, `Align`, `PositiveColor` / `NegativeColor` (colour by sign), `Samples` (widest texts, checked) |
-| `deltabar` | per segment on change | two halves of `Segments` segments filling from the centre: positive values fill the left half in `PositiveColor`, negative the right in `NegativeColor`; `Range` = value of a full half |
-| `popup` | for `Duration` s when a watched value changes, then the area is restored | `Watch` list (`Bind`, `Label`, `Color`, `Format`), `Font` (label), `ValueFont`, `Color` (text) |
-
-Formats: `"0"`, `"0.0"`, `"0.00"`, `"0.000"` (any .NET number format), `int`, `laptime` (m:ss.fff), `gear` (R / N /
-number), `delta` (+0.00 / -0.00), `text`.
-
-Bindings (`Usb/DashValues.cs`, same values live and in the demo): `speed`, `gear`, `rpm`, `maxRpm`, `throttle`, `brake`,
-`clutch`, `currentLapTime`, `lastLapTime`, `bestLapTime` (seconds), `delta` (s to session best, + = slower; SimHub's
-`PersistantTrackerPlugin.SessionBestLiveDeltaSeconds`), `predictedLap` (`EstimatedLapTime_SessionBestBased`),
-`position`, `lap`, `completedLaps`, `fuel`, `fuelPercent`, `fuelLastLap`, `fuelThisLap`, `fuelRemainingLaps`
-(SimHub's `Computed.Fuel_*`), `virtualEnergy` (LMU, %), `brakeBias`, `absLevel`, `tcLevel`, `tcCut` (ACC, iRacing, LMU),
-`tcSlip` (LMU), `engineMap`, `sessionTypeName`, `waterTemp`, `oilTemp`; `throttleMap` and `pas` are demo-only for now.
-Anything else: `"prop:<SimHub property>"`, e.g. `"prop:DataCorePlugin.GameRawData.PlayerNativeTelemetry.mVirtualEnergy"`.
-
-Layout checks (settings page, `DashRenderer.Check`): each text's font height and widest text (`Samples`, `Empty`,
-labels) against its box, glyphs the font lacks, a value's background covering a shape, overlapping text boxes, and the
-dash running off the screen once padded.
+Moved to [dash-format.md](dash-format.md) (FormatVersion 2: conditions, data colours, bars, gradients, images, SimHub
+formula bindings). Designing, importing SimHub dashes, the HTTP API and `fxdash`: [dash-designer.md](dash-designer.md).
 
 ## Lights
 

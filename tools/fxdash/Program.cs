@@ -23,7 +23,8 @@ internal static class FxDash
   fxdash builtin [ID] [OUT.json]             list built-in dashes, or write one out as a starting point
   fxdash simhub                              installed SimHub dashes
   fxdash simhub-screens NAME|PATH            screens of a SimHub dash
-  fxdash import NAME|PATH OUT.json [--screen NAME|INDEX] [--no-images] [--colors N] [--max-seconds S] [--png OUT.png]
+  fxdash import NAME|PATH OUT.json [--screen NAME|INDEX] [--no-images] [--colors N] [--max-seconds S] [--fit W,H] [--png OUT.png]
+                                             (--fit: scale into W x H, e.g. 790,460 to leave the wheel's padding)
                                              convert a SimHub dash (report on stdout)
   fxdash serve [--port 8899]                 run the designer in the browser (no wheel; SimHub formulas not evaluated)
 
@@ -81,6 +82,7 @@ internal static class FxDash
                         ImageColors = opts.TryGetValue("colors", out var col) ? int.Parse(col) : 6,
                         MaxDrawSeconds = opts.TryGetValue("max-seconds", out var ms) ? double.Parse(ms) : 8,
                     };
+                    if (opts.TryGetValue("fit", out var fit)) { var (fw, fh) = ParsePad(fit); io.FitWidth = fw; io.FitHeight = fh; }
                     var (dash, report) = DashTools.Import(pos[1], io);
                     File.WriteAllText(pos[2], DashTools.Serialize(dash));
                     if (opts.TryGetValue("png", out var png)) File.WriteAllBytes(png, DashTools.Render(dash));
