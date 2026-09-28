@@ -342,6 +342,7 @@ namespace User.FXProRpmSync
             MergeColourTwins(d, changes, Name);
             FlattenGradients(d, changes, Name);
             SwapOverlaid(d, changes, Name);
+            MergeTurnTwins(d, changes, Name);
             GrowTags(d, changes, Name);
             OffFrames(d, changes, Name);
             FitText(d, changes, Name);
@@ -409,7 +410,8 @@ namespace User.FXProRpmSync
                     a.ColorBind = $"ncalc:if({cb}, '{b.Color ?? "#FFFFFF"}', '{a.Color ?? "#FFFFFF"}')";
                     a.Visible = new List<string> { $"ncalc:({ca}) or ({cb})" };
                     a.Samples = (a.Samples ?? new string[0]).Concat(b.Samples ?? new string[0]).Distinct().ToArray();
-                    d.Elements.RemoveAt(j); j--;
+                    // drawn where the later one was (over anything between them)
+                    d.Elements[j] = a; d.Elements.RemoveAt(i); i--; break;
                     changes.Add($"{an} + {bn}: one value coloured by condition (both showed at once, over each other)");
                 }
         }
@@ -611,6 +613,36 @@ namespace User.FXProRpmSync
                                                   : Color.FromArgb((a.R + b.R) / 2, (a.G + b.G) / 2, (a.B + b.B) / 2);
                 g.Type = "rect"; g.Color = $"#{mid.R:X2}{mid.G:X2}{mid.B:X2}"; g.Colors = null;
                 changes.Add($"{name(g)}: gradient -> flat {g.Color}, as a value's text is drawn on it");
+            }
+        }
+
+        /// <summary>
+        /// The same value twice in the same place, one shown under a condition (red while the energy is low) and the
+        /// other hidden then (they take turns): one value, coloured by that condition, drawn once.
+        /// </summary>
+        private static void MergeTurnTwins(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            foreach (var b in d.Elements.Where(x => x.Type == "value" && x.Visible != null && x.Visible.Count == 1 && x.Visible[0].StartsWith("ncalc:")).ToList())
+            {
+                if (!d.Elements.Contains(b)) continue;
+                string not = "ncalc:!(" + b.Visible[0].Substring(6) + ")";
+                var a = d.Elements.FirstOrDefault(x => x != b && x.Type == "value" && x.Bind == b.Bind && x.Visible != null && x.Visible.Contains(not)
+                                                       && Rectangle.Intersect(Box(x), Box(b)).Width * Rectangle.Intersect(Box(x), Box(b)).Height >= 0.8 * Math.Min(x.W * x.H, b.W * b.H)
+                                                       && string.IsNullOrEmpty(x.ColorBind) && x.Format == b.Format);
+                if (a == null) continue;
+                string ca = a.Color ?? "#FFFFFF", cb = b.Color ?? "#FFFFFF";
+                // b's own colour rule (if any) wins while b's condition holds
+                string bColour = !string.IsNullOrEmpty(b.ColorBind) && b.ColorBind.StartsWith("ncalc:") ? b.ColorBind.Substring(6) : "'" + cb + "'";
+                a.ColorBind = $"ncalc:if({b.Visible[0].Substring(6)}, {bColour}, '{ca}')";
+                a.Visible = a.Visible.Where(c => c != not).ToList();
+                if (a.Visible.Count == 0) a.Visible = null;
+                a.Samples = (a.Samples ?? new string[0]).Concat(b.Samples ?? new string[0]).Distinct().ToArray();
+                string an = name(a), bn = name(b);
+                // drawn where the later of the two was (over the tiles the conditional one sat on)
+                int at = Math.Max(d.Elements.IndexOf(a), d.Elements.IndexOf(b));
+                d.Elements[at] = a;
+                d.Elements.RemoveAt(d.Elements.IndexOf(a) == at ? d.Elements.IndexOf(b) : d.Elements.IndexOf(a));
+                changes.Add($"{an} + {bn}: one value, coloured while {bn} would show (they took turns in the same place)");
             }
         }
 
