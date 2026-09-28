@@ -156,6 +156,7 @@ namespace User.FXProRpmSync
         internal UsbController Usb { get; private set; }
         private long lastUsbPublishTicks, lastAtsrTicks;
         private string atsrMapText;
+        private DateTime nextAtsrPickUtc;
         private int[] atsrMap;
         /// <summary>The current car's rev lights in real RPM, after any per-car override (null = not known).</summary>
         public RpmLayout CurrentLightsLayout { get; private set; }
@@ -268,6 +269,18 @@ namespace User.FXProRpmSync
                 try
                 {
                     if (atsrMap == null || atsrMapText != usb.AtsrMap) { atsrMapText = usb.AtsrMap; atsrMap = AtsrBridge.ParseMap(usb.AtsrMap, out _); }
+                    // No device picked yet: take ATSR-Hub's only published device (checked every 3 s).
+                    if (string.IsNullOrEmpty(usb.AtsrDevice) && DateTime.UtcNow >= nextAtsrPickUtc)
+                    {
+                        nextAtsrPickUtc = DateTime.UtcNow.AddSeconds(3);
+                        var devices = AtsrBridge.Devices(pluginManager);
+                        if (devices.Count == 1)
+                        {
+                            usb.AtsrDevice = devices[0];
+                            SaveSettings();
+                            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode lights from ATSR-Hub device " + devices[0]);
+                        }
+                    }
                     var frame = AtsrBridge.Read(pluginManager, usb.AtsrDevice, atsrMap, usb.AtsrBrightness);
                     if (frame != null) Usb.PublishExternal(frame);
                 }
