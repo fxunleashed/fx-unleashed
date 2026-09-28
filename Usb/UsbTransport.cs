@@ -169,6 +169,12 @@ namespace User.FXProRpmSync
         private readonly System.Diagnostics.Stopwatch pace = System.Diagnostics.Stopwatch.StartNew();
         private double credit = Burst, creditAt;
 
+        /// <summary>
+        /// Called (on the sending thread) while a command waits for the pacing: a busy dash must not hold up the lights,
+        /// so the controller sends LED frames from here. Must not send screen commands.
+        /// </summary>
+        public Action Waiting;
+
         public FxHostScreen(FxConnection c) { this.c = c; }
 
         /// <summary>
@@ -232,12 +238,13 @@ namespace User.FXProRpmSync
                 double t = pace.Elapsed.TotalSeconds;
                 credit = Math.Min(Burst, credit + (t - creditAt) * Rate);
                 creditAt = t;
-                if (credit < n)
+                while (credit < n)
                 {
-                    Thread.Sleep((int)Math.Ceiling((n - credit) * 1000 / Rate));
+                    try { Waiting?.Invoke(); } catch { }
                     t = pace.Elapsed.TotalSeconds;
                     credit = Math.Min(Burst, credit + (t - creditAt) * Rate);
                     creditAt = t;
+                    if (credit < n) Thread.Sleep(Math.Min(10, (int)Math.Ceiling((n - credit) * 1000 / Rate)));
                 }
                 credit -= n;
             }

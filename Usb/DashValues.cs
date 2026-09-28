@@ -313,6 +313,9 @@ namespace User.FXProRpmSync
         private readonly Dictionary<string, object> results = new Dictionary<string, object>();
         private readonly HashSet<string> unresolved = new HashSet<string>();
         private double lastFormulas = double.NegativeInfinity;
+        private string[] toEval = new string[0];
+        private int cursor;
+        private readonly System.Diagnostics.Stopwatch budget = new System.Diagnostics.Stopwatch();
 
         public UsbDemo(DashDefinition dash = null) { UseDash(dash); }
 
@@ -324,6 +327,10 @@ namespace User.FXProRpmSync
             formulas = d == null ? null : new DemoFormulas(d.ScriptsFolder);
             results.Clear(); unresolved.Clear();
             lastFormulas = double.NegativeInfinity;
+            cursor = 0;
+            toEval = d == null ? new string[0] : d.Bindings
+                .Where(b => !DashValues.KnownKey(b) && (b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)))
+                .ToArray();
         }
 
         private readonly DemoCar car = new DemoCar();
@@ -372,19 +379,22 @@ namespace User.FXProRpmSync
             return r;
         }
 
-        /// <summary>Every binding of the dash the built-in keys don't cover, 10 times a second.</summary>
+        /// <summary>
+        /// Every binding of the dash the built-in keys don't cover, up to 10 times a second, but at most ~4 ms of it per
+        /// frame (the wheel's lights run on the same thread): a dash with hundreds of formulas refreshes them in turns.
+        /// </summary>
         private void FillDash(DashValues r)
         {
-            if (t - lastFormulas >= 0.099)
+            if (t - lastFormulas >= 0.099 && toEval.Length > 0)
             {
-                lastFormulas = t;
-                results.Clear(); unresolved.Clear();
-                foreach (var b in dash.Bindings)
+                budget.Restart();
+                for (int k = 0; k < toEval.Length && (k == 0 || budget.Elapsed.TotalMilliseconds < 4); k++)
                 {
-                    if (DashValues.KnownKey(b) || !(b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)))
-                        continue;
+                    var b = toEval[cursor];
+                    cursor = (cursor + 1) % toEval.Length;
+                    if (cursor == 0) lastFormulas = t; // all of them done: next round in 0.1 s
                     var o = formulas.Eval(b, r, t, out bool known);
-                    if (known) results[b] = o; else unresolved.Add(b);
+                    if (known) { results[b] = o; unresolved.Remove(b); } else { results.Remove(b); unresolved.Add(b); }
                 }
             }
             foreach (var kv in results) r.Set(kv.Key, kv.Value);

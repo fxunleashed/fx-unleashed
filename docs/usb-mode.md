@@ -122,7 +122,15 @@ Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, 
   host-screen word at +4 (`FXS1`), active only while a USB screen packet arrived in the last second.
 - **Pacing: 25 KB/s to the screen**, 150 ms pause after a `page` command. Unpaced, USB pushes ~30 KB/s, faster than the
   screen draws small fills; the overflow is lost, and a burst right after a page change froze the screen until the
-  wheel was power cycled (seen 2026-09-27, fixed by the pacing).
+  wheel was power cycled (seen 2026-09-27, fixed by the pacing). While a screen command waits for the pacing, the LED
+  frames keep going out (`FxHostScreen.Waiting`): a dash that sends too much slows its own updates, never the lights.
+- The renderer sends only what changed: a value redraws the strip its old and new text cover (not its whole box), the
+  elements under that strip are drawn back in place and only those above are marked for a redraw (so two overlapping
+  elements can't keep redrawing each other), and anything over a solid pop-up waits until it's uncovered. Screen
+  commands are at most 58 characters; longer text is cut. `tools/UsbTest <dir> traffic DASH.json [diverge]` measures
+  a dash's traffic over the demo lap and checks every update against a full redraw.
+- Demo SimHub formulas are evaluated round-robin within ~4 ms per frame, so a dash with hundreds of them can't stall
+  the lights either.
 - Taking the screen: keepalive, mode word, 30 ms, lone `FF FF FF` (clears half a command the wheel may have sent), then
   `page 0` (no screen timers), `vis 255,0`, `cls 0`. Giving it back: `page dp`, keepalive stops, mode word 0.
 - USB limit: ~500 reports/s in total. Typical load: LEDs 90 reports/s (38 LEDs, 30 frames/s), dash ~40/s.

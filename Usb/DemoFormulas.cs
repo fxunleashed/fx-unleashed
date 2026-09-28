@@ -422,7 +422,7 @@ namespace User.FXProRpmSync
             if (l.Contains("temp"))
             {
                 bool kelvin = raw && (l.Contains("tire") || l.Contains("tyre")) && fl.Contains("gameraw");
-                if (l.Contains("brake")) return 480 + 330 * W(24);
+                if (l.Contains("brake")) return 480 + 330 * W(60);
                 if (l.Contains("tire") || l.Contains("tyre") || l.Contains("layer") || l.Contains("carcass") || l.Contains("surface"))
                     return (kelvin ? 273.15 : 0) + 86 + 5 * W(40);
                 if (l.Contains("oil")) return 104 + 2 * W(60);
@@ -446,6 +446,9 @@ namespace User.FXProRpmSync
             if (l.Contains("timeleft") || l.Contains("timeremain")) return TimeSpan.FromSeconds(Math.Max(0, 2700 - t));
             if (l.Contains("sector")) return l.Contains("flag") ? 0 : raw ? (object)(double)SectorOf(v, 0) : (double)SectorOf(v, 1);
             if (l.Contains("energy")) return l.Contains("lap") ? 3.9 + 0.2 * W(90) : 62 + 25 * W(120);
+            // on/off states first: "FuelAlertActive" is a flag, not the fuel
+            if (l.EndsWith("active") || l.EndsWith("enabled") || l.EndsWith("available") || l.EndsWith("reached") || l.EndsWith("warning") || l.EndsWith("alert"))
+                return 0;
             if (l.Contains("rpm")) return v.Number("rpm");
             if (l.Contains("speed")) return v.Number("speed");
             if (l.Contains("fuel")) return v.Number("fuel");

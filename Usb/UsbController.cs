@@ -289,7 +289,7 @@ namespace User.FXProRpmSync
             {
                 if (!source && s.ScreenSaver)
                 {
-                    if (screen == null) { screen = new FxHostScreen(conn); screen.Take(); }
+                    if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); }
                     if (saver == null)
                     {
                         renderer = null; dash = null; dashKey = null;
@@ -308,7 +308,7 @@ namespace User.FXProRpmSync
             dashKey = key;
             var errors = new List<string>();
             dash = pd ?? DashLibrary.Load(errors).FirstOrDefault(d => d.Id == s.DashId) ?? BuiltInDashes.MustangGt3();
-            if (screen == null) { screen = new FxHostScreen(conn); screen.Take(); }
+            if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); }
             var room = DashRenderer.Room(dash);
             int padL = pd != null ? previewLeft : s.PadLeft, padT = pd != null ? previewTop : s.PadTop;
             renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, padL), room.Right), Math.Min(Math.Max(0, padT), room.Down));
@@ -361,6 +361,26 @@ namespace User.FXProRpmSync
                          ". The dash takes over the screen when a game runs.";
             }
 
+            frameS = s; frameV = v; frameSource = source; frameTesting = testing;
+            SendLeds(now);
+            if (renderer != null && now - lastDash >= 0.1)
+            {
+                lastDash = now;
+                renderer.Update(v, now);
+            }
+            // The logo goes out in slices (~24 commands per frame) so the lights keep animating while it draws in.
+            if (saver != null && screen != null) saver.Step(screen, now, 24);
+        }
+
+        // what the current frame's lights are made from (SendLeds also runs while the screen waits for its pacing)
+        private UsbSettings frameS;
+        private DashValues frameV;
+        private bool frameSource, frameTesting;
+
+        private void SendLeds(double now)
+        {
+            var s = frameS; var v = frameV; bool source = frameSource, testing = frameTesting;
+            if (s == null || v == null) return;
             if (leds != null && now - lastLed >= 1.0 / 30)
             {
                 lastLed = now;
@@ -376,13 +396,6 @@ namespace User.FXProRpmSync
                 leds.Send();
                 LastFrame = frame;
             }
-            if (renderer != null && now - lastDash >= 0.1)
-            {
-                lastDash = now;
-                renderer.Update(v, now);
-            }
-            // The logo goes out in slices (~24 commands per frame) so the lights keep animating while it draws in.
-            if (saver != null && screen != null) saver.Step(screen, now, 24);
         }
 
         /// <summary>Gives the screen back (stock dash) and the LEDs (SimPro's colours).</summary>

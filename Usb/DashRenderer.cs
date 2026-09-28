@@ -116,6 +116,9 @@ namespace User.FXProRpmSync
             public string Key, Sent;        // wanted / last drawn state
             public Color Colour;            // text / shape colour now
             public string Text;
+            public Rectangle? TextAt;       // where the value's text was last drawn (its extent in the box)
+            public bool SolidAt;            // ...with its background (all of TextAt painted), not just the glyphs
+            public int SolidBg;             // that background
             public int? StaticBg;           // the one colour under the box in the static layer, if it is one
             public int[] Px;                // shape pixels for Key (Transparent = not drawn)
             public string PxKey;
@@ -156,8 +159,11 @@ namespace User.FXProRpmSync
                     case "popup": n.Kind = "popup"; popups.Add(n); continue;
                     default: continue; // unknown types are reported by Check
                 }
-                if (n.Kind == "label" && !e.IsDynamic) { n.Colour = DashColors.Parse(e.Color, Color.White); staticLabels.Add(n); }
-                else if (e.IsDynamic || n.Kind != "shape") dynamic.Add(n);
+                // a label over something that changes (a bar, a value, a shown/hidden shape) must be drawn again after it
+                bool overDynamic = n.Kind == "label" && dynamic.Any(m => m.R.IntersectsWith(n.R));
+                if (n.Kind == "label" && overDynamic) n.Colour = DashColors.Parse(e.Color, Color.White);
+                if (n.Kind == "label" && !e.IsDynamic && !overDynamic) { n.Colour = DashColors.Parse(e.Color, Color.White); staticLabels.Add(n); }
+                else if (e.IsDynamic || n.Kind != "shape" || overDynamic) dynamic.Add(n);
             }
             staticPx = BuildStatic();
             foreach (var n in dynamic) n.StaticBg = Uniform(staticPx, Width, Clip(n.R));
@@ -467,9 +473,18 @@ namespace User.FXProRpmSync
         }
 
         // sta (TJC): 1 = solid background, 3 = none.
-        private string Xstr(Rectangle r, int font, int colour, int bg, int xcen, int sta, string text) =>
-            string.Format(CultureInfo.InvariantCulture, "xstr {0},{1},{2},{3},{4},{5},{6},{7},1,{8},\"{9}\"",
-                r.X + dx, r.Y + dy, r.Width, r.Height, font, colour, bg, xcen, sta, Clean(text));
+        private string Xstr(Rectangle r, int font, int colour, int bg, int xcen, int sta, string text)
+        {
+            string head = string.Format(CultureInfo.InvariantCulture, "xstr {0},{1},{2},{3},{4},{5},{6},{7},1,{8},",
+                r.X + dx, r.Y + dy, r.Width, r.Height, font, colour, bg, xcen, sta);
+            // a screen command is at most 58 characters: longer text is cut (it wouldn't fit a box anyway)
+            string t = Clean(text);
+            int room = MaxCommand - head.Length - 2;
+            if (t.Length > room) t = t.Substring(0, Math.Max(0, room));
+            return head + "\"" + t + "\"";
+        }
+
+        public const int MaxCommand = 58;
 
         /// <summary>Quotes would end the command; anything outside ASCII has no glyph.</summary>
         private static string Clean(string s) => new string((s ?? "").Where(c => c >= 32 && c < 127 && c != '"').ToArray());
@@ -484,7 +499,7 @@ namespace User.FXProRpmSync
             screen.Cmd("cls 0");
             SendFills(staticPx, Width, new Rectangle(0, 0, Width, Height), 0, 0, 0);
             foreach (var l in staticLabels) DrawLabel(l, l.Colour);
-            foreach (var n in dynamic) { n.Shown = false; n.Sent = null; if (n.SegSent != null) for (int k = 0; k < n.SegSent.Length; k++) n.SegSent[k] = null; }
+            foreach (var n in dynamic) { n.Shown = false; n.Sent = null; n.TextAt = null; if (n.SegSent != null) for (int k = 0; k < n.SegSent.Length; k++) n.SegSent[k] = null; }
             foreach (var p in popups) { p.Until = -1; p.Last.Clear(); }
             screen.Flush();
         }
@@ -494,6 +509,9 @@ namespace User.FXProRpmSync
             var bg = n.E.Background != null ? Rgb565(n.E.Background) : 0;
             screen.Cmd(Xstr(n.R, n.E.Font, DashColors.To565(colour), bg, n.XCen, 3, n.Text));
         }
+
+        /// <summary>Diagnostics (tools): when set, how often each element was drawn by Update.</summary>
+        internal Dictionary<DashElement, int> DrawCounts;
 
         /// <summary>Redraws what changed. `now` in seconds.</summary>
         public void Update(DashValues v, double now)
@@ -506,7 +524,7 @@ namespace User.FXProRpmSync
 
             // Hidden since last time: repaint their areas (this also marks what's under/over them for a redraw)
             foreach (var n in dynamic)
-                if (n.Shown && !n.Visible) { n.Shown = false; n.Sent = null; Repaint(n.R); }
+                if (n.Shown && !n.Visible) { n.Shown = false; n.Sent = null; n.TextAt = null; Repaint(n.R); }
             foreach (var p in popups)
                 if (p.Until >= 0 && now >= p.Until) { p.Until = -1; Repaint(p.R); }
 
@@ -514,6 +532,7 @@ namespace User.FXProRpmSync
             foreach (var n in dynamic)
             {
                 if (!n.Visible || Covered(n.R)) continue;
+                if (DrawCounts != null && !(n.Shown && n.Sent == n.Key)) DrawCounts[n.E] = (DrawCounts.TryGetValue(n.E, out var dc) ? dc : 0) + 1;
                 switch (n.Kind)
                 {
                     case "shape":
@@ -524,18 +543,24 @@ namespace User.FXProRpmSync
                         break;
                     case "label":
                         if (n.Shown && n.Sent == n.Key) break;
+                        // on its old self (colour change, or redrawn over something that changed): clean area first
+                        if (n.Shown) Repaint(LabelInk(n), n.Index);
                         DrawLabel(n, n.Colour);
                         n.Shown = true; n.Sent = n.Key;
                         break;
                     case "value":
                         if (n.Shown && n.Sent == n.Key) break;
+                        // under a solid element drawn after it (a pop-up box): nothing would show; drawn once uncovered
+                        if (Occluded(n, TextExtent(n, n.Text))) break;
                         DrawValue(n);
                         n.Shown = true; n.Sent = n.Key;
+                        MarkAbove(n, n.TextAt ?? n.R);
                         break;
                     case "bar":
                         if (n.Shown && n.Sent == n.Key) break;
                         DrawBar(n);
                         n.Shown = true; n.Sent = n.Key;
+                        MarkAbove(n); // what's over the bar was painted over
                         break;
                     case "deltabar":
                         UpdateDeltaBar(n, v);
@@ -625,11 +650,36 @@ namespace User.FXProRpmSync
             SendFills(n.Px, Math.Max(1, n.E.W), local, Transparent, n.R.X, n.R.Y);
         }
 
-        /// <summary>Later dynamic elements over `n` must be drawn again.</summary>
-        private void MarkAbove(Node n)
+        /// <summary>Later dynamic elements over `n` (or over `area` of it) must be drawn again.</summary>
+        private void MarkAbove(Node n, Rectangle? area = null)
         {
+            var r = area ?? n.R;
             foreach (var m in dynamic)
-                if (m.Index > n.Index && m.R.IntersectsWith(n.R)) Invalidate(m);
+                if (m.Index > n.Index && m.Shown && m.Visible && (m.Kind == "value" && m.TextAt.HasValue ? Ink(m) : m.R).IntersectsWith(r)) Invalidate(m);
+        }
+
+        /// <summary>`area` of `n` lies under one solid shape shown after it (nothing of `n` there would be seen).</summary>
+        private bool Occluded(Node n, Rectangle area)
+        {
+            area = Rectangle.Intersect(Clip(area), n.R);
+            if (area.Width <= 0 || area.Height <= 0) return false;
+            foreach (var m in dynamic)
+            {
+                if (m.Index <= n.Index || m.Kind != "shape" || !m.Shown || !m.Visible || m.Px == null || !m.R.Contains(area)) continue;
+                var local = area; local.Offset(-m.R.X, -m.R.Y);
+                var c = Uniform(m.Px, Math.Max(1, m.E.W), local);
+                if (c.HasValue && c != Transparent) return true;
+                if (!c.HasValue && Opaque(m.Px, Math.Max(1, m.E.W), local)) return true;
+            }
+            return false;
+        }
+
+        private static bool Opaque(int[] px, int stride, Rectangle r)
+        {
+            for (int y = r.Top; y < r.Bottom; y++)
+                for (int x = r.Left; x < r.Right; x++)
+                    if (px[y * stride + x] == Transparent) return false;
+            return true;
         }
 
         private static void Invalidate(Node m)
@@ -642,18 +692,99 @@ namespace User.FXProRpmSync
         /// An area back as it should look under the dynamic text: the static layer, static labels touching it, and the
         /// dynamic shapes shown there (clipped); dynamic text, bars and later shapes there are marked for a redraw.
         /// </summary>
-        private void Repaint(Rectangle area)
+        /// <param name="layer">
+        /// The element being drawn over the area: bars and text below it that are up to date are drawn back straight away
+        /// (not marked, which would make them draw again and mark this one: two overlapping elements redrawing each
+        /// other every frame). 0 = mark everything (an element hidden, a pop-up gone).
+        /// </param>
+        private void Repaint(Rectangle area, int layer = 0)
         {
             area = Clip(area);
             if (area.Width <= 0 || area.Height <= 0) return;
+            // Text drawn back over the area must have all of it under the repaint: drawn again over its own old pixels
+            // (no background), its anti-aliased edges would thicken. So the area grows to take in the text it touches.
+            for (int pass = 0; pass < 4; pass++)
+            {
+                var grown = area;
+                foreach (var l in staticLabels) { var ink = LabelInk(l); if (ink.IntersectsWith(area)) grown = Rectangle.Union(grown, ink); }
+                if (layer > 0)
+                    foreach (var n in dynamic)
+                    {
+                        if (n.Index >= layer || !n.Shown || !n.Visible || n.Sent != n.Key) continue;
+                        var ink = n.Kind == "label" ? LabelInk(n) : n.Kind == "value" && n.TextAt.HasValue ? Ink(n) : Rectangle.Empty;
+                        if (!ink.IsEmpty && ink.IntersectsWith(area)) grown = Rectangle.Union(grown, ink);
+                    }
+                grown = Clip(grown);
+                if (grown == area) break;
+                area = grown;
+            }
             SendFills(staticPx, Width, area, -2, 0, 0);
-            foreach (var l in staticLabels) if (l.R.IntersectsWith(area)) DrawLabel(l, l.Colour);
+            foreach (var l in staticLabels) if (LabelInk(l).IntersectsWith(area)) DrawLabel(l, l.Colour);
             foreach (var n in dynamic)
             {
-                if (!n.R.IntersectsWith(area)) continue;
-                if (n.Kind == "shape" && n.Shown && n.Visible) DrawShapeNode(n, area);
+                // a value only needs drawing again where its text is (its box may reach well past it)
+                if (!(n.Kind == "value" && n.TextAt.HasValue ? Ink(n) : n.R).IntersectsWith(area)) continue;
+                if (n.Kind == "shape" && n.Shown && n.Visible) { DrawShapeNode(n, area); continue; }
+                bool below = n.Index < layer && n.Shown && n.Visible && n.Sent == n.Key && !Covered(n.R);
+                if (below && n.Kind == "bar") DrawBar(n, area);
+                else if (below && n.Kind == "label") DrawLabel(n, n.Colour);
+                else if (below && n.Kind == "value" && n.TextAt.HasValue) // as it was drawn: with its background, if it had one
+                    screen.Cmd(Xstr(n.TextAt.Value, n.E.Font, DashColors.To565(n.Colour), n.SolidBg, n.XCen, n.SolidAt ? 1 : 3, n.Text));
                 else Invalidate(n);
             }
+        }
+
+        /// <summary>
+        /// The one colour under `area` now (static layer and the dynamic shapes shown before element `index`), or null.
+        /// </summary>
+        private int? BackgroundIn(Rectangle area, int index)
+        {
+            area = Clip(area);
+            if (area.Width <= 0 || area.Height <= 0) return null;
+            int? under = Uniform(staticPx, Width, area);
+            foreach (var m in dynamic)
+            {
+                if (m.Index >= index) break;
+                if (m.Kind != "shape" || !m.Shown || !m.R.IntersectsWith(area)) continue;
+                if (m.Px == null) return null;
+                var local = Rectangle.Intersect(area, m.R);
+                if (local != area) return null;
+                local.Offset(-m.R.X, -m.R.Y);
+                var c = Uniform(m.Px, Math.Max(1, m.E.W), local);
+                if (c == Transparent) continue;
+                under = c;
+                if (under == null) return null;
+            }
+            return under == Transparent ? null : under;
+        }
+
+        /// <summary>The pixels a label's text can cover in its box.</summary>
+        private static Rectangle LabelInk(Node n)
+        {
+            var r = n.R;
+            int w = Math.Min(r.Width, Math.Max(0, TextWidth(n.E.Font, n.Text)) + 4);
+            int x = n.XCen == 1 ? r.X + (r.Width - w) / 2 : n.XCen == 2 ? r.Right - w : r.X;
+            int h = Math.Min(r.Height, FontHeight(n.E.Font) + 2);
+            return new Rectangle(x, r.Y + (r.Height - h) / 2, w, h);
+        }
+
+        /// <summary>The pixels a drawn value's text can cover: its strip, only the font's height (centred) of it.</summary>
+        private static Rectangle Ink(Node n)
+        {
+            var r = n.TextAt.Value;
+            if (n.SolidAt) return r;
+            int h = Math.Min(r.Height, FontHeight(n.E.Font) + 2);
+            return new Rectangle(r.X, r.Y + (r.Height - h) / 2, r.Width, h);
+        }
+
+        /// <summary>Where a value's text lands in its box (full box height, a little margin for glyph overhang).</summary>
+        private static Rectangle TextExtent(Node n, string text)
+        {
+            // glyphs can reach past their advance width, and the screen clips text to its box: room on both sides
+            int margin = 4 + FontHeight(n.E.Font) / 4;
+            int w = Math.Min(n.R.Width, Math.Max(0, TextWidth(n.E.Font, text)) + 2 * margin);
+            int x = n.XCen == 1 ? n.R.X + (n.R.Width - w) / 2 : n.XCen == 2 ? n.R.Right - w : n.R.X;
+            return new Rectangle(x, n.R.Y, w, n.R.Height);
         }
 
         /// <summary>The background colour under a value/bar now, or null when it isn't one colour (then: repaint).</summary>
@@ -679,12 +810,26 @@ namespace User.FXProRpmSync
         {
             int colour = DashColors.To565(n.Colour);
             var bg = BackgroundUnder(n);
-            if (bg.HasValue) { screen.Cmd(Xstr(n.R, n.E.Font, colour, bg.Value, n.XCen, 1, n.Text)); return; }
-            Repaint(n.R);
-            screen.Cmd(Xstr(n.R, n.E.Font, colour, 0, n.XCen, 3, n.Text));
+            if (bg.HasValue) { screen.Cmd(Xstr(n.R, n.E.Font, colour, bg.Value, n.XCen, 1, n.Text)); n.TextAt = n.R; n.SolidAt = true; n.SolidBg = bg.Value; return; }
+            // Not one colour under the whole box (an image, a gradient, another element's edge): only the strip holding
+            // the old and the new text is redrawn, not the box. Centred / left / right text stays where it was, as that
+            // strip shares the box's centre / left / right edge.
+            var area = TextExtent(n, n.Text);
+            if (n.TextAt.HasValue) area = Rectangle.Union(area, n.TextAt.Value);
+            area = Rectangle.Intersect(area, n.R);
+            if (n.XCen == 1) { int half = Math.Max(n.R.Right - area.Right, 0); int left = Math.Max(area.X - n.R.X, 0); int m = Math.Min(half, left); area = new Rectangle(n.R.X + m, n.R.Y, n.R.Width - 2 * m, n.R.Height); }
+            var strip = BackgroundIn(area, n.Index);
+            if (strip.HasValue) screen.Cmd(Xstr(area, n.E.Font, colour, strip.Value, n.XCen, 1, n.Text));
+            else
+            {
+                Repaint(area, n.Index);
+                screen.Cmd(Xstr(area, n.E.Font, colour, 0, n.XCen, 3, n.Text));
+            }
+            n.TextAt = area; n.SolidAt = strip.HasValue; n.SolidBg = strip ?? 0;
         }
 
-        private void DrawBar(Node n)
+        /// <summary>Draws a bar; `clip`: only that part of it (drawing back what's under a value).</summary>
+        private void DrawBar(Node n, Rectangle? clip = null)
         {
             var e = n.E; var r = n.R;
             bool vertical = e.Orientation == "vertical";
@@ -700,11 +845,12 @@ namespace User.FXProRpmSync
                 filled = e.Reverse ? new Rectangle(r.X, r.Y, r.Width, f) : new Rectangle(r.X, r.Bottom - f, r.Width, f);
                 empty = e.Reverse ? new Rectangle(r.X, r.Y + f, r.Width, len - f) : new Rectangle(r.X, r.Y, r.Width, len - f);
             }
+            if (clip.HasValue) { filled.Intersect(clip.Value); empty.Intersect(clip.Value); }
             if (empty.Width > 0 && empty.Height > 0)
             {
                 int? bg = e.Fill != null ? Rgb565(e.Fill) : BackgroundUnder(n);
                 if (bg.HasValue) screen.Cmd(Fill(empty.X, empty.Y, empty.Width, empty.Height, bg.Value));
-                else Repaint(empty);
+                else Repaint(empty, n.Index);
             }
             if (filled.Width > 0 && filled.Height > 0)
                 screen.Cmd(Fill(filled.X, filled.Y, filled.Width, filled.Height, DashColors.To565(n.Colour)));
