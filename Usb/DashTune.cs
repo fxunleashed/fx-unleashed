@@ -328,6 +328,7 @@ namespace User.FXProRpmSync
             SwapOverlaid(d, changes, Name);
             GrowTags(d, changes, Name);
             OffFrames(d, changes, Name);
+            FitText(d, changes, Name);
             ClearOverlaps(d, changes, Name);
 
             // 9. values on a busy background (a picture or gradient under them): each change redraws all those fills.
@@ -477,6 +478,65 @@ namespace User.FXProRpmSync
             }
         }
 
+        /// <summary>
+        /// Text still taller or wider than its box (what check calls an error): the box grows into free space around it
+        /// (never into other text), else a smaller font (no less than 3/4 of the height), else a label is shortened.
+        /// </summary>
+        private static void FitText(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            // room to grow: no other text newly under it (where a value's text is: its box gets trimmed after)
+            bool Free(DashElement e, Rectangle r) =>
+                Usable.Contains(r) && !d.Elements.Any(o => o != e && (o.Type == "value" || o.Type == "label")
+                                                       && Clash(r, o.Type == "label" ? Covers(o) : Band(o, Widest(o)))
+                                                       && !Clash(Box(e), o.Type == "label" ? Covers(o) : Band(o, Widest(o))));
+            foreach (var e in d.Elements.Where(x => x.Type == "value" || x.Type == "label").ToList())
+            {
+                var texts = Texts(e);
+                if (texts.Count == 0) continue;
+                var before = Box(e); int f0 = e.Font;
+                int fh = DashRenderer.FontHeight(e.Font);
+                // too low: grow, centred, by what's missing
+                if (fh > e.H)
+                {
+                    int need = fh - e.H;
+                    var r = new Rectangle(e.X, e.Y - need / 2, e.W, e.H + need);
+                    if (!Free(e, r)) r = new Rectangle(e.X, e.Y, e.W, e.H + need);
+                    if (!Free(e, r)) r = new Rectangle(e.X, e.Y - need, e.W, e.H + need);
+                    if (Free(e, r)) { e.Y = r.Y; e.H = r.Height; }
+                    else
+                    {
+                        int nf = BestFont(e, texts, e.H, preferNarrow: true, gearOnly: false);
+                        if (nf >= 0 && DashRenderer.FontHeight(nf) >= 0.75 * fh) e.Font = nf;
+                    }
+                }
+                // too narrow: grow from the side its text is anchored to (both for centred), else a smaller font
+                int w = NeedWidth(e, e.Font);
+                if (w > e.W)
+                {
+                    int need = w - e.W + 2;
+                    var tries = e.Align == "center"
+                        ? new[] { new Rectangle(e.X - (need + 1) / 2, e.Y, e.W + need + 1, e.H) }
+                        : e.Align == "right"
+                            ? new[] { new Rectangle(e.X - need, e.Y, e.W + need, e.H), new Rectangle(e.X, e.Y, e.W + need, e.H) }
+                            : new[] { new Rectangle(e.X, e.Y, e.W + need, e.H), new Rectangle(e.X - need, e.Y, e.W + need, e.H) };
+                    var ok = tries.FirstOrDefault(r => Free(e, r));
+                    if (ok != Rectangle.Empty) { e.X = ok.X; e.W = ok.Width; }
+                    else
+                    {
+                        int nf = BestFont(e, texts, e.H, preferNarrow: true, gearOnly: false);
+                        if (nf >= 0 && DashRenderer.FontHeight(nf) >= 0.75 * DashRenderer.FontHeight(f0)) e.Font = nf;
+                        else if (e.Type == "label")
+                        {
+                            string t = Shorten(e.Text, x => Width(e.Font, x) >= 0 && Width(e.Font, x) <= e.W);
+                            if (t.Length > 0 && t != e.Text) { changes.Add($"{name(e)}: \"{e.Text}\" -> \"{t}\" to fit"); e.Text = t; }
+                        }
+                    }
+                }
+                if (Box(e) != before || e.Font != f0)
+                    changes.Add($"{name(e)}: box {Str(before)} -> {Str(Box(e))}{(e.Font != f0 ? $", font {f0} -> {e.Font}" : "")}, so its text fits");
+            }
+        }
+
         private static void GrowTags(DashDefinition d, List<string> changes, Func<DashElement, string> name)
         {
             foreach (var v in d.Elements.Where(x => x.Type == "value").ToList())
@@ -485,16 +545,27 @@ namespace User.FXProRpmSync
                 if (ws.Length == 0) continue;
                 var band = DashRenderer.TextBand(v, v.Font, ws, 1);
                 int vi = d.Elements.IndexOf(v);
+                // a tag made for it (a small rect under it), or a filled panel it sits on that it pokes out of a little
                 var tag = d.Elements.Take(vi).LastOrDefault(r => r.Type == "rect" && (r.Visible == null || r.Visible.Count == 0 || (v.Visible != null && r.Visible.SequenceEqual(v.Visible)))
                                                                  && Box(r).Contains(new Point(band.X + band.Width / 2, band.Y + band.Height / 2))
                                                                  && Box(v).Contains(new Point(r.X + r.W / 2, r.Y + r.H / 2))
                                                                  && r.W * r.H <= v.W * v.H * 1.2);
+                bool panel = false;
+                if (tag == null)
+                {
+                    tag = d.Elements.Take(vi).LastOrDefault(r => (r.Type == "rect" || (r.Type == "box" && r.Fill != null)) && (r.Visible == null || r.Visible.Count == 0)
+                                                               && Box(r).Contains(new Point(band.X + band.Width / 2, band.Y + band.Height / 2)));
+                    panel = true;
+                }
                 if (tag == null) continue;
                 var tb = Box(tag);
-                if (tb.Contains(band)) continue;
-                var grown = Rectangle.Union(tb, Rectangle.Inflate(band, 1, 1));
+                int pad = panel ? Math.Max(tag.Border, 0) + Math.Max(0, tag.Radius / 2) + 1 : 1;
+                if (tb.Contains(Rectangle.Inflate(band, panel ? pad : 0, 0))) continue;
+                var grown = Rectangle.Union(tb, Rectangle.Inflate(band, pad, panel ? 0 : 1));
+                // a panel only grows a little (its layout is the designer's), and only sideways
+                if (panel && (grown.Width - tb.Width > 12 || grown.Height != tb.Height)) continue;
                 if (!Usable.Contains(grown)) continue;
-                bool hits = d.Elements.Any(o => o != v && o != tag && (o.Type == "value" || o.Type == "label") && Clash(grown, Covers(o))
+                bool hits = d.Elements.Any(o => o != v && o != tag && (o.Type == "value" || o.Type == "label") && Clash(grown, Covers(o)) && !Clash(tb, Covers(o))
                                                 && !(o.Visible != null && o.Visible.Count > 0));
                 if (hits) continue;
                 changes.Add($"{name(tag)}: {Str(tb)} -> {Str(grown)}, so {name(v)}'s widest text sits on it");

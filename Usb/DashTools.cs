@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Rectangle = System.Drawing.Rectangle;
 
 namespace User.FXProRpmSync
 {
@@ -138,7 +139,22 @@ namespace User.FXProRpmSync
                             if (texts.All(t => r.ColourUnder(e, DashRenderer.TextBand(x, f, t, m)).HasValue)) return true;
                         return false;
                     }
-                    bool Fits(DashElement x, int f) => texts.All(t => { int tw = DashRenderer.TextWidth(f, t); return tw >= 0 && tw + 2 <= x.W; }) && DashRenderer.FontHeight(f) <= x.H;
+                    // other text shown with it: where a label's text rows are, a value's whole box (as check sees them)
+                    Rectangle Covers(DashElement o)
+                    {
+                        var ob = new Rectangle(o.X, o.Y, o.W, o.H);
+                        if (o.Type != "label") return ob;
+                        int tw = Math.Max(0, DashRenderer.TextWidth(o.Font, o.Text ?? "")), fh = DashRenderer.FontHeight(o.Font);
+                        int lx = o.Align == "center" ? o.X + (o.W - tw) / 2 : o.Align == "right" ? o.X + o.W - tw : o.X;
+                        return fh > 0 && fh <= o.H ? new Rectangle(lx, o.Y + (o.H - fh) / 2, tw, fh) : new Rectangle(lx, o.Y, tw, o.H);
+                    }
+                    bool Hits(Rectangle a, Rectangle b) { var o = Rectangle.Intersect(a, b); return o.Width > 2 && o.Height > 2; }
+                    var others = d.Elements.Where(o => o != e && (o.Type == "value" || o.Type == "label") && (o.Visible == null || o.Visible.Count == 0 || o.PreviewVisible != false))
+                                           .Select(Covers).ToList();
+                    var own = new Rectangle(e.X, e.Y, e.W, e.H);
+                    // a new position mustn't run into text it was clear of
+                    bool Clear(DashElement x) { var xb = new Rectangle(x.X, x.Y, x.W, x.H); return !others.Any(o => Hits(xb, o) && !Hits(own, o)); }
+                    bool Fits(DashElement x, int f) => texts.All(t => { int tw = DashRenderer.TextWidth(f, t); return tw >= 0 && tw + 2 <= x.W; }) && DashRenderer.FontHeight(f) <= x.H && Clear(x);
                     if (Clean(e, e.Font)) continue;
                     int h0 = DashRenderer.FontHeight(e.Font);
                     // 1. the same font, the box nudged a few pixels (up/down, or its anchored side in from a line)

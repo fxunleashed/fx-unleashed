@@ -441,6 +441,8 @@ namespace User.FXProRpmSync
             if (l.Contains("wear")) return raw ? 0.93 - 0.02 * W(200) : 93 - 2 * W(200);
             if (l.Contains("fraction") || l.Contains("charge")) return 0.5 + 0.42 * W(120); // a battery drains and charges slowly
             if (l.Contains("percent") || l.Contains("pct") || l == "batterylevel" || l.EndsWith("_battery_level")) return 55 + 40 * W(30);
+            // brake bias: rFactor's raw one is the rear share as a fraction (0.445), the others a front % (55.5)
+            if (l.Contains("bias")) return raw ? (l.Contains("rear") ? 0.445 : 0.555) : v.Number("brakeBias") ?? 55.5;
             if (l.Contains("delta") || l.Contains("gap")) return 0.35 * W(11) + (l.Contains("ahead") ? -0.9 : l.Contains("behind") ? 1.1 : 0);
             if (l.Contains("laptime") || (l.Contains("lap") && l.Contains("time")) || l.Contains("estimatedlap")) return TimeSpan.FromSeconds(best + 0.3 + 0.2 * W(90));
             if (l.Contains("timeleft") || l.Contains("timeremain")) return TimeSpan.FromSeconds(Math.Max(0, 2700 - t));
