@@ -122,6 +122,7 @@ namespace User.FXProRpmSync
             public bool LinesAt;            // ...drawn on its main background colour, then the lines through it put back
             public int? StaticBg;           // the one colour under the box in the static layer, if it is one
             public int[] Px;                // shape pixels for Key (Transparent = not drawn)
+            public int[] DrawnPx;           // the pixels it was last drawn with (Px may be refreshed before it's drawn again)
             public string PxKey;
             public bool? PxOpaque;          // Px has no transparent pixel
             public bool CrowdedKnown, IsCrowded;
@@ -588,7 +589,13 @@ namespace User.FXProRpmSync
                     foreach (var part in Subtract(Clip(area), SolidShapesAbove(n.Index))) Repaint(part);
             }
             foreach (var p in popups)
-                if (p.Until >= 0 && now >= p.Until) { p.Until = -1; PopupEvents++; Repaint(p.R); }
+                if (p.Until >= 0 && now >= p.Until)
+                {
+                    p.Until = -1; PopupEvents++; Repaint(p.R);
+                    // what it only partly covered wasn't drawn at all while it showed (outside it too): drawn whole now
+                    foreach (var n in dynamic)
+                        if (n.Shown && n.R.IntersectsWith(p.R) && !p.R.Contains(n.R)) { Invalidate(n); if (n.Kind == "bar") n.BarAt = null; }
+                }
 
             // Draw in element order
             foreach (var n in dynamic)
@@ -602,7 +609,7 @@ namespace User.FXProRpmSync
                         if (n.Shown && n.Sent == n.Key) break;
                         // a pop-up under another one that shows: only what isn't covered is drawn (no flash of the
                         // covered part), and only what's over the drawn parts is drawn again
-                        var oldPx = n.Shown ? n.Px : null;
+                        var oldPx = n.Shown ? n.DrawnPx : null;
                         EnsurePx(n); // known even when nothing of it shows (what's over it is drawn on it)
                         // changed to a look with see-through pixels where it had colour (a fill that goes transparent):
                         // what's under those is drawn back first, else the old colour would stay
@@ -627,7 +634,7 @@ namespace User.FXProRpmSync
                             MarkAbove(n, part);
                         }
                         foreach (var m in keep) Invalidate(m);
-                        n.Shown = true; n.Sent = n.Key;
+                        n.Shown = true; n.Sent = n.Key; n.DrawnPx = n.Px;
                         break;
                     case "label":
                         // a label that changes (colour, shown/hidden) or is drawn over something that changes: drawn like
@@ -914,7 +921,7 @@ namespace User.FXProRpmSync
                 if (below && n.Kind == "bar") DrawBar(n, area);
                 else if (below && n.Kind == "label" && !n.TextAt.HasValue) DrawLabel(n, n.Colour);
                 else if (below && IsText(n) && n.TextAt.HasValue) RedrawText(n); // exactly as it was drawn
-                else Invalidate(n);
+                else { Invalidate(n); if (n.Kind == "bar") n.BarAt = null; } // (a bar about to move: drawn whole, the repainted part included)
             }
         }
 

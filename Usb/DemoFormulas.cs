@@ -104,8 +104,14 @@ namespace User.FXProRpmSync
             if (js != null || jsFailed) return js;
             try
             {
-                var e = new Engine(o => o.TimeoutInterval(TimeSpan.FromMilliseconds(250)).LimitRecursion(64));
+                var e = new Engine(o =>
+                {
+                    o.TimeoutInterval(TimeSpan.FromMilliseconds(250)).LimitRecursion(64);
+                    o.TimeSystem = new DemoClock(() => t); // scripts' Date follows the demo's time: runs repeat exactly
+                });
                 e.SetValue("$prop", new Func<string, object>(Prop));
+                // a seeded Math.random: scripts that pick at random (blinking, effects) do the same every run
+                e.Execute("Math.random = (function () { var s = 20260927; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; })();");
                 foreach (var f in Functions)
                 {
                     string n = f;
@@ -478,5 +484,18 @@ namespace User.FXProRpmSync
             double f = (v.Number("currentLapTime") ?? 0) / (v.Number("bestLapTime") ?? 92.4);
             return first + (f < 0.31 ? 0 : f < 0.68 ? 1 : 2);
         }
+    }
+
+    /// <summary>The time JavaScript sees in the demo: a fixed day, moving with the demo's own clock.</summary>
+    internal sealed class DemoClock : Jint.Runtime.ITimeSystem
+    {
+        private static readonly DateTimeOffset Start = new DateTimeOffset(2026, 6, 13, 15, 0, 0, TimeSpan.Zero);
+        private readonly Func<double> now;
+        private readonly Jint.Runtime.DefaultTimeSystem sys = new Jint.Runtime.DefaultTimeSystem(TimeZoneInfo.Utc, System.Globalization.CultureInfo.InvariantCulture);
+        public DemoClock(Func<double> now) { this.now = now; }
+        public DateTimeOffset GetUtcNow() => Start.AddSeconds(now());
+        public TimeZoneInfo DefaultTimeZone => TimeZoneInfo.Utc;
+        public bool TryParse(string date, out long epochMilliseconds) => sys.TryParse(date, out epochMilliseconds);
+        public TimeSpan GetUtcOffset(long epochMilliseconds) => TimeSpan.Zero;
     }
 }

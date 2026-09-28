@@ -32,7 +32,7 @@ namespace User.FXProRpmSync
         private const double TankLitres = 90;
         private const int PitEveryLaps = 6;
 
-        private readonly Random rng = new Random();
+        private readonly Random rng = new Random(20260613); // fixed: the same laps every time (verify and tune repeat exactly)
         private readonly double trackLength;
         private readonly double[] bestLapTimeAt, currentLapTimeAt;   // elapsed time per 10 m, for the delta
         private const double Bucket = 10;
