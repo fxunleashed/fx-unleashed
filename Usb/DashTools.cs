@@ -128,7 +128,7 @@ namespace User.FXProRpmSync
                 {
                     var e = d.Elements[i];
                     if (e.Type != "value") continue;
-                    var texts = new[] { e.PreviewText }.Concat(e.Samples ?? new string[0]).Where(t => !string.IsNullOrEmpty(t)).Distinct().ToList();
+                    var texts = new[] { e.PreviewText, e.Empty }.Concat(e.Samples ?? new string[0]).Where(t => !string.IsNullOrEmpty(t)).Distinct().ToList();
                     if (texts.Count == 0) continue;
                     // clean: some margin (as the renderer shrinks it) leaves every text's band one colour
                     bool Clean(DashElement x, int f)
@@ -178,10 +178,40 @@ namespace User.FXProRpmSync
                     }
                     if (best < 0)
                     {
+                        // 2b. a value taller than the shape it sits on (a pill, a tile): the box brought inside that
+                        //     shape, clear of its border and rounded corners, with the tallest font that's clean there
+                        var cx = e.X + e.W / 2; var cy = e.Y + e.H / 2;
+                        var under = d.Elements.Take(i).LastOrDefault(sh => (sh.Type == "box" || sh.Type == "rect") && (sh.Visible == null || sh.Visible.Count == 0)
+                                                                          && sh.X <= cx && cx < sh.X + sh.W && sh.Y <= cy && cy < sh.Y + sh.H
+                                                                          && (sh.Y > e.Y || sh.Y + sh.H < e.Y + e.H));
+                        if (under != null)
+                        {
+                            int inset = Math.Max(under.Border, 0) + 1; // the corners only matter at the ends: Clean checks them
+                            int top = Math.Max(e.Y, under.Y + inset), bottom = Math.Min(e.Y + e.H, under.Y + under.H - inset);
+                            DashElement inside = null; int insideFont = -1;
+                            var byHeight = Enumerable.Range(0, FontMetrics.Fonts.Length)
+                                .Where(f => DashRenderer.FontHeight(f) > 0 && DashRenderer.FontHeight(f) <= h0 && DashRenderer.FontHeight(f) >= h0 * 0.5 && texts.All(t => DashRenderer.TextWidth(f, t) >= 0))
+                                .OrderByDescending(f => DashRenderer.FontHeight(f))
+                                .ThenBy(f => Math.Abs((double)texts.Max(t => DashRenderer.TextWidth(f, t)) / DashRenderer.FontHeight(f) - ratio0));
+                            if (bottom - top >= 8)
+                                foreach (var f in byHeight)
+                                {
+                                    var x = new DashElement { Type = e.Type, X = e.X, Y = top, W = e.W, H = bottom - top, Align = e.Align, Font = f };
+                                    if (Fits(x, f) && Clean(x, f)) { inside = x; insideFont = f; break; }
+                                }
+                            if (inside != null)
+                            {
+                                changes.Add($"#{i} {e.Name}: box {e.Y}+{e.H} -> {inside.Y}+{inside.H} inside {under.Name ?? under.Type}, font {e.Font} ({h0} px) -> {insideFont} ({DashRenderer.FontHeight(insideFont)} px), so its text sits between the lines");
+                                e.Y = inside.Y; e.H = inside.H; e.Font = insideFont;
+                                continue;
+                            }
+                        }
                         // 3. nothing clears it: the value gets a solid background, the colour under most of its text (it
-                        //    then covers that bit of the line, drawn in one step, instead of redrawing the line each change)
-                        var c = r.CommonStaticColour(DashRenderer.TextBand(e, e.Font, w0));
-                        if (c == null) { changes.Add($"#{i} {e.Name}: its text crosses a line, and no nearby position or font (down to 60% of its size) avoids it: move or resize it"); continue; }
+                        //    then covers that bit of the line, drawn in one step, instead of redrawing the line each change).
+                        //    Only when that colour is nearly all of it: a band sticking out of its shape would show as a block.
+                        var band = DashRenderer.TextBand(e, e.Font, w0);
+                        var c = r.CommonStaticColour(band, out double share);
+                        if (c == null || share < 0.9) { changes.Add($"#{i} {e.Name}: its text crosses a line, and no nearby position or font (down to 60% of its size) avoids it: move or resize it"); continue; }
                         var col = DashRenderer.ToColor(c.Value);
                         var bg = $"#{col.R:X2}{col.G:X2}{col.B:X2}";
                         if (string.Equals(e.Background, bg, StringComparison.OrdinalIgnoreCase)) continue; // done before

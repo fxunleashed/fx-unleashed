@@ -444,8 +444,12 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>The colour most of an area of the static layer (everything always drawn) has, RGB565; null off screen.</summary>
-        public int? CommonStaticColour(Rectangle area)
+        public int? CommonStaticColour(Rectangle area) => CommonStaticColour(area, out _);
+
+        /// <summary>As above, with the share of the area (0-1) that colour has.</summary>
+        public int? CommonStaticColour(Rectangle area, out double share)
         {
+            share = 0;
             area = Clip(area);
             if (area.Width <= 0 || area.Height <= 0) return null;
             var n = new Dictionary<int, int>();
@@ -455,7 +459,9 @@ namespace User.FXProRpmSync
                     int c = staticPx[y * Width + x];
                     n[c] = n.TryGetValue(c, out var k) ? k + 1 : 1;
                 }
-            return n.OrderByDescending(kv => kv.Value).First().Key;
+            var top = n.OrderByDescending(kv => kv.Value).First();
+            share = top.Value / (double)(area.Width * area.Height);
+            return top.Key;
         }
 
         /// <summary>How many fills redrawing an area of the static layer takes (what a value with no Background costs per change).</summary>
@@ -576,8 +582,10 @@ namespace User.FXProRpmSync
                 // one step over it
                 var under = IsText(n) ? dynamic.LastOrDefault(m => m.Index < n.Index && SolidText(m) && m.TextAt.Value.Contains(was)) : null;
                 if (under != null) { Invalidate(under); continue; }
-                // only what no solid shape above it covers (a pop-up going from under another one)
-                foreach (var part in Subtract(Clip(n.R), SolidShapesAbove(n.Index))) Repaint(part);
+                // only what no solid shape above it covers (a pop-up going from under another one); a frame with
+                // nothing inside (an alert border round the screen) only where its border was
+                foreach (var area in Outline(n))
+                    foreach (var part in Subtract(Clip(area), SolidShapesAbove(n.Index))) Repaint(part);
             }
             foreach (var p in popups)
                 if (p.Until >= 0 && now >= p.Until) { p.Until = -1; PopupEvents++; Repaint(p.R); }
@@ -655,6 +663,23 @@ namespace User.FXProRpmSync
                 }
             }
             screen.Flush();
+        }
+
+        /// <summary>
+        /// What of a shape's box it painted: a box with no fill only its border (with its rounded corners), as four
+        /// strips; anything else its whole box.
+        /// </summary>
+        private static List<Rectangle> Outline(Node n)
+        {
+            var r = n.R;
+            if (n.Kind != "shape" || n.E.Type != "box" || n.E.Fill != null || !string.IsNullOrEmpty(n.E.ColorBind)) return new List<Rectangle> { r };
+            int t = Math.Max(n.E.Border, 1) + Math.Max(0, n.E.Radius) + 1; // the corners curve inside the radius
+            if (2 * t >= r.Width || 2 * t >= r.Height) return new List<Rectangle> { r };
+            return new List<Rectangle>
+            {
+                new Rectangle(r.X, r.Y, r.Width, t), new Rectangle(r.X, r.Bottom - t, r.Width, t),
+                new Rectangle(r.X, r.Y + t, t, r.Height - 2 * t), new Rectangle(r.Right - t, r.Y + t, t, r.Height - 2 * t),
+            };
         }
 
         private bool Covered(Rectangle r) => popups.Any(p => p.Until >= 0 && p.R.IntersectsWith(r));

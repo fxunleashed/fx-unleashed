@@ -203,7 +203,7 @@ namespace User.FXProRpmSync
                         if (below) v.H -= 2; else { v.Y += 2; v.H -= 2; }
                         if (DashRenderer.FontHeight(v.Font) > v.H)
                         {
-                            int nf = BestFont(v, (v.Samples ?? new[] { vs }).ToList(), v.H, preferNarrow: true, gearOnly: false);
+                            int nf = BestFont(v, Texts(v).DefaultIfEmpty(vs).ToList(), v.H, preferNarrow: true, gearOnly: false);
                             if (nf < 0) break;
                             v.Font = nf;
                         }
@@ -325,6 +325,9 @@ namespace User.FXProRpmSync
             //    shown with it): the value's box trimmed from the side that clears it with the least loss, keeping its
             //    widest text; a smaller font if no trim keeps it; a label moved out of the way as the last resort
             MergeColourTwins(d, changes, Name);
+            SwapOverlaid(d, changes, Name);
+            GrowTags(d, changes, Name);
+            OffFrames(d, changes, Name);
             ClearOverlaps(d, changes, Name);
 
             // 9. values on a busy background (a picture or gradient under them): each change redraws all those fills.
@@ -390,6 +393,113 @@ namespace User.FXProRpmSync
                     d.Elements.RemoveAt(j); j--;
                     changes.Add($"{an} + {bn}: one value coloured by condition (both showed at once, over each other)");
                 }
+        }
+
+        /// <summary>
+        /// A plain tag behind a value (a filled rect made for it, e.g. the session name on a green tag) narrower or
+        /// lower than the value's widest text: the text runs off it onto what's around. The tag grows to hold the text
+        /// with a pixel to spare, if that runs into no other text.
+        /// </summary>
+        /// <summary>
+        /// A value shown only at times (clutch while the revs are low) drawn over a value always shown (speed), with no
+        /// pop-up box of its own: both keep updating and redraw each other. The one always shown gets the opposite
+        /// condition, so they take turns instead.
+        /// </summary>
+        private static void SwapOverlaid(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            // what comes and goes over other things: a value of its own, or a pop-up's opaque shape
+            bool Opaque(DashElement x) => x.Type == "rect" || ((x.Type == "box" || x.Type == "ellipse") && x.Fill != null);
+            foreach (var top in d.Elements.Where(x => x.Visible != null && x.Visible.Count >= 1 &&
+                                                      ((x.Type == "value" && !InPopup(d, x)) || (Opaque(x) && x.Opacity >= 100))).ToList())
+            {
+                // all its conditions (they must all hold) as one formula
+                var conds = top.Visible.Distinct().ToList();
+                if (!conds.All(c => c.StartsWith("ncalc:"))) continue;
+                string cond = conds.Count == 1 ? conds[0] : "ncalc:" + string.Join(" and ", conds.Select(c => "(" + c.Substring(6) + ")"));
+                string not = "ncalc:!(" + cond.Substring(6) + ")";
+                int ti = d.Elements.IndexOf(top);
+                foreach (var under in d.Elements.Take(ti).Where(x => x.Type == "value" && (x.Visible == null || x.Visible.All(c => c.StartsWith("ncalc:!(")))))
+                {
+                    // where the value's text is (its box is often far bigger)
+                    var band = Band(under, Widest(under));
+                    var o = Rectangle.Intersect(top.Type == "value" ? Band(top, Widest(top)) : Box(top), band);
+                    if (o.Width <= 2 || o.Height <= 2) continue;
+                    // a shape over all of the value's text hides it anyway (the renderer skips it while covered)
+                    if (top.Type != "value" && Box(top).Contains(band)) continue;
+                    if (under.Visible != null && under.Visible.Contains(not)) continue;
+                    under.Visible = (under.Visible ?? new List<string>()).Concat(new[] { not }).ToList();
+                    changes.Add($"{name(under)}: hidden while {name(top)} shows over it ({cond}), so they take turns");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A value box poking a few px into a neighbouring frame (its centre outside it): the frame's edge runs through
+        /// the text's band, and every change draws the text then puts the line back. The box is cut off at the edge
+        /// when its font still fits.
+        /// </summary>
+        private static void OffFrames(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            foreach (var v in d.Elements.Where(x => x.Type == "value").ToList())
+            {
+                int fh = DashRenderer.FontHeight(v.Font);
+                foreach (var f in d.Elements.Where(x => x != v && (x.Type == "box" || x.Type == "rect") && (x.Visible == null || x.Visible.Count == 0)))
+                {
+                    var vb = Box(v); var fb = Box(f);
+                    var o = Rectangle.Intersect(vb, fb);
+                    if (o.Width <= 0 || o.Height <= 0) continue;
+                    if (fb.Contains(new Point(vb.X + vb.Width / 2, vb.Y + vb.Height / 2))) continue; // it sits in that frame
+                    Rectangle cut = vb;
+                    if (o.Width >= o.Height && fb.Top > vb.Top && fb.Top < vb.Bottom) cut = Rectangle.FromLTRB(vb.Left, vb.Top, vb.Right, fb.Top - 1);
+                    else if (o.Width >= o.Height && fb.Bottom > vb.Top && fb.Bottom < vb.Bottom) cut = Rectangle.FromLTRB(vb.Left, fb.Bottom + 1, vb.Right, vb.Bottom);
+                    else if (o.Height > o.Width && fb.Left > vb.Left && fb.Left < vb.Right) cut = Rectangle.FromLTRB(vb.Left, vb.Top, fb.Left - 1, vb.Bottom);
+                    else if (o.Height > o.Width && fb.Right > vb.Left && fb.Right < vb.Right) cut = Rectangle.FromLTRB(fb.Right + 1, vb.Top, vb.Right, vb.Bottom);
+                    if (cut == vb || cut.Height < fh || cut.Width < NeedWidth(v, v.Font) + 2) continue;
+                    // only a sliver: a big overlap is a layout choice, not a stray edge
+                    if (vb.Height - cut.Height > Math.Max(12, vb.Height / 5) || vb.Width - cut.Width > Math.Max(12, vb.Width / 5)) continue;
+                    changes.Add($"{name(v)}: box {Str(vb)} -> {Str(cut)}, off {name(f)}'s edge");
+                    v.X = cut.X; v.Y = cut.Y; v.W = cut.Width; v.H = cut.Height;
+                }
+                // a frame around it (always there or at times, drawn after it or before) whose border runs through its
+                // box: the box brought inside the border
+                foreach (var f in d.Elements.Where(x => x != v && x.Type == "box" && x.Border > 0))
+                {
+                    var vb = Box(v); var fb = Box(f);
+                    if (!fb.Contains(new Point(vb.X + vb.Width / 2, vb.Y + vb.Height / 2))) continue;
+                    var inner = Rectangle.Inflate(fb, -(f.Border + 1), -(f.Border + 1));
+                    if (inner.Contains(vb)) continue;
+                    var cut = Rectangle.Intersect(vb, inner);
+                    if (cut.Height < fh || cut.Width < NeedWidth(v, v.Font) + 2) continue;
+                    if (vb.Height - cut.Height > Math.Max(12, vb.Height / 5) || vb.Width - cut.Width > Math.Max(12, vb.Width / 5)) continue;
+                    changes.Add($"{name(v)}: box {Str(vb)} -> {Str(cut)}, inside {name(f)}'s border");
+                    v.X = cut.X; v.Y = cut.Y; v.W = cut.Width; v.H = cut.Height;
+                }
+            }
+        }
+
+        private static void GrowTags(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            foreach (var v in d.Elements.Where(x => x.Type == "value").ToList())
+            {
+                string ws = Widest(v);
+                if (ws.Length == 0) continue;
+                var band = DashRenderer.TextBand(v, v.Font, ws, 1);
+                int vi = d.Elements.IndexOf(v);
+                var tag = d.Elements.Take(vi).LastOrDefault(r => r.Type == "rect" && (r.Visible == null || r.Visible.Count == 0 || (v.Visible != null && r.Visible.SequenceEqual(v.Visible)))
+                                                                 && Box(r).Contains(new Point(band.X + band.Width / 2, band.Y + band.Height / 2))
+                                                                 && Box(v).Contains(new Point(r.X + r.W / 2, r.Y + r.H / 2))
+                                                                 && r.W * r.H <= v.W * v.H * 1.2);
+                if (tag == null) continue;
+                var tb = Box(tag);
+                if (tb.Contains(band)) continue;
+                var grown = Rectangle.Union(tb, Rectangle.Inflate(band, 1, 1));
+                if (!Usable.Contains(grown)) continue;
+                bool hits = d.Elements.Any(o => o != v && o != tag && (o.Type == "value" || o.Type == "label") && Clash(grown, Covers(o))
+                                                && !(o.Visible != null && o.Visible.Count > 0));
+                if (hits) continue;
+                changes.Add($"{name(tag)}: {Str(tb)} -> {Str(grown)}, so {name(v)}'s widest text sits on it");
+                tag.X = grown.X; tag.Y = grown.Y; tag.W = grown.Width; tag.H = grown.Height;
+            }
         }
 
         private static void ClearOverlaps(DashDefinition d, List<string> changes, Func<DashElement, string> name)
