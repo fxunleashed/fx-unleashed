@@ -64,6 +64,8 @@ namespace User.FXProRpmSync
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private readonly DispatcherTimer frameTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         private readonly DispatcherTimer slowTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        // the dash preview: 10 updates a second like the wheel, not held back by the lights animation
+        private readonly DispatcherTimer dashTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(100) };
         private readonly DispatcherTimer saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         private bool loading;
 
@@ -267,12 +269,13 @@ namespace User.FXProRpmSync
             builtInPanel.Children.Add(editor);
 
             frameTimer.Tick += (s, e) => RenderFrame();
-            slowTimer.Tick += (s, e) => { RefreshStatus(); RenderDashPreview(); };
+            slowTimer.Tick += (s, e) => RefreshStatus();
+            dashTimer.Tick += (s, e) => RenderDashPreview();
             saveTimer.Tick += (s, e) => { saveTimer.Stop(); plugin.SaveSettings(); };
-            Loaded += (s, e) => { frameTimer.Start(); slowTimer.Start(); };
+            Loaded += (s, e) => { frameTimer.Start(); slowTimer.Start(); dashTimer.Start(); };
             Unloaded += (s, e) =>
             {
-                frameTimer.Stop(); slowTimer.Stop();
+                frameTimer.Stop(); slowTimer.Stop(); dashTimer.Stop();
                 if (saveTimer.IsEnabled) { saveTimer.Stop(); plugin.SaveSettings(); }
                 previewScreen?.Dispose(); previewScreen = null; previewKey = null;
             };
@@ -404,6 +407,7 @@ namespace User.FXProRpmSync
             if (v == null)
             {
                 if (previewDemo == null) { previewDemo = new UsbDemo(); previewLast = now; }
+                previewDemo.UseDash(d); // its SimHub formulas filled too, as on the wheel
                 v = previewDemo.Step(Math.Min(1, now - previewLast));
                 previewLast = now;
             }
