@@ -777,6 +777,34 @@ namespace User.FXProRpmSync
             return new Rectangle(r.X, r.Y + (r.Height - h) / 2, r.Width, h);
         }
 
+        /// <summary>
+        /// What's under `area` now (static layer, then the dynamic shapes shown before element `index`), as RGB565 pixels
+        /// row by row; null if a shape's pixels aren't known yet.
+        /// </summary>
+        private int[] Composite(Rectangle area, int index)
+        {
+            area = Clip(area);
+            if (area.Width <= 0 || area.Height <= 0) return null;
+            var px = new int[area.Width * area.Height];
+            for (int y = 0; y < area.Height; y++)
+                Array.Copy(staticPx, (area.Y + y) * Width + area.X, px, y * area.Width, area.Width);
+            foreach (var m in dynamic)
+            {
+                if (m.Index >= index) break;
+                if (m.Kind != "shape" || !m.Shown || !m.R.IntersectsWith(area)) continue;
+                if (m.Px == null) return null;
+                var r = Rectangle.Intersect(area, m.R);
+                int stride = Math.Max(1, m.E.W);
+                for (int y = r.Top; y < r.Bottom; y++)
+                    for (int x = r.Left; x < r.Right; x++)
+                    {
+                        int c = m.Px[(y - m.R.Y) * stride + (x - m.R.X)];
+                        if (c != Transparent) px[(y - area.Y) * area.Width + (x - area.X)] = c;
+                    }
+            }
+            return px;
+        }
+
         /// <summary>Where a value's text lands in its box (full box height, a little margin for glyph overhang).</summary>
         private static Rectangle TextExtent(Node n, string text)
         {
@@ -811,22 +839,49 @@ namespace User.FXProRpmSync
             int colour = DashColors.To565(n.Colour);
             var bg = BackgroundUnder(n);
             if (bg.HasValue) { screen.Cmd(Xstr(n.R, n.E.Font, colour, bg.Value, n.XCen, 1, n.Text)); n.TextAt = n.R; n.SolidAt = true; n.SolidBg = bg.Value; return; }
-            // Not one colour under the whole box (an image, a gradient, another element's edge): only the strip holding
-            // the old and the new text is redrawn, not the box. Centred / left / right text stays where it was, as that
-            // strip shares the box's centre / left / right edge.
+            // Not one colour under the whole box (an image, a bar, a border line through it): only the band the text is
+            // drawn in (the font's height, centred like the text; the old and the new text's width) is redrawn. Centred /
+            // left / right text lands where it does in the box, as the band shares the box's centre / left / right edge
+            // and (its height differing from the box's by an even number) its vertical centre.
             var area = TextExtent(n, n.Text);
             if (n.TextAt.HasValue) area = Rectangle.Union(area, n.TextAt.Value);
             area = Rectangle.Intersect(area, n.R);
             if (n.XCen == 1) { int half = Math.Max(n.R.Right - area.Right, 0); int left = Math.Max(area.X - n.R.X, 0); int m = Math.Min(half, left); area = new Rectangle(n.R.X + m, n.R.Y, n.R.Width - 2 * m, n.R.Height); }
+            // the rows the text is drawn in: where the screen centres the font in the box (a band exactly that tall
+            // centres it there too)
+            int fh = FontHeight(n.E.Font);
+            if (fh > 0 && fh <= n.R.Height) area = new Rectangle(area.X, n.R.Y + (n.R.Height - fh) / 2, area.Width, fh);
+            // One colour there: the new text with that background, one command, nothing cleared first (no flash).
             var strip = BackgroundIn(area, n.Index);
+            var under = strip.HasValue ? null : Composite(area, n.Index);
+            int major = 0, odd = int.MaxValue;
+            if (under != null)
+            {
+                major = under.GroupBy(c => c).OrderByDescending(g => g.Count()).First().Key;
+                odd = under.Count(c => c != major);
+            }
             if (strip.HasValue) screen.Cmd(Xstr(area, n.E.Font, colour, strip.Value, n.XCen, 1, n.Text));
+            else if (under != null && odd <= under.Length / 10)
+            {
+                // Mostly one colour, a few lines through it (a box's border): the text on that colour, then the lines
+                // put back. Still no clearing first.
+                screen.Cmd(Xstr(area, n.E.Font, colour, major, n.XCen, 1, n.Text));
+                SendFills(under, area.Width, new Rectangle(0, 0, area.Width, area.Height), major, area.X, area.Y);
+            }
             else
             {
+                // Pictures or bars under the text: cleared, then drawn (the wheel may show the gap for a moment).
+                ClearedDraws++;
+                if (ClearedBy != null) ClearedBy[n.E] = (ClearedBy.TryGetValue(n.E, out var cb) ? cb : 0) + 1;
                 Repaint(area, n.Index);
                 screen.Cmd(Xstr(area, n.E.Font, colour, 0, n.XCen, 3, n.Text));
             }
             n.TextAt = area; n.SolidAt = strip.HasValue; n.SolidBg = strip ?? 0;
         }
+
+        /// <summary>Diagnostics: value redraws that had to clear their area first (may flash on the wheel).</summary>
+        internal int ClearedDraws;
+        internal Dictionary<DashElement, int> ClearedBy;
 
         /// <summary>Draws a bar; `clip`: only that part of it (drawing back what's under a value).</summary>
         private void DrawBar(Node n, Rectangle? clip = null)

@@ -85,6 +85,7 @@ static class UsbTestMain
             }
             var sc = new Counter(); var rr = new DashRenderer(sc, d, 10, 20); rr.DrawAll(); sc.Flush();
             rr.DrawCounts = new System.Collections.Generic.Dictionary<DashElement, int>();
+            rr.ClearedBy = new System.Collections.Generic.Dictionary<DashElement, int>();
             if (args.Length > 3 && args[3] == "diverge")
             {
                 // first update after which the incremental screen differs from a full redraw, and what drew then
@@ -143,6 +144,8 @@ static class UsbTestMain
                 if (A[i] != B[i]) { diff++; var px = new System.Drawing.Rectangle(i % 800, i / 800, 1, 1); bb = bb.IsEmpty ? px : System.Drawing.Rectangle.Union(bb, px); }
             Console.WriteLine($"incremental vs full redraw: {diff} pixels differ {(diff > 0 ? bb.ToString() : "")}");
             if (diff > 0) { sc.P.Bitmap.Save(Path.Combine(dir, "incremental.png"), ImageFormat.Png); fresh.P.Bitmap.Save(Path.Combine(dir, "full.png"), ImageFormat.Png); }
+            Console.WriteLine($"cleared-then-drawn value redraws: {rr.ClearedDraws / 100.0:0.0}/s");
+            foreach (var kv in rr.ClearedBy.OrderByDescending(k => k.Value)) Console.WriteLine($"  {kv.Value / 100.0,5:0.0}/s cleared  #{d.Elements.IndexOf(kv.Key)} {kv.Key.Name} ({kv.Key.X},{kv.Key.Y} {kv.Key.W}x{kv.Key.H})");
             Console.WriteLine($"{d.Name}: {(sc.Bytes - start) / 100.0:0} B/s avg, worst second {worstB} B (budget 25000), demo step {stepMs / 3000:0.00} ms, update {updMs / 3000:0.00} ms per frame");
             return 0;
         }
