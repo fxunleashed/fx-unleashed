@@ -91,6 +91,7 @@ finds errors, 2 on failure. `--simhub DIR` if SimHub isn't in `C:\Program Files 
 fxdash schema | bindings | fonts [--sample TEXT] | suggest-font W H TEXT
 fxdash check DASH.json [--pad 10,20]
 fxdash render DASH.json OUT.png [--mode preview|demo] [--seconds N] [--pad L,T]
+fxdash fit-bands DASH.json [OUT.json]    # values whose text crosses a border line: nudged or a smaller font (no flashing)
 fxdash builtin [ID] [OUT.json]           # e.g. fxdash builtin lmgt3-mustang mustang.json
 fxdash simhub | simhub-screens NAME
 fxdash import NAME|PATH OUT.json [--screen S] [--fit 790,460] [--colors N] [--no-images] [--png OUT.png]

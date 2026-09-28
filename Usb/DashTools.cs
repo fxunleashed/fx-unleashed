@@ -113,6 +113,85 @@ namespace User.FXProRpmSync
             [JsonProperty("cost")] public DashCost Cost;
         }
 
+        /// <summary>
+        /// Values whose text rows cross a line of the dash (a box's border): redrawing such text means wiping the line and
+        /// drawing it again, which flashes on the wheel. Each gets the tallest font that still fits its widest sample and
+        /// whose rows fit between the lines (the text gets a little smaller). Returns what changed.
+        /// </summary>
+        public static List<string> FitTextBands(DashDefinition d)
+        {
+            var changes = new List<string>();
+            using (var screen = new PreviewScreen())
+            {
+                var r = new DashRenderer(screen, d, 0, 0);
+                for (int i = 0; i < d.Elements.Count; i++)
+                {
+                    var e = d.Elements[i];
+                    if (e.Type != "value") continue;
+                    var texts = new[] { e.PreviewText }.Concat(e.Samples ?? new string[0]).Where(t => !string.IsNullOrEmpty(t)).Distinct().ToList();
+                    if (texts.Count == 0) continue;
+                    // clean: some margin (as the renderer shrinks it) leaves every text's band one colour
+                    bool Clean(DashElement x, int f)
+                    {
+                        int full = 4 + DashRenderer.FontHeight(f) / 4;
+                        for (int m = full; m >= 1; m = m > 1 ? (m == full ? full / 2 : m / 2) : 0)
+                            if (texts.All(t => r.ColourUnder(e, DashRenderer.TextBand(x, f, t, m)).HasValue)) return true;
+                        return false;
+                    }
+                    bool Fits(DashElement x, int f) => texts.All(t => { int tw = DashRenderer.TextWidth(f, t); return tw >= 0 && tw + 2 <= x.W; }) && DashRenderer.FontHeight(f) <= x.H;
+                    if (Clean(e, e.Font)) continue;
+                    int h0 = DashRenderer.FontHeight(e.Font);
+                    // 1. the same font, the box nudged a few pixels (up/down, or its anchored side in from a line)
+                    DashElement found = null;
+                    foreach (var dy in new[] { 0, -1, 1, -2, 2, -3, 3, -4, 4 })
+                    {
+                        foreach (var inset in new[] { 0, 1, 2, 3 })
+                        {
+                            var x = Nudged(e, dy, inset);
+                            if (Fits(x, e.Font) && Clean(x, e.Font)) { found = x; break; }
+                        }
+                        if (found != null) break;
+                    }
+                    if (found != null)
+                    {
+                        changes.Add($"#{i} {e.Name}: moved {found.X - e.X},{found.Y - e.Y} and {found.W - e.W},{found.H - e.H} px so its text sits between the lines");
+                        e.X = found.X; e.Y = found.Y; e.W = found.W; e.H = found.H;
+                        continue;
+                    }
+                    // 2. a smaller font (tallest first, then the proportions closest to the one it had), nudged if needed
+                    string w0 = texts.OrderByDescending(t => DashRenderer.TextWidth(e.Font, t)).First();
+                    double ratio0 = h0 > 0 ? (double)DashRenderer.TextWidth(e.Font, w0) / h0 : 1;
+                    int best = -1; DashElement bestBox = null; double bestScore = double.MaxValue;
+                    for (int f = 0; f < FontMetrics.Fonts.Length; f++)
+                    {
+                        int h = DashRenderer.FontHeight(f);
+                        if (h <= 0 || h >= h0 || h < h0 * 0.6 || texts.Any(t => DashRenderer.TextWidth(f, t) < 0)) continue;
+                        double score = (h0 - h) * 10 + Math.Abs((double)texts.Max(t => DashRenderer.TextWidth(f, t)) / h - ratio0);
+                        if (score >= bestScore) continue;
+                        foreach (var dy in new[] { 0, -1, 1, -2, 2, -3, 3 })
+                        {
+                            var x = Nudged(e, dy, 0);
+                            if (Fits(x, f) && Clean(x, f)) { best = f; bestBox = x; bestScore = score; break; }
+                        }
+                    }
+                    if (best < 0) { changes.Add($"#{i} {e.Name}: its text crosses a line, and no nearby position or font (down to 60% of its size) avoids it: move or resize it"); continue; }
+                    changes.Add($"#{i} {e.Name}: font {e.Font} ({h0} px) -> {best} ({DashRenderer.FontHeight(best)} px)" + (bestBox.Y != e.Y ? $", moved {bestBox.Y - e.Y} px" : "") + ", so its text sits between the lines");
+                    e.Font = best; e.Y = bestBox.Y;
+                }
+            }
+            return changes;
+        }
+
+        /// <summary>A copy of an element's box moved `dy` down, and `inset` px in from the side its text is anchored to.</summary>
+        private static DashElement Nudged(DashElement e, int dy, int inset)
+        {
+            var x = new DashElement { Type = e.Type, X = e.X, Y = e.Y + dy, W = e.W, H = e.H, Align = e.Align, Font = e.Font };
+            if (e.Align == "center") { x.X += inset; x.W -= 2 * inset; }
+            else if (e.Align == "right") x.W -= inset;
+            else { x.X += inset; x.W -= inset; }
+            return x;
+        }
+
         public static CheckResult Check(DashDefinition d, int left = 0, int top = 0)
         {
             using (var p = new PreviewScreen())

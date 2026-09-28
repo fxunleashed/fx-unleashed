@@ -129,6 +129,11 @@ Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, 
   elements can't keep redrawing each other), and anything over a solid pop-up waits until it's uncovered. Screen
   commands are at most 58 characters; longer text is cut. `tools/UsbTest <dir> traffic DASH.json [diverge]` measures
   a dash's traffic over the demo lap and checks every update against a full redraw.
+- No flashing: text is redrawn in one step (one `xstr` with the band's background) wherever the rows it's drawn in
+  are one colour. Bars never paint under text drawn over them (the text shows the bar's colour at its centre), a
+  shape draws only what no solid shape above it covers, and a repaint starts from the topmost solid pop-up under it.
+  Text rows crossing a border line can't be redrawn without wiping the line: `fxdash fit-bands` fixes the layout.
+  `UsbTest <dir> traffic DASH.json flash [seconds]` replays every command and reports any pixel that blinks.
 - Demo SimHub formulas are evaluated round-robin within ~4 ms per frame, so a dash with hundreds of them can't stall
   the lights either.
 - Taking the screen: keepalive, mode word, 30 ms, lone `FF FF FF` (clears half a command the wheel may have sent), then

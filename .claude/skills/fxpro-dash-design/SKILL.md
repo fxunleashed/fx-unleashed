@@ -13,7 +13,10 @@ commands. You can't see the wheel, but you can render exactly what it draws. Wor
    `fxdash builtin lmgt3-mustang base.json`, or import a SimHub dash: `fxdash simhub` then
    `fxdash import "NAME" out.json --fit 790,460 --png out.png`.
 2. **Write the JSON.** Keep it within 790 x 460 (the wheel pads 10 px left, 20 px top by default).
-3. **Check:** `fxdash check dash.json --pad 10,20`. Fix every `error`; read the `warning`s.
+3. **Check:** `fxdash check dash.json --pad 10,20`. Fix every `error`; read the `warning`s. Run
+   `fxdash fit-bands dash.json`: a value whose text rows cross a line (a box border) flashes on every update, so its
+   text must sit between the lines (it nudges the box or picks a slightly smaller font). Keep changing text off
+   pictures and gradients for the same reason.
 4. **Render and look:** `fxdash render dash.json out.png` (preview texts) and
    `fxdash render dash.json out.png --mode demo --seconds 30` (a simulated lap). Open the PNG and judge it like a
    designer: alignment, spacing, contrast, what a driver reads at a glance.

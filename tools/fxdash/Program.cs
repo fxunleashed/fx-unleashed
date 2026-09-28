@@ -63,6 +63,16 @@ internal static class FxDash
                     File.WriteAllBytes(pos[2], DashTools.Render(Load(pos[1]), mode, seconds, pad.L, pad.T));
                     return Out(new { written = Path.GetFullPath(pos[2]), mode });
                 }
+                case "fit-bands":
+                {
+                    // values whose text crosses a border line get a font that fits between the lines (no flashing)
+                    Need(pos, 2);
+                    var dash = Load(pos[1]);
+                    var changes = DashTools.FitTextBands(dash);
+                    string outPath = pos.Count > 2 ? pos[2] : pos[1];
+                    if (changes.Count > 0) File.WriteAllText(outPath, DashTools.Serialize(dash));
+                    return Out(new { changes, written = changes.Count > 0 ? Path.GetFullPath(outPath) : null });
+                }
                 case "builtin":
                     if (pos.Count < 2) return Out(BuiltInDashes.All().Select(d => new { id = d.Id, name = d.Name }));
                     var b = BuiltInDashes.All().FirstOrDefault(d => d.Id == pos[1]) ?? throw new Exception("no built-in dash " + pos[1]);

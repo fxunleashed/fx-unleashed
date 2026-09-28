@@ -15,6 +15,67 @@ static class UsbTestMain
         public void Flush() { if (pending > 0) { Reports++; pending = 0; } }
     }
 
+    /// <summary>Screen that watches every pixel each command touches during an update.</summary>
+    sealed class FlashSink : IScreenSink
+    {
+        public PreviewScreen P = new PreviewScreen();
+        int[] before;
+        readonly System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<(int C, string Cmd)>> seen = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<(int, string)>>();
+        public sealed class Result { public int Count, Pixels, Blinks; public Rectangle Box; public System.Collections.Generic.List<string> BlinkPoints = new System.Collections.Generic.List<string>(); public System.Collections.Generic.List<Point> Points = new System.Collections.Generic.List<Point>(); public System.Collections.Generic.List<string> Culprits = new System.Collections.Generic.List<string>(); }
+        public System.Collections.Generic.List<string> FrameLog = new System.Collections.Generic.List<string>();
+        public void Begin() { before = Pixels(P.Bitmap); seen.Clear(); FrameLog.Clear(); }
+        public Result End()
+        {
+            var after = Pixels(P.Bitmap); var r = new Result(); var box = Rectangle.Empty;
+            var culprits = new System.Collections.Generic.HashSet<string>();
+            foreach (var kv in seen)
+            {
+                int p = kv.Key;
+                foreach (var (c, cmd) in kv.Value)
+                    if (c != before[p] && c != after[p])
+                    {
+                        r.Pixels++; culprits.Add(cmd); r.Points.Add(new Point(p % 800, p / 800));
+                        if (before[p] == after[p]) { r.Blinks++; r.BlinkPoints.Add($"{p % 800},{p / 800} was {before[p] & 0xFFFFFF:X6} became {c & 0xFFFFFF:X6} by: {cmd}"); } // should have stayed as it was
+                        var px = new Rectangle(p % 800, p / 800, 1, 1); box = box.IsEmpty ? px : Rectangle.Union(box, px);
+                        break;
+                    }
+            }
+            r.Count = r.Pixels; r.Box = box; r.Culprits = culprits.ToList(); r.Points = r.Points;
+            return r;
+        }
+        public void Cmd(string c)
+        {
+            P.Cmd(c);
+            FrameLog.Add(c);
+            if (before == null) return;
+            Rectangle area;
+            if (c.StartsWith("fill ") || c.StartsWith("xstr "))
+            {
+                var a = c.Substring(5).Split(',');
+                area = new Rectangle(int.Parse(a[0]), int.Parse(a[1]), int.Parse(a[2]), int.Parse(a[3]));
+            }
+            else if (c.StartsWith("cls")) area = new Rectangle(0, 0, 800, 480);
+            else return;
+            area.Intersect(new Rectangle(0, 0, 800, 480));
+            if (area.Width <= 0 || area.Height <= 0) return;
+            var bd = P.Bitmap.LockBits(area, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            var row = new int[area.Width];
+            for (int y = 0; y < area.Height; y++)
+            {
+                System.Runtime.InteropServices.Marshal.Copy(bd.Scan0 + y * bd.Stride, row, 0, area.Width);
+                for (int x = 0; x < area.Width; x++)
+                {
+                    int p = (area.Y + y) * 800 + area.X + x;
+                    if (row[x] == before[p] && !seen.ContainsKey(p)) continue;
+                    if (!seen.TryGetValue(p, out var l)) seen[p] = l = new System.Collections.Generic.List<(int, string)>();
+                    if (l.Count == 0 || l[l.Count - 1].C != row[x]) l.Add((row[x], c));
+                }
+            }
+            P.Bitmap.UnlockBits(bd);
+        }
+        public void Flush() { }
+    }
+
     static int[] Pixels(System.Drawing.Bitmap bmp)
     {
         var d = bmp.LockBits(new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -86,6 +147,80 @@ static class UsbTestMain
             var sc = new Counter(); var rr = new DashRenderer(sc, d, 10, 20); rr.DrawAll(); sc.Flush();
             rr.DrawCounts = new System.Collections.Generic.Dictionary<DashElement, int>();
             rr.ClearedBy = new System.Collections.Generic.Dictionary<DashElement, int>();
+            if (args.Length > 3 && args[3] == "flash")
+            {
+                // A flash: during one update, a pixel shows a colour that is neither what it was before nor what it is
+                // after (text wiped, then drawn again). Replays every command and reports each update that has any.
+                int secs = args.Length > 4 ? int.Parse(args[4]) : 300;
+                var fsink = new FlashSink();
+                var fr2 = new DashRenderer(fsink, d, 10, 20); fr2.DrawAll();
+                fr2.Trace = t0 => fsink.FrameLog.Add("// " + t0);
+                var fdm = new UsbDemo(d);
+                int frames = 0, flashFrames = 0, transitions = 0; long flashPx = 0;
+                var byArea = new System.Collections.Generic.Dictionary<string, int>();
+                var byElem = new System.Collections.Generic.Dictionary<string, int>();
+                var firstFor = new System.Collections.Generic.Dictionary<string, string>();
+                bool[] wasVis = null; string lastChange = ""; bool dumped = false, dumpedT = false; long transitionBlinks = 0;
+                bool Vis(DashElement e, DashValues vv) => e.Visible == null || e.Visible.All(cnd => vv.Truthy(cnd) ?? (e.PreviewVisible ?? true));
+                for (int k = 1; k <= secs * 30; k++)
+                {
+                    var fv = fdm.Step(1 / 30.0);
+                    if (k % 3 != 0) continue;
+                    var vis = d.Elements.Select(e => Vis(e, fv)).ToArray();
+                    bool transition = wasVis == null || vis.Where((x, i) => x != wasVis[i]).Any();
+                    var prevVis = wasVis;
+                    if (transition && wasVis != null) lastChange = $"{k / 30.0:0.00}s: " + string.Join(",", d.Elements.Select((e, i) => (e, i)).Where(t => wasVis[t.i] != vis[t.i]).Select(t => "#" + t.i + (vis[t.i] ? "+" : "-")));
+                    wasVis = vis;
+                    fsink.Begin();
+                    fr2.Update(fv, k / 30.0);
+                    var res = fsink.End();
+                    frames++;
+                    if (res.Count == 0) continue;
+                    if (transition)
+                    {
+                        transitions++; transitionBlinks += res.Blinks;
+                        if (Environment.GetEnvironmentVariable("FLASH_TRANSITIONS") == "1")
+                        {
+                            Console.WriteLine($"  transition t={k / 30.0:0.00}s {res.Pixels}px ({res.Blinks} blinked) box={res.Box} {lastChange}");
+                            var dumpAt = Environment.GetEnvironmentVariable("FLASH_DUMP_AT");
+                            if (dumpAt != null ? Math.Abs(k / 30.0 - double.Parse(dumpAt, System.Globalization.CultureInfo.InvariantCulture)) < 0.05 && !dumpedT : res.Blinks > 0 && res.Blinks < 100 && k / 30.0 > 20 && !dumpedT)
+                            {
+                                dumpedT = true;
+                                foreach (var c in fsink.FrameLog) Console.WriteLine("      " + c);
+                                foreach (var bp in res.BlinkPoints.Take(8)) Console.WriteLine("      blink at " + bp);
+                            }
+                        }
+                        continue; // something appeared or went: its area is redrawn once
+                    }
+                    if (Environment.GetEnvironmentVariable("FLASH_TIMES") == "1")
+                    {
+                        var changedVis = string.Join(",", d.Elements.Select((e, i) => (e, i)).Where(t => prevVis != null && prevVis[t.i] != vis[t.i]).Select(t => "#" + t.i));
+                        Console.WriteLine($"  t={k / 30.0:0.00}s {res.Pixels}px box={res.Box} prevFrameVisChanges=[{lastChange}]");
+                        if (k / 30.0 > 5 && !dumped && (dumped = true)) foreach (var c in fsink.FrameLog) Console.WriteLine("      " + c);
+                    }
+                    foreach (var pt in res.Points)
+                    {
+                        // the smallest visible text element there, else the smallest element
+                        var hit = d.Elements.Where((e, i) => vis[i] && pt.X - 10 >= e.X && pt.X - 10 < e.X + e.W && pt.Y - 20 >= e.Y && pt.Y - 20 < e.Y + e.H)
+                            .OrderBy(e => e.Type == "value" || e.Type == "label" ? 0 : 1).ThenBy(e => e.W * e.H).FirstOrDefault();
+                        string nm = hit == null ? "?" : $"#{d.Elements.IndexOf(hit)} {hit.Type} {hit.Name}";
+                        byElem[nm] = (byElem.TryGetValue(nm, out var c1) ? c1 : 0) + 1;
+                        firstFor[nm] = $"{k / 30.0:0.00}s " + string.Join(" | ", res.Culprits.Where(cc => { var aa = cc.Substring(5).Split(','); var rr0 = new Rectangle(int.Parse(aa[0]), int.Parse(aa[1]), int.Parse(aa[2]), int.Parse(aa[3])); return rr0.Contains(pt); }).Take(6));
+                    }
+                    flashFrames++; flashPx += res.Pixels;
+                    string key = res.Box.ToString();
+                    byArea[key] = (byArea.TryGetValue(key, out var c0) ? c0 : 0) + 1;
+                    if (flashFrames - transitions <= 4)
+                    {
+                        Console.WriteLine($"flash at {k / 30.0:0.00}s: {res.Pixels} px in {res.Box} (screen coords)");
+                        foreach (var c in res.Culprits.Take(12)) Console.WriteLine("   " + c);
+                    }
+                }
+                Console.WriteLine($"{flashFrames} of {frames} updates flashed; {transitions} pop-up appear/go updates had drawing in between too, {transitionBlinks} px of which blinked (should have stayed)");
+                foreach (var kv in byElem.OrderByDescending(x => x.Value).Take(15)) Console.WriteLine($"  {kv.Value,7} px  {kv.Key}" + Environment.NewLine + "            first: " + firstFor[kv.Key]);
+                foreach (var kv in byArea.OrderByDescending(x => x.Value).Take(10)) Console.WriteLine($"  {kv.Value,4}x  {kv.Key}");
+                return 0;
+            }
             if (args.Length > 3 && args[3] == "diverge")
             {
                 // first update after which the incremental screen differs from a full redraw, and what drew then
