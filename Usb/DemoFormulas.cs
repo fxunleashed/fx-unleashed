@@ -439,7 +439,7 @@ namespace User.FXProRpmSync
                 return raw ? 178 + 3 * W(50) : 26.5 + 0.4 * W(50);
             }
             if (l.Contains("wear")) return raw ? 0.93 - 0.02 * W(200) : 93 - 2 * W(200);
-            if (l.Contains("fraction") || l.Contains("charge")) return 0.5 + 0.42 * W(30);
+            if (l.Contains("fraction") || l.Contains("charge")) return 0.5 + 0.42 * W(120); // a battery drains and charges slowly
             if (l.Contains("percent") || l.Contains("pct") || l == "batterylevel" || l.EndsWith("_battery_level")) return 55 + 40 * W(30);
             if (l.Contains("delta") || l.Contains("gap")) return 0.35 * W(11) + (l.Contains("ahead") ? -0.9 : l.Contains("behind") ? 1.1 : 0);
             if (l.Contains("laptime") || (l.Contains("lap") && l.Contains("time")) || l.Contains("estimatedlap")) return TimeSpan.FromSeconds(best + 0.3 + 0.2 * W(90));

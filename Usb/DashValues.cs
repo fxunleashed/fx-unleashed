@@ -335,7 +335,7 @@ namespace User.FXProRpmSync
 
         private readonly DemoCar car = new DemoCar();
         public readonly SimProTelemetry Telemetry = new SimProTelemetry();
-        private readonly Random rng = new Random();
+        private readonly Random rng = new Random(20260927); // fixed: the same demo every time (tests can repeat it)
         private double t, nextChange = 6, fuelAtLapStart = -1;
         private int laps = -1;
         public double FuelLastLap, FuelThisLap, VirtualEnergy = 1, Bias = 56.2;

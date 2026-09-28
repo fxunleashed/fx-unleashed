@@ -124,6 +124,8 @@ namespace User.FXProRpmSync
             public string PxKey;
             // bar
             public int FillEnd;
+            public int? BarAt;              // fill end as last drawn in full (null: the whole bar must be drawn again)
+            public Color BarColour;
             // deltabar
             public int[] X0, X1;
             public string[] SegSent;
@@ -524,7 +526,7 @@ namespace User.FXProRpmSync
 
             // Hidden since last time: repaint their areas (this also marks what's under/over them for a redraw)
             foreach (var n in dynamic)
-                if (n.Shown && !n.Visible) { n.Shown = false; n.Sent = null; n.TextAt = null; Repaint(n.R); }
+                if (n.Shown && !n.Visible) { n.Shown = false; n.Sent = null; n.TextAt = null; n.BarAt = null; Repaint(n.R); }
             foreach (var p in popups)
                 if (p.Until >= 0 && now >= p.Until) { p.Until = -1; Repaint(p.R); }
 
@@ -544,7 +546,12 @@ namespace User.FXProRpmSync
                     case "label":
                         if (n.Shown && n.Sent == n.Key) break;
                         // on its old self (colour change, or redrawn over something that changed): clean area first
-                        if (n.Shown) Repaint(LabelInk(n), n.Index);
+                        if (n.Shown)
+                        {
+                            ClearedDraws++;
+                            if (ClearedBy != null) ClearedBy[n.E] = (ClearedBy.TryGetValue(n.E, out var lb) ? lb : 0) + 1;
+                            Repaint(LabelInk(n), n.Index);
+                        }
                         DrawLabel(n, n.Colour);
                         n.Shown = true; n.Sent = n.Key;
                         break;
@@ -558,9 +565,20 @@ namespace User.FXProRpmSync
                         break;
                     case "bar":
                         if (n.Shown && n.Sent == n.Key) break;
-                        DrawBar(n);
+                    {
+                        // Only the level changed: just the part between the old and the new level is drawn, and only
+                        // what's over that part is drawn again (text on a bar would otherwise blink at every change).
+                        var changed = n.R;
+                        if (n.Shown && n.BarAt.HasValue && n.BarColour == n.Colour)
+                        {
+                            changed = BarRange(n, n.BarAt.Value, n.FillEnd);
+                            if (changed.Width > 0 && changed.Height > 0) DrawBar(n, changed);
+                        }
+                        else DrawBar(n);
                         n.Shown = true; n.Sent = n.Key;
-                        MarkAbove(n); // what's over the bar was painted over
+                        n.BarAt = n.FillEnd; n.BarColour = n.Colour;
+                        if (changed.Width > 0 && changed.Height > 0) MarkAbove(n, changed); // what's over it was painted over
+                    }
                         break;
                     case "deltabar":
                         UpdateDeltaBar(n, v);
@@ -685,6 +703,7 @@ namespace User.FXProRpmSync
         private static void Invalidate(Node m)
         {
             m.Sent = null;
+            m.BarAt = null;
             if (m.SegSent != null) for (int k = 0; k < m.SegSent.Length; k++) m.SegSent[k] = null;
         }
 
@@ -762,7 +781,8 @@ namespace User.FXProRpmSync
         private static Rectangle LabelInk(Node n)
         {
             var r = n.R;
-            int w = Math.Min(r.Width, Math.Max(0, TextWidth(n.E.Font, n.Text)) + 4);
+            int tw = TextWidth(n.E.Font, n.Text);
+            int w = tw < 0 ? r.Width : Math.Min(r.Width, tw + 4); // unknown width (a character the font lacks): all of it
             int x = n.XCen == 1 ? r.X + (r.Width - w) / 2 : n.XCen == 2 ? r.Right - w : r.X;
             int h = Math.Min(r.Height, FontHeight(n.E.Font) + 2);
             return new Rectangle(x, r.Y + (r.Height - h) / 2, w, h);
@@ -810,7 +830,8 @@ namespace User.FXProRpmSync
         {
             // glyphs can reach past their advance width, and the screen clips text to its box: room on both sides
             int margin = 4 + FontHeight(n.E.Font) / 4;
-            int w = Math.Min(n.R.Width, Math.Max(0, TextWidth(n.E.Font, text)) + 2 * margin);
+            int tw = TextWidth(n.E.Font, text);
+            int w = tw < 0 ? n.R.Width : Math.Min(n.R.Width, tw + 2 * margin);
             int x = n.XCen == 1 ? n.R.X + (n.R.Width - w) / 2 : n.XCen == 2 ? n.R.Right - w : n.R.X;
             return new Rectangle(x, n.R.Y, w, n.R.Height);
         }
@@ -882,6 +903,17 @@ namespace User.FXProRpmSync
         /// <summary>Diagnostics: value redraws that had to clear their area first (may flash on the wheel).</summary>
         internal int ClearedDraws;
         internal Dictionary<DashElement, int> ClearedBy;
+
+        /// <summary>The part of a bar between two fill levels (in pixels along it).</summary>
+        private static Rectangle BarRange(Node n, int from, int to)
+        {
+            var r = n.R;
+            bool vertical = n.E.Orientation == "vertical";
+            int len = vertical ? r.Height : r.Width;
+            int a = Math.Max(0, Math.Min(len, Math.Min(from, to))), b = Math.Max(0, Math.Min(len, Math.Max(from, to)));
+            if (!vertical) return n.E.Reverse ? new Rectangle(r.Right - b, r.Y, b - a, r.Height) : new Rectangle(r.X + a, r.Y, b - a, r.Height);
+            return n.E.Reverse ? new Rectangle(r.X, r.Y + a, r.Width, b - a) : new Rectangle(r.X, r.Bottom - b, r.Width, b - a);
+        }
 
         /// <summary>Draws a bar; `clip`: only that part of it (drawing back what's under a value).</summary>
         private void DrawBar(Node n, Rectangle? clip = null)
