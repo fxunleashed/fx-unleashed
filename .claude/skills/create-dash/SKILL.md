@@ -267,8 +267,5 @@ References: `docs/dash-format.md` (format), `docs/dash-designer.md` (designer, A
 
 ## Designing from scratch in code
 
-`tools/dashgen/popular.py` builds the built-in dashes for popular cars (assets/dashes/*.json, embedded in the plugin).
-Its helpers (`cell`, `gear`, `lap_cell`, `delta_cell`, `tyre_grid`, `settings_popup`, `pit_banner`) pick each text's
-font from the wheel's font table so every sample fits with 2 px of room around its band, which is why those dashes pass
-every gate first time. The firmware has car-specific fonts (ir18, 992, 296, f3, bmw, w12, c8r...): `fxdash fonts` lists
+The firmware has car-specific fonts (ir18, 992, 296, f3, bmw, w12, c8r...): `fxdash fonts` lists
 their heights and glyphs; the big gear ones only have digits and D N P R.

@@ -246,33 +246,7 @@ namespace User.FXProRpmSync
         public static IEnumerable<DashDefinition> All()
         {
             yield return MustangGt3();
-            foreach (var d in Popular.Value) { var c = d.Clone(); c.BuiltIn = true; yield return c; }
         }
-
-        /// <summary>
-        /// Dashes for popular sim cars (MX-5 Cup, GR86, 992 Cup and GT3 R, AMG GT3, 296 GT3, IR-18, F3, NASCAR, E30),
-        /// built by tools/dashgen/popular.py and embedded from assets/dashes.
-        /// </summary>
-        private static readonly Lazy<List<DashDefinition>> Popular = new Lazy<List<DashDefinition>>(() =>
-        {
-            var list = new List<DashDefinition>();
-            var asm = typeof(BuiltInDashes).Assembly;
-            foreach (var name in asm.GetManifestResourceNames().Where(n => n.StartsWith("User.FXProRpmSync.Dashes.") && n.EndsWith(".json")).OrderBy(n => n))
-            {
-                try
-                {
-                    using (var st = asm.GetManifestResourceStream(name))
-                    using (var r = new StreamReader(st))
-                    {
-                        var d = JsonConvert.DeserializeObject<DashDefinition>(r.ReadToEnd());
-                        if (d?.Id == null) continue;
-                        list.Add(d);
-                    }
-                }
-                catch { }
-            }
-            return list;
-        });
 
         /// <summary>SimHub 1200x720 coordinates to the screen's 800x480 (2/3).</summary>
         private static int S(double v) => (int)Math.Round(v * 2 / 3);
@@ -299,8 +273,6 @@ namespace User.FXProRpmSync
                 Id = MustangId,
                 Name = "LMGT3 Ford Mustang GT3",
                 Author = "after SimHub's LMGT3 Ford Mustang GT3 dash",
-                Description = "Fuel on the left, timing and virtual energy on the right, gear in the oval, lap time and a delta bar, " +
-                              "and the car's settings in the bottom row, with a pop-up when you change one.",
                 BuiltIn = true,
             };
             var el = d.Elements;
