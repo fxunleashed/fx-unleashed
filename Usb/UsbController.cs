@@ -31,6 +31,7 @@ namespace User.FXProRpmSync
         /// <summary>The user's own lights ("Customize"), used when LightPreset is "custom".</summary>
         public LightProfile CustomLights;
         /// <summary>Rev LED 23 is the rightmost (flip the rev bar).</summary>
+        /// <summary>No longer used (the rev LED order is mapped); kept so old settings still load.</summary>
         public bool ReverseRev = false;
 
         /// <summary>Run the dash designer's local web server (and API for agents) while SimHub runs.</summary>
@@ -376,7 +377,7 @@ namespace User.FXProRpmSync
                 appliedVersion = version;
                 try { lights = s.ActiveLights.Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
                 if (!sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
-                reverseRev = s.ReverseRev;
+                reverseRev = false; // the LED order is mapped (WheelView); the old "fill from the right" is gone
             }
             bool wantLeds = s.LightsEnabled || sleeping;
             if (wantLeds && leds == null) { leds = new FxLedWriter(conn); leds.Enable(); }

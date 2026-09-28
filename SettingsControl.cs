@@ -36,6 +36,11 @@ namespace User.FXProRpmSync
         {
             this.plugin = plugin;
             Theme.Apply(this);
+            plugin.OpenDashesFor = key =>
+            {
+                Open("Dashes");
+                if (tabHost.Content is UnlockedDashesTab t) t.Target(key);
+            };
             Background = Theme.Page;
 
             var page = new StackPanel { Margin = new Thickness(28, 22, 28, 28), MaxWidth = 1180, HorizontalAlignment = HorizontalAlignment.Left };
@@ -203,7 +208,6 @@ namespace User.FXProRpmSync
                 yield return ("Lights", "", () => new UnlockedLightsTab(plugin));
                 yield return ("Idle & sleep", "", () => new UnlockedIdleTab(plugin));
                 yield return ("Car tuning", "", () => Wrap(new OverridesSection(plugin)));
-                yield return ("Dash data", "", () => Wrap(new FeedSection(plugin)));
             }
         }
 

@@ -69,9 +69,6 @@ namespace User.FXProRpmSync
             var idle = Theme.Switch("Keep them on between sessions", S.IdleLights, v => { S.IdleLights = v; Changed(); }, "Off: SimPro's lights while no game runs.");
             idle.Margin = new Thickness(0, 0, 40, 6);
             opts.Children.Add(idle);
-            var rev = Theme.Switch("Rev lights fill from the right", S.ReverseRev, v => { S.ReverseRev = v; Changed(); }, "If they run the wrong way on your wheel.");
-            rev.Margin = new Thickness(0, 0, 0, 6);
-            opts.Children.Add(rev);
             src.Children.Add(opts);
             liveNote = new TextBlock { Foreground = Theme.Text3, FontSize = 11.5, Margin = new Thickness(0, 6, 0, 0) };
             src.Children.Add(liveNote);
@@ -307,7 +304,6 @@ namespace User.FXProRpmSync
         {
             double t = clock.Elapsed.TotalSeconds;
             var sim = SimLap.Values(t);
-            big.ReverseRev = S.ReverseRev;
             var live = Usb?.Active == true && S.LightsEnabled ? Usb.LastFrame : null;
             big.Show(live ?? bigEngine.Render(S.ActiveLights, sim, null, t, false));
             // the pattern previews: a sweep up to the shift point in the preset's colours

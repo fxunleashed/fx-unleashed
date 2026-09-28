@@ -209,7 +209,6 @@ namespace User.FXProRpmSync
         private void RenderLights()
         {
             var u = Usb;
-            wheel.ReverseRev = S.ReverseRev;
             if (u?.Sleeping == true) { wheel.Show(null); return; }
             var live = u?.Active == true ? u.LastFrame : null;
             double t = clock.Elapsed.TotalSeconds;

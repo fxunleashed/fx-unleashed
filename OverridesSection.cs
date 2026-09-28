@@ -260,6 +260,7 @@ namespace User.FXProRpmSync
             {
                 carTitle.Text = "No car yet";
                 carInfo.Text = "Get in a car in any game and it shows up here.";
+                AddDashButtons(null);
                 return;
             }
             carTitle.Text = $"{plugin.CurrentCarName}  ({plugin.CurrentGame})";
@@ -277,6 +278,25 @@ namespace User.FXProRpmSync
                 carButtons.Children.Add(MakeButton("Edit override", () => OpenEditor(plugin.GetOverride(key)), 8));
                 carButtons.Children.Add(MakeButton("Delete override", () => Delete(key, plugin.CurrentCarName), 8));
             }
+            AddDashButtons(key);
+        }
+
+        /// <summary>Unlocked mode: the car's dashes live in the Dashes tab; these jump there (this car, or any car).</summary>
+        private void AddDashButtons(string key)
+        {
+            if (!plugin.Unlocked) return;
+            if (key != null) carButtons.Children.Add(MakeButton("This car's dashes", () => plugin.OpenDashesFor?.Invoke(key), 8));
+            carButtons.Children.Add(MakeButton("Another car's dashes…", () =>
+            {
+                var car = CarPicker.Pick(this, plugin, "Choose a car");
+                if (car == null) return;
+                if (plugin.GetUsbCarDash(car.Key) == null)
+                {
+                    var def = plugin.UsbRotation(null, out _, out int cur);
+                    plugin.SetUsbRotation(car.Key, def, cur, car);
+                }
+                plugin.OpenDashesFor?.Invoke(car.Key);
+            }, 8));
         }
 
         // ---------- Editor ----------
@@ -485,6 +505,7 @@ namespace User.FXProRpmSync
                 var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(20, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
                 var captured = o;
                 buttons.Children.Add(MakeButton("Edit", () => OpenEditor(plugin.GetOverride(captured.CarKey)), 6));
+                if (plugin.Unlocked) buttons.Children.Add(MakeButton("Dashes", () => plugin.OpenDashesFor?.Invoke(captured.CarKey), 6));
                 buttons.Children.Add(MakeButton("Delete", () => Delete(captured.CarKey, captured.CarName), 0));
                 DockPanel.SetDock(buttons, Dock.Right);
                 row.Children.Add(buttons);

@@ -57,8 +57,13 @@ namespace User.FXProRpmSync
                 target = (string)i.Tag; targetChosen = true;
                 Refresh(true);
             };
-            DockPanel.SetDock(targetBox, Dock.Right);
-            head.Children.Add(targetBox);
+            var targetRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            targetRow.Children.Add(targetBox);
+            var addCar = Theme.Btn("Add a car…", AddCar, icon: "");
+            addCar.Margin = new Thickness(8, 0, 0, 0);
+            targetRow.Children.Add(addCar);
+            DockPanel.SetDock(targetRow, Dock.Right);
+            head.Children.Add(targetRow);
             var headText = new StackPanel();
             headText.Children.Add(Theme.Eyebrow("Dashes"));
             headText.Children.Add(Theme.Title("What the screen shows", 20));
@@ -143,6 +148,25 @@ namespace User.FXProRpmSync
             cars.Children.Add(carsList);
             Children.Add(Theme.CardBox(cars));
 
+            // ----- What some values mean (the wheel's own dashes and the plugin's) -----
+            var data = new StackPanel();
+            data.Children.Add(Theme.Eyebrow("Values"));
+            var fs = plugin.Settings.Feed;
+            var gaps = new ComboBox { Width = 380 };
+            foreach (var (label, mode) in new[] { ("Auto: race = by position in my class, other sessions = on track", GapMode.Auto), ("By race position, in my class", GapMode.RaceClass),
+                                                   ("By race position, overall", GapMode.RaceOverall), ("On track (nearest car, any class or lap)", GapMode.OnTrack) })
+                gaps.Items.Add(new ComboBoxItem { Content = label, Tag = mode });
+            gaps.SelectedItem = gaps.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (GapMode)i.Tag == fs.Gaps) ?? gaps.Items[0];
+            gaps.SelectionChanged += (s, e) => { if (gaps.SelectedItem is ComboBoxItem i) { fs.Gaps = (GapMode)i.Tag; plugin.SaveSettings(); } };
+            data.Children.Add(Theme.Field("Gap ahead / behind", gaps, 150));
+            var delta = new ComboBox { Width = 380 };
+            foreach (var (label, src) in new[] { ("Session best lap", DeltaSource.SessionBest), ("All-time best lap", DeltaSource.AllTimeBest) })
+                delta.Items.Add(new ComboBoxItem { Content = label, Tag = src });
+            delta.SelectedItem = delta.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (DeltaSource)i.Tag == fs.Delta) ?? delta.Items[0];
+            delta.SelectionChanged += (s, e) => { if (delta.SelectedItem is ComboBoxItem i) { fs.Delta = (DeltaSource)i.Tag; plugin.SaveSettings(); } };
+            data.Children.Add(Theme.Field("Delta against", delta, 150));
+            Children.Add(Theme.CardBox(data));
+
             // ----- Position -----
             var pos = new StackPanel();
             pos.Children.Add(Theme.Eyebrow("Position on the screen"));
@@ -170,6 +194,26 @@ namespace User.FXProRpmSync
             Usb?.SettingsChanged();
             saveTimer.Stop();
             saveTimer.Start();
+        }
+
+        /// <summary>Shows a car's list (from Car tuning's "Dashes" button).</summary>
+        public void Target(string carKey)
+        {
+            target = carKey; targetChosen = true;
+            if (IsLoaded) Refresh(true);
+        }
+
+        /// <summary>Any car SimHub has seen: it gets its own list (a copy of the default to start from).</summary>
+        private void AddCar()
+        {
+            var car = CarPicker.Pick(this, plugin, "Choose a car");
+            if (car == null) return;
+            if (plugin.GetUsbCarDash(car.Key) == null)
+            {
+                var def = plugin.UsbRotation(null, out _, out int cur);
+                plugin.SetUsbRotation(car.Key, def, cur, car);
+            }
+            Target(car.Key);
         }
 
         // ---------- The list being edited ----------

@@ -82,6 +82,7 @@ namespace User.FXProRpmSync
         private volatile bool feedOn;
         private DateTime nextSourceCheckUtc;
         public string FeedStatus { get; private set; } = "";
+        public bool FeedOn => feedOn;
         /// <summary>The game SimPro is reading telemetry from (null = none, which is what SimPro reports while it reads SimGame).</summary>
         public string SimProSource { get; private set; }
         /// <summary>SimProSource has been read since the feed was turned on.</summary>
@@ -230,7 +231,8 @@ namespace User.FXProRpmSync
             simPro.BaseUrl = Settings.SimProUrl;
             dashes = new DashSwitcher(this, simPro);
             feed = new SimGameFeed(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync"));
-            if (Settings.Feed.Enabled) SetFeedEnabled(true, save: false);
+            // The SimGame feed is for SimPro's dashes (standard mode); unlocked mode feeds the wheel over USB itself
+            if (Settings.Feed.Enabled && Settings.Mode == WheelMode.Standard) SetFeedEnabled(true, save: false);
             carDb = new CarLedDatabase(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync"));
 
@@ -451,12 +453,18 @@ namespace User.FXProRpmSync
             Settings.Usb.Enabled = mode == WheelMode.Unlocked;
             SaveSettings();
             if (mode == WheelMode.Unlocked) RequestRestore();
+            // SimPro's SimGame feed only in standard mode (the user's choice is kept for it)
+            bool feedWanted = mode == WheelMode.Standard && Settings.Feed.Enabled;
+            if (feedWanted != FeedOn) SetFeedEnabled(feedWanted, save: false, remember: false);
             Reapply();
             Usb?.SettingsChanged();
             SimHub.Logging.Current.Info("[FXProRpmSync] mode: " + mode);
         }
 
         // ---------- Unlocked mode: dashes per car ----------
+
+        /// <summary>Set by the settings page: open the Dashes tab on a car's dash list (from Car tuning).</summary>
+        internal Action<string> OpenDashesFor;
 
         public UsbCarDash GetUsbCarDash(string carKey)
         {
@@ -497,7 +505,7 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>Sets a car's dashes (carKey null = the default ones); an empty list gives a car back to the default.</summary>
-        public void SetUsbRotation(string carKey, List<string> refs, int current)
+        public void SetUsbRotation(string carKey, List<string> refs, int current, KnownCar car = null)
         {
             lock (sync)
             {
@@ -510,7 +518,7 @@ namespace User.FXProRpmSync
                     if (!u.CarDashes.TryGetValue(carKey, out var d))
                         u.CarDashes[carKey] = d = carKey == DashCarKey
                             ? new UsbCarDash { CarKey = carKey, Game = dashCarGame, CarId = dashCarId, CarName = dashCarName }
-                            : new UsbCarDash { CarKey = carKey, CarName = carKey };
+                            : new UsbCarDash { CarKey = carKey, Game = car?.Game, CarId = car?.CarId, CarName = car?.Name ?? carKey };
                     d.Dashes = new List<string>(refs);
                     d.Current = current;
                     d.UpdatedUtc = DateTime.UtcNow;
@@ -600,7 +608,8 @@ namespace User.FXProRpmSync
         // ---------- Dash values from SimHub (SimGame feed) ----------
 
         /// <summary>Starts or stops feeding SimPro from SimHub. Stopping hands the wheel back to SimPro's game telemetry.</summary>
-        public void SetFeedEnabled(bool on, bool save = true)
+        /// <param name="remember">Store it as the user's choice (false: the mode turned it on/off, the choice stays).</param>
+        public void SetFeedEnabled(bool on, bool save = true, bool remember = true)
         {
             lock (feedLock)
             {
@@ -631,7 +640,7 @@ namespace User.FXProRpmSync
                     SimHub.Logging.Current.Warn("[FXProRpmSync] SimGame feed: " + ex);
                 }
             }
-            Settings.Feed.Enabled = on;
+            if (remember) Settings.Feed.Enabled = on;
             nextSourceCheckUtc = DateTime.MinValue;
             if (save) SaveSettings();
             SimHub.Logging.Current.Info("[FXProRpmSync] SimGame feed " + (feedOn ? "on" : "off"));
