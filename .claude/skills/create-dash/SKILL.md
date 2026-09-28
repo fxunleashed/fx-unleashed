@@ -10,7 +10,7 @@ Input: `$ARGUMENTS`. It is either a **reference image** (a photo or mock-up of a
 from `fxdash simhub`, or a `.djson` / `.simhubdash` path). A second argument, if any, is the dash's name.
 
 The finished dash is one JSON file. It must pass four gates before you hand it over:
-1. `fxdash check` has no errors;
+1. `fxdash check` has no errors **and no warnings** (the designer shows warnings to users: a dash that ships has none);
 2. `fxdash fit-bands` changes nothing;
 3. `fxdash verify` says `"Ok": true`;
 4. the renders look right.
@@ -60,7 +60,16 @@ $FX tune out.json > tune.json               # the automatic fixes below (1-5); l
 - labels that fit no font widened;
 - the gear font;
 - value text running into other text trimmed;
-- pictures that toggle often (ABS/TC working icons) turned into coloured labels or lamps.
+- pictures that toggle often (ABS/TC working icons) turned into coloured labels or lamps;
+- the same value drawn twice in two colours under two conditions (SimHub's delta colouring) merged into one value
+  with a `ColorBind`;
+- anything `check` still calls an overlap: the value's box trimmed from the side that loses least, a smaller font
+  if needed, or the label moved a few px;
+- values on a busy background (over 80 fills per change) given a plain `Background`, the colour under most of it.
+
+The importer leaves out fixed text turned on its side (SimHub's `Rotation` 90/270: watermarks along a panel's edge);
+the screen can't draw it turned. Labels too long for their box lose a bracketed unit first, then get abbreviated.
+`fit-bands`, when no nudge or smaller font keeps a value's text off a line, gives the value a solid `Background`.
 
 Run it first, then the loop in 3. What's left after it, put in a tune script, not hand edits: re-importing and
 re-tuning is then one command, and the reasons stay written down. The worked example is
@@ -209,7 +218,8 @@ What typically comes back, and the fix:
 | flash at a pop-up | pop-up without `Fill`, or half over a value | opaque `Fill`; cover whole cells |
 | high traffic on one element | value over an image, overlapping another box, or an icon toggling | flat colour under it; separate the boxes; label instead of the icon |
 
-Repeat until `check` has 0 errors, `fit-bands` returns `"changes": []` and `verify` has `"Ok": true`.
+Repeat until `check` has 0 errors and 0 warnings, `fit-bands` returns `"changes": []` and `verify` has `"Ok": true`.
+`tools/lmu-convert/gates.py [files]` runs check and verify on several dashes at once (default: every installed one).
 
 ## 4. Look at it
 
@@ -254,3 +264,11 @@ compare with the SimHub dash's own preview (`<dash>.djson.png` in its folder).
 
 References: `docs/dash-format.md` (format), `docs/dash-designer.md` (designer, API, import), `docs/usb-mode.md`
 (how it reaches the wheel), `tools/UsbTest` (`traffic DASH.json flash|diverge|blame` for deeper digging).
+
+## Designing from scratch in code
+
+`tools/dashgen/popular.py` builds the built-in dashes for popular cars (assets/dashes/*.json, embedded in the plugin).
+Its helpers (`cell`, `gear`, `lap_cell`, `delta_cell`, `tyre_grid`, `settings_popup`, `pit_banner`) pick each text's
+font from the wheel's font table so every sample fits with 2 px of room around its band, which is why those dashes pass
+every gate first time. The firmware has car-specific fonts (ir18, 992, 296, f3, bmw, w12, c8r...): `fxdash fonts` lists
+their heights and glyphs; the big gear ones only have digits and D N P R.

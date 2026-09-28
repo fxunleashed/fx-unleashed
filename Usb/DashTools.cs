@@ -176,7 +176,19 @@ namespace User.FXProRpmSync
                             if (Fits(x, f) && Clean(x, f)) { best = f; bestBox = x; bestScore = score; break; }
                         }
                     }
-                    if (best < 0) { changes.Add($"#{i} {e.Name}: its text crosses a line, and no nearby position or font (down to 60% of its size) avoids it: move or resize it"); continue; }
+                    if (best < 0)
+                    {
+                        // 3. nothing clears it: the value gets a solid background, the colour under most of its text (it
+                        //    then covers that bit of the line, drawn in one step, instead of redrawing the line each change)
+                        var c = r.CommonStaticColour(DashRenderer.TextBand(e, e.Font, w0));
+                        if (c == null) { changes.Add($"#{i} {e.Name}: its text crosses a line, and no nearby position or font (down to 60% of its size) avoids it: move or resize it"); continue; }
+                        var col = DashRenderer.ToColor(c.Value);
+                        var bg = $"#{col.R:X2}{col.G:X2}{col.B:X2}";
+                        if (string.Equals(e.Background, bg, StringComparison.OrdinalIgnoreCase)) continue; // done before
+                        e.Background = bg;
+                        changes.Add($"#{i} {e.Name}: its text crosses a line and no position or font avoids it: Background {e.Background} (the colour under most of it)");
+                        continue;
+                    }
                     changes.Add($"#{i} {e.Name}: font {e.Font} ({h0} px) -> {best} ({DashRenderer.FontHeight(best)} px)" + (bestBox.Y != e.Y ? $", moved {bestBox.Y - e.Y} px" : "") + ", so its text sits between the lines");
                     e.Font = best; e.Y = bestBox.Y;
                 }

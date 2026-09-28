@@ -320,10 +320,152 @@ namespace User.FXProRpmSync
                 e.X += (e.W - side2) / 2; e.Y += (e.H - side2) / 2; e.W = side2; e.H = side2;
                 changes.Add($"{Name(e)}: picture shown/hidden {kv.Value}x in {demoSeconds:0} s -> a {colour} lamp");
             }
+
+            // 8. what check still calls an overlap (a value's whole box, its background redrawn, running into other text
+            //    shown with it): the value's box trimmed from the side that clears it with the least loss, keeping its
+            //    widest text; a smaller font if no trim keeps it; a label moved out of the way as the last resort
+            MergeColourTwins(d, changes, Name);
+            ClearOverlaps(d, changes, Name);
+
+            // 9. values on a busy background (a picture or gradient under them): each change redraws all those fills.
+            //    They get a plain Background: the colour most of the area under them has.
+            using (var p = new PreviewScreen())
+            {
+                var r = new DashRenderer(p, d, 0, 0);
+                foreach (var v in d.Elements.Where(x => x.Type == "value" && x.Background == null))
+                {
+                    int fills = r.StaticFillsIn(Box(v));
+                    if (fills <= 80) continue;
+                    var c = r.CommonStaticColour(Box(v));
+                    if (c == null) continue;
+                    var col = DashRenderer.ToColor(c.Value);
+                    v.Background = $"#{col.R:X2}{col.G:X2}{col.B:X2}";
+                    changes.Add($"{Name(v)}: {fills} fills redrawn per change -> Background {v.Background} (the colour under most of it)");
+                }
+            }
             return changes;
         }
 
         private static Rectangle Box(DashElement e) => new Rectangle(e.X, e.Y, e.W, e.H);
+
+        /// <summary>What check counts as a text's area: a label's text only (it has no background), a value's whole box.</summary>
+        private static Rectangle Covers(DashElement e)
+        {
+            if (e.Type != "label") return Box(e);
+            int w = Math.Max(0, Width(e.Font, DashRenderer.Clean(e.Text)));
+            int x = e.Align == "center" ? e.X + (e.W - w) / 2 : e.Align == "right" ? e.X + e.W - w : e.X;
+            int fh = DashRenderer.FontHeight(e.Font);
+            return fh > 0 && fh <= e.H ? new Rectangle(x, e.Y + (e.H - fh) / 2, w, fh) : new Rectangle(x, e.Y, w, e.H);
+        }
+
+        private static List<string> Texts(DashElement e) =>
+            (e.Type == "label" ? new[] { e.Text ?? "" } : (e.Samples ?? new string[0]).Concat(new[] { e.Empty, e.PreviewText }))
+            .Where(t => !string.IsNullOrEmpty(t)).Select(DashRenderer.Clean).ToList();
+
+        /// <summary>The widest text an element must fit, as check measures it (samples, Empty, PreviewText).</summary>
+        private static int NeedWidth(DashElement e, int font) => Texts(e).Select(t => Width(font, t)).DefaultIfEmpty(0).Max();
+
+        private static bool Clash(Rectangle a, Rectangle b) { var o = Rectangle.Intersect(a, b); return o.Width > 2 && o.Height > 2; }
+
+        /// <summary>
+        /// The same value drawn twice in the same place in two colours, each under its own condition (SimHub's way of
+        /// colouring a delta): both can show at once and redraw over each other. One value instead, shown under either
+        /// condition, with a ColorBind that picks the later one's colour when its condition holds.
+        /// </summary>
+        private static void MergeColourTwins(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            for (int i = 0; i < d.Elements.Count; i++)
+                for (int j = i + 1; j < d.Elements.Count; j++)
+                {
+                    var a = d.Elements[i]; var b = d.Elements[j];
+                    if (a.Type != "value" || b.Type != "value" || a.Bind != b.Bind || Box(a) != Box(b) || a.Font != b.Font) continue;
+                    if (a.Visible == null || b.Visible == null || a.Visible.Count != 1 || b.Visible.Count != 1) continue;
+                    if (!string.IsNullOrEmpty(a.ColorBind) || !string.IsNullOrEmpty(b.ColorBind) || a.Visible[0] == b.Visible[0]) continue;
+                    string Expr(string c) => c.StartsWith("ncalc:") ? c.Substring(6) : "[" + c + "]";
+                    string ca = Expr(a.Visible[0]), cb = Expr(b.Visible[0]);
+                    string an = name(a), bn = name(b);
+                    a.ColorBind = $"ncalc:if({cb}, '{b.Color ?? "#FFFFFF"}', '{a.Color ?? "#FFFFFF"}')";
+                    a.Visible = new List<string> { $"ncalc:({ca}) or ({cb})" };
+                    a.Samples = (a.Samples ?? new string[0]).Concat(b.Samples ?? new string[0]).Distinct().ToArray();
+                    d.Elements.RemoveAt(j); j--;
+                    changes.Add($"{an} + {bn}: one value coloured by condition (both showed at once, over each other)");
+                }
+        }
+
+        private static void ClearOverlaps(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            bool Shown(DashElement e) => e.Visible == null || e.Visible.Count == 0 || e.PreviewVisible != false;
+            var texts = d.Elements.Where(e => (e.Type == "value" || e.Type == "label") && Shown(e)).ToList();
+            for (int i = 0; i < texts.Count; i++)
+                for (int j = i + 1; j < texts.Count; j++)
+                {
+                    var a = texts[i]; var b = texts[j];
+                    if (a.Type == "label" && b.Type == "label") continue;
+                    if (!Clash(Covers(a), Covers(b))) continue;
+                    // trim a value (the bigger box first when both are)
+                    bool done = false;
+                    foreach (var v in new[] { a, b }.Where(x => x.Type == "value").OrderByDescending(x => x.W * x.H))
+                    {
+                        var o = v == a ? b : a;
+                        if (Trim(v, Covers(o), changes, name(v), name(o))) { done = true; break; }
+                    }
+                    if (done) continue;
+                    // a label over a value it can't be trimmed off: the label moves just clear of it
+                    var lab = a.Type == "label" ? a : b.Type == "label" ? b : null;
+                    if (lab != null && Nudge(lab, texts, changes, name(lab))) continue;
+                    changes.Add($"{name(a)} still overlaps {name(b)}: fix by hand");
+                }
+        }
+
+        /// <summary>Trims a value's box off `ob` (to at most 2 px of overlap), keeping its widest text; else a smaller font.</summary>
+        private static bool Trim(DashElement v, Rectangle ob, List<string> changes, string vn, string on)
+        {
+            var box = Box(v);
+            var cands = new List<Rectangle>();
+            if (ob.Left > box.Left) cands.Add(Rectangle.FromLTRB(box.Left, box.Top, ob.Left + 2, box.Bottom));
+            if (ob.Right < box.Right) cands.Add(Rectangle.FromLTRB(ob.Right - 2, box.Top, box.Right, box.Bottom));
+            if (ob.Top > box.Top) cands.Add(Rectangle.FromLTRB(box.Left, box.Top, box.Right, ob.Top + 2));
+            if (ob.Bottom < box.Bottom) cands.Add(Rectangle.FromLTRB(box.Left, ob.Bottom - 2, box.Right, box.Bottom));
+            var samples = Texts(v);
+            // biggest first: the least loss
+            foreach (var c in cands.OrderByDescending(c => c.Width * c.Height))
+            {
+                int font = v.Font;
+                if (DashRenderer.FontHeight(font) > c.Height || NeedWidth(v, font) > c.Width)
+                {
+                    // a smaller font that takes all its texts, no less than 3/4 of the height it had
+                    if (samples.Count == 0) continue;
+                    var probe = new DashElement { W = c.Width + 4, H = c.Height };
+                    int nf = BestFont(probe, samples, c.Height, preferNarrow: true, gearOnly: false);
+                    if (nf < 0 || DashRenderer.FontHeight(nf) < 0.75 * DashRenderer.FontHeight(v.Font) || NeedWidth(v, nf) > c.Width) continue;
+                    font = nf;
+                }
+                int f0 = v.Font;
+                v.X = c.X; v.Y = c.Y; v.W = c.Width; v.H = c.Height; v.Font = font;
+                changes.Add($"{vn}: box {Str(box)} -> {Str(c)}{(font != f0 ? $", font {f0} -> {font}" : "")}, clear of {on}");
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Moves a label (up to 12 px, any direction) until it clears every value; true if it could.</summary>
+        private static bool Nudge(DashElement lab, List<DashElement> texts, List<string> changes, string ln)
+        {
+            var box = Box(lab);
+            for (int dist = 1; dist <= 12; dist++)
+                foreach (var (dx, dy) in new[] { (0, -dist), (0, dist), (-dist, 0), (dist, 0) })
+                {
+                    lab.X = box.X + dx; lab.Y = box.Y + dy;
+                    var c = Covers(lab);
+                    if (Usable.Contains(Box(lab)) && !texts.Any(t => t != lab && t.Type == "value" && Clash(c, Covers(t))))
+                    {
+                        changes.Add($"{ln}: moved {dx},{dy} px, clear of the values around it");
+                        return true;
+                    }
+                }
+            lab.X = box.X; lab.Y = box.Y;
+            return false;
+        }
 
         private static DashElement JsonClone(DashElement e) =>
             Newtonsoft.Json.JsonConvert.DeserializeObject<DashElement>(Newtonsoft.Json.JsonConvert.SerializeObject(e));
@@ -357,15 +499,18 @@ namespace User.FXProRpmSync
             if (fits(t)) return t;
             t = System.Text.RegularExpressions.Regex.Replace(t, " {2,}", " ");
             if (fits(t)) return t;
+            // a unit in brackets ("NRG LVL (%)") goes first
+            var nb = System.Text.RegularExpressions.Regex.Replace(t, @"\s*[\(\[][^\)\]]*[\)\]]?\s*$", "").Trim();
+            if (nb.Length > 0 && nb != t) { t = nb; if (fits(t)) return t; }
             foreach (var (l, sh) in Abbreviations.OrderByDescending(a => a.Long.Length))
             {
-                var r = System.Text.RegularExpressions.Regex.Replace(t, @"" + System.Text.RegularExpressions.Regex.Escape(l) + @"", sh,
+                var r = System.Text.RegularExpressions.Regex.Replace(t, @"\b" + System.Text.RegularExpressions.Regex.Escape(l) + @"\b", sh,
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 if (r != t) { t = r; if (fits(t)) return t; }
             }
             t = t.Replace(" ", "");
             while (t.Length > 1 && !fits(t)) t = t.Substring(0, t.Length - 1);
-            return t;
+            return t.TrimEnd('(', '[', '/', '-', '.', ':', ',');
         }
 
         /// <summary>The area the dash may use: the screen less the wheel's default padding (10 px left, 20 px top).</summary>

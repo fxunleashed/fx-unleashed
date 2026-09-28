@@ -443,6 +443,28 @@ namespace User.FXProRpmSync
             }
         }
 
+        /// <summary>The colour most of an area of the static layer (everything always drawn) has, RGB565; null off screen.</summary>
+        public int? CommonStaticColour(Rectangle area)
+        {
+            area = Clip(area);
+            if (area.Width <= 0 || area.Height <= 0) return null;
+            var n = new Dictionary<int, int>();
+            for (int y = area.Top; y < area.Bottom; y++)
+                for (int x = area.Left; x < area.Right; x++)
+                {
+                    int c = staticPx[y * Width + x];
+                    n[c] = n.TryGetValue(c, out var k) ? k + 1 : 1;
+                }
+            return n.OrderByDescending(kv => kv.Value).First().Key;
+        }
+
+        /// <summary>How many fills redrawing an area of the static layer takes (what a value with no Background costs per change).</summary>
+        public int StaticFillsIn(Rectangle area)
+        {
+            area = Clip(area);
+            return area.Width > 0 && area.Height > 0 ? MergeRects(staticPx, Width, area).Count : 0;
+        }
+
         /// <summary>The one colour of an area, or null if it has several.</summary>
         private static int? Uniform(int[] px, int stride, Rectangle area)
         {
@@ -504,7 +526,7 @@ namespace User.FXProRpmSync
         public const int MaxCommand = 58;
 
         /// <summary>Quotes would end the command; anything outside ASCII has no glyph.</summary>
-        private static string Clean(string s) => new string((s ?? "").Where(c => c >= 32 && c < 127 && c != '"').ToArray());
+        internal static string Clean(string s) => new string((s ?? "").Where(c => c >= 32 && c < 127 && c != '"').ToArray());
 
         // ---------- Drawing ----------
 
@@ -558,7 +580,7 @@ namespace User.FXProRpmSync
                 foreach (var part in Subtract(Clip(n.R), SolidShapesAbove(n.Index))) Repaint(part);
             }
             foreach (var p in popups)
-                if (p.Until >= 0 && now >= p.Until) { p.Until = -1; Repaint(p.R); }
+                if (p.Until >= 0 && now >= p.Until) { p.Until = -1; PopupEvents++; Repaint(p.R); }
 
             // Draw in element order
             foreach (var n in dynamic)
@@ -636,6 +658,10 @@ namespace User.FXProRpmSync
         }
 
         private bool Covered(Rectangle r) => popups.Any(p => p.Until >= 0 && p.R.IntersectsWith(r));
+
+        /// <summary>Diagnostics (verify): a pop-up shows now; counts pop-ups shown or taken down.</summary>
+        internal bool PopupShowing => popups.Any(p => p.Until >= 0);
+        internal int PopupEvents;
 
         private void Evaluate(Node n, DashValues v)
         {
@@ -1313,6 +1339,7 @@ namespace User.FXProRpmSync
             }
             if (shown == null) return;
             p.Until = now + p.E.Duration;
+            PopupEvents++;
             DrawPopup(p, shown, shownText);
         }
 
@@ -1445,7 +1472,8 @@ namespace User.FXProRpmSync
                 if (t.Kind != "label") return t.R;
                 int w = Math.Max(0, TextWidth(t.E.Font, Clean(t.Text)));
                 int x = t.XCen == 1 ? t.R.X + (t.R.Width - w) / 2 : t.XCen == 2 ? t.R.Right - w : t.R.X;
-                return new Rectangle(x, t.R.Y, w, t.R.Height);
+                int fh = FontHeight(t.E.Font);   // its text's rows (drawn centred in the box)
+                return fh > 0 && fh <= t.R.Height ? new Rectangle(x, t.R.Y + (t.R.Height - fh) / 2, w, fh) : new Rectangle(x, t.R.Y, w, t.R.Height);
             }
             var always = texts.Where(t => (t.E.Visible == null || t.E.Visible.Count == 0) || t.E.PreviewVisible != false).ToList();
             for (int i = 0; i < always.Count; i++)

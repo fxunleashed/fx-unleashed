@@ -1,0 +1,468 @@
+{
+  "FormatVersion": 2,
+  "Id": "indycar-ir18",
+  "Name": "IndyCar Dallara IR-18",
+  "Author": "FXPro Unlocked",
+  "Description": "Ovals and road courses: speed and delta big on top, fuel and laps of fuel, the gear, position and lap, brake bias, last and best laps. iRacing.",
+  "Elements": [
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 0,
+      "W": 390,
+      "H": 120,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Speed frame"
+    },
+    {
+      "Type": "label",
+      "Name": "SPEED",
+      "X": 6,
+      "Y": 4,
+      "W": 378,
+      "H": 24,
+      "Text": "SPEED",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Speed",
+      "X": 8,
+      "Y": 32,
+      "W": 374,
+      "H": 82,
+      "Bind": "speed",
+      "Format": "0",
+      "Font": 74,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "388"
+      ],
+      "PreviewText": "342",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 400,
+      "Y": 0,
+      "W": 390,
+      "H": 120,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Delta frame"
+    },
+    {
+      "Type": "label",
+      "Name": "DELTA",
+      "X": 406,
+      "Y": 4,
+      "W": 378,
+      "H": 24,
+      "Text": "DELTA",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Delta",
+      "X": 408,
+      "Y": 32,
+      "W": 374,
+      "H": 82,
+      "Bind": "delta",
+      "Format": "delta",
+      "Font": 74,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "+88.88",
+        "-88.88"
+      ],
+      "PreviewText": "-0.35",
+      "Empty": "-.--",
+      "PositiveColor": "#FF3B30",
+      "NegativeColor": "#30E060"
+    },
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 130,
+      "W": 250,
+      "H": 100,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Fuel frame"
+    },
+    {
+      "Type": "label",
+      "Name": "FUEL",
+      "X": 6,
+      "Y": 134,
+      "W": 238,
+      "H": 24,
+      "Text": "FUEL",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Fuel",
+      "X": 8,
+      "Y": 162,
+      "W": 234,
+      "H": 62,
+      "Bind": "fuel",
+      "Format": "0.0",
+      "Font": 73,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "88.8"
+      ],
+      "PreviewText": "34.2",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 240,
+      "W": 250,
+      "H": 100,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Fuel laps frame"
+    },
+    {
+      "Type": "label",
+      "Name": "LAPS LEFT",
+      "X": 6,
+      "Y": 244,
+      "W": 238,
+      "H": 24,
+      "Text": "LAPS LEFT",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Fuel laps",
+      "X": 8,
+      "Y": 272,
+      "W": 234,
+      "H": 62,
+      "Bind": "fuelRemainingLaps",
+      "Format": "0.0",
+      "Font": 73,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "88.8"
+      ],
+      "PreviewText": "21.5",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 260,
+      "Y": 130,
+      "W": 270,
+      "H": 210,
+      "Color": "#00B2FF",
+      "Border": 3,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Gear frame"
+    },
+    {
+      "Type": "value",
+      "Name": "Gear",
+      "X": 270,
+      "Y": 138,
+      "W": 250,
+      "H": 194,
+      "Bind": "gearText",
+      "Format": "gear",
+      "Font": 84,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "8",
+        "N",
+        "R"
+      ],
+      "PreviewText": "3",
+      "Empty": "N"
+    },
+    {
+      "Type": "box",
+      "X": 540,
+      "Y": 130,
+      "W": 120,
+      "H": 100,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Position frame"
+    },
+    {
+      "Type": "label",
+      "Name": "POS",
+      "X": 546,
+      "Y": 134,
+      "W": 108,
+      "H": 24,
+      "Text": "POS",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Position",
+      "X": 548,
+      "Y": 162,
+      "W": 104,
+      "H": 62,
+      "Bind": "position",
+      "Format": "0",
+      "Font": 73,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "88"
+      ],
+      "PreviewText": "9",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 670,
+      "Y": 130,
+      "W": 120,
+      "H": 100,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Lap frame"
+    },
+    {
+      "Type": "label",
+      "Name": "LAP",
+      "X": 676,
+      "Y": 134,
+      "W": 108,
+      "H": 24,
+      "Text": "LAP",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Lap",
+      "X": 678,
+      "Y": 162,
+      "W": 104,
+      "H": 62,
+      "Bind": "lap",
+      "Format": "0",
+      "Font": 73,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "888"
+      ],
+      "PreviewText": "47",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 540,
+      "Y": 240,
+      "W": 250,
+      "H": 100,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Brake bias frame"
+    },
+    {
+      "Type": "label",
+      "Name": "BRAKE BIAS",
+      "X": 546,
+      "Y": 244,
+      "W": 238,
+      "H": 24,
+      "Text": "BRAKE BIAS",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Brake bias",
+      "X": 548,
+      "Y": 272,
+      "W": 234,
+      "H": 62,
+      "Bind": "brakeBias",
+      "Format": "0.0",
+      "Font": 73,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "88.8"
+      ],
+      "PreviewText": "56.0",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 350,
+      "W": 390,
+      "H": 110,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Last lap frame"
+    },
+    {
+      "Type": "label",
+      "Name": "LAST LAP",
+      "X": 6,
+      "Y": 354,
+      "W": 378,
+      "H": 24,
+      "Text": "LAST LAP",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Last lap",
+      "X": 8,
+      "Y": 382,
+      "W": 374,
+      "H": 72,
+      "Bind": "lastLapTime",
+      "Format": "laptime",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "8:88.888"
+      ],
+      "PreviewText": "1:32.481",
+      "Empty": "-:--.---"
+    },
+    {
+      "Type": "box",
+      "X": 400,
+      "Y": 350,
+      "W": 390,
+      "H": 110,
+      "Color": "#1C2A3A",
+      "Border": 2,
+      "Radius": 4,
+      "Fill": "#050A10",
+      "Name": "Best lap frame"
+    },
+    {
+      "Type": "label",
+      "Name": "BEST LAP",
+      "X": 406,
+      "Y": 354,
+      "W": 378,
+      "H": 24,
+      "Text": "BEST LAP",
+      "Font": 60,
+      "Color": "#00B2FF",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Best lap",
+      "X": 408,
+      "Y": 382,
+      "W": 374,
+      "H": 72,
+      "Bind": "bestLapTime",
+      "Format": "laptime",
+      "Font": 99,
+      "Color": "#C07BFF",
+      "Align": "center",
+      "Samples": [
+        "8:88.888"
+      ],
+      "PreviewText": "1:32.481",
+      "Empty": "-:--.---"
+    },
+    {
+      "Type": "rect",
+      "X": 0,
+      "Y": 0,
+      "W": 790,
+      "H": 120,
+      "Color": "#1E5BFF",
+      "Name": "Pit limiter band",
+      "Visible": "pitLimiter",
+      "PreviewVisible": false
+    },
+    {
+      "Type": "label",
+      "Name": "Pit limiter text",
+      "X": 10,
+      "Y": 4,
+      "W": 770,
+      "H": 112,
+      "Text": "PIT LIMITER",
+      "Font": 0,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Visible": "pitLimiter",
+      "PreviewVisible": false
+    },
+    {
+      "Type": "popup",
+      "Name": "Setting changed",
+      "X": 260,
+      "Y": 130,
+      "W": 270,
+      "H": 210,
+      "Color": "#000000",
+      "Radius": 10,
+      "Font": 60,
+      "ValueFont": 99,
+      "Duration": 2.0,
+      "Watch": [
+        {
+          "Bind": "brakeBias",
+          "Label": "BRAKE BIAS",
+          "Color": "#00B2FF",
+          "Format": "0.0"
+        }
+      ]
+    }
+  ]
+}

@@ -35,6 +35,7 @@
     <EmbeddedResource Include="assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
     <EmbeddedResource Include="assets\fxpro-outline.svg" LogicalName="User.FXProRpmSync.fxpro-outline.svg" />
     <EmbeddedResource Include="assets\logo.png" LogicalName="User.FXProRpmSync.logo.png" />
+    <EmbeddedResource Include="assets\dashes\*.json" LogicalName="User.FXProRpmSync.Dashes.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
   </ItemGroup>
 

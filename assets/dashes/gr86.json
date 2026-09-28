@@ -1,0 +1,619 @@
+{
+  "FormatVersion": 2,
+  "Id": "gr86",
+  "Name": "Toyota GR86",
+  "Author": "FXPro Unlocked",
+  "Description": "Road-car red: laps on the left, a big gear and speed in the middle, delta, fuel and position on the right, tyre temperatures and engine temps below. iRacing, GT7-style.",
+  "Elements": [
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 0,
+      "W": 255,
+      "H": 110,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Last lap frame"
+    },
+    {
+      "Type": "label",
+      "Name": "LAST",
+      "X": 6,
+      "Y": 4,
+      "W": 243,
+      "H": 24,
+      "Text": "LAST",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Last lap",
+      "X": 8,
+      "Y": 32,
+      "W": 239,
+      "H": 72,
+      "Bind": "lastLapTime",
+      "Format": "laptime",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "8:88.888"
+      ],
+      "PreviewText": "1:32.481",
+      "Empty": "-:--.---"
+    },
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 120,
+      "W": 255,
+      "H": 110,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Best lap frame"
+    },
+    {
+      "Type": "label",
+      "Name": "BEST",
+      "X": 6,
+      "Y": 124,
+      "W": 243,
+      "H": 24,
+      "Text": "BEST",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Best lap",
+      "X": 8,
+      "Y": 152,
+      "W": 239,
+      "H": 72,
+      "Bind": "bestLapTime",
+      "Format": "laptime",
+      "Font": 99,
+      "Color": "#C07BFF",
+      "Align": "center",
+      "Samples": [
+        "8:88.888"
+      ],
+      "PreviewText": "1:32.481",
+      "Empty": "-:--.---"
+    },
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 240,
+      "W": 255,
+      "H": 100,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Lap frame"
+    },
+    {
+      "Type": "label",
+      "Name": "LAP",
+      "X": 6,
+      "Y": 244,
+      "W": 243,
+      "H": 24,
+      "Text": "LAP",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Lap",
+      "X": 8,
+      "Y": 272,
+      "W": 239,
+      "H": 62,
+      "Bind": "lap",
+      "Format": "0",
+      "Font": 100,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "888"
+      ],
+      "PreviewText": "6",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 265,
+      "Y": 0,
+      "W": 260,
+      "H": 250,
+      "Color": "#E0102A",
+      "Border": 3,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Gear frame"
+    },
+    {
+      "Type": "value",
+      "Name": "Gear",
+      "X": 275,
+      "Y": 8,
+      "W": 240,
+      "H": 234,
+      "Bind": "gearText",
+      "Format": "gear",
+      "Font": 30,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "8",
+        "N",
+        "R"
+      ],
+      "PreviewText": "3",
+      "Empty": "N"
+    },
+    {
+      "Type": "box",
+      "X": 265,
+      "Y": 260,
+      "W": 260,
+      "H": 80,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Speed frame"
+    },
+    {
+      "Type": "label",
+      "Name": "KM/H",
+      "X": 271,
+      "Y": 264,
+      "W": 248,
+      "H": 20,
+      "Text": "KM/H",
+      "Font": 14,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Speed",
+      "X": 273,
+      "Y": 288,
+      "W": 244,
+      "H": 46,
+      "Bind": "speed",
+      "Format": "0",
+      "Font": 98,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "388"
+      ],
+      "PreviewText": "142",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 535,
+      "Y": 0,
+      "W": 255,
+      "H": 110,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Delta frame"
+    },
+    {
+      "Type": "label",
+      "Name": "DELTA",
+      "X": 541,
+      "Y": 4,
+      "W": 243,
+      "H": 24,
+      "Text": "DELTA",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Delta",
+      "X": 543,
+      "Y": 32,
+      "W": 239,
+      "H": 72,
+      "Bind": "delta",
+      "Format": "delta",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "+88.88",
+        "-88.88"
+      ],
+      "PreviewText": "-0.35",
+      "Empty": "-.--",
+      "PositiveColor": "#FF3B30",
+      "NegativeColor": "#30E060"
+    },
+    {
+      "Type": "box",
+      "X": 535,
+      "Y": 120,
+      "W": 255,
+      "H": 110,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Fuel frame"
+    },
+    {
+      "Type": "label",
+      "Name": "FUEL",
+      "X": 541,
+      "Y": 124,
+      "W": 243,
+      "H": 24,
+      "Text": "FUEL",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Fuel",
+      "X": 543,
+      "Y": 152,
+      "W": 239,
+      "H": 72,
+      "Bind": "fuel",
+      "Format": "0.0",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "88.8"
+      ],
+      "PreviewText": "28.3",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 535,
+      "Y": 240,
+      "W": 255,
+      "H": 100,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Position frame"
+    },
+    {
+      "Type": "label",
+      "Name": "POSITION",
+      "X": 541,
+      "Y": 244,
+      "W": 243,
+      "H": 24,
+      "Text": "POSITION",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Position",
+      "X": 543,
+      "Y": 272,
+      "W": 239,
+      "H": 62,
+      "Bind": "position",
+      "Format": "0",
+      "Font": 100,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "88"
+      ],
+      "PreviewText": "4",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 0,
+      "Y": 350,
+      "W": 390,
+      "H": 110,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "TYRE TEMPS frame"
+    },
+    {
+      "Type": "label",
+      "Name": "TYRE TEMPS",
+      "X": 6,
+      "Y": 353,
+      "W": 378,
+      "H": 20,
+      "Text": "TYRE TEMPS",
+      "Font": 14,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Tyre FL",
+      "X": 8,
+      "Y": 376,
+      "W": 183,
+      "H": 39,
+      "Bind": "prop:DataCorePlugin.GameData.TyreTemperatureFrontLeft",
+      "Format": "0",
+      "Font": 101,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "188"
+      ],
+      "PreviewText": "84",
+      "Empty": "-",
+      "ColorBind": "prop:DataCorePlugin.GameData.TyreTemperatureFrontLeft",
+      "ColorStops": [
+        {
+          "Value": 50,
+          "Color": "#3FA9FF"
+        },
+        {
+          "Value": 75,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 100,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 115,
+          "Color": "#FF3B30"
+        }
+      ]
+    },
+    {
+      "Type": "value",
+      "Name": "Tyre FR",
+      "X": 199,
+      "Y": 376,
+      "W": 183,
+      "H": 39,
+      "Bind": "prop:DataCorePlugin.GameData.TyreTemperatureFrontRight",
+      "Format": "0",
+      "Font": 101,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "188"
+      ],
+      "PreviewText": "84",
+      "Empty": "-",
+      "ColorBind": "prop:DataCorePlugin.GameData.TyreTemperatureFrontRight",
+      "ColorStops": [
+        {
+          "Value": 50,
+          "Color": "#3FA9FF"
+        },
+        {
+          "Value": 75,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 100,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 115,
+          "Color": "#FF3B30"
+        }
+      ]
+    },
+    {
+      "Type": "value",
+      "Name": "Tyre RL",
+      "X": 8,
+      "Y": 417,
+      "W": 183,
+      "H": 39,
+      "Bind": "prop:DataCorePlugin.GameData.TyreTemperatureRearLeft",
+      "Format": "0",
+      "Font": 101,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "188"
+      ],
+      "PreviewText": "84",
+      "Empty": "-",
+      "ColorBind": "prop:DataCorePlugin.GameData.TyreTemperatureRearLeft",
+      "ColorStops": [
+        {
+          "Value": 50,
+          "Color": "#3FA9FF"
+        },
+        {
+          "Value": 75,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 100,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 115,
+          "Color": "#FF3B30"
+        }
+      ]
+    },
+    {
+      "Type": "value",
+      "Name": "Tyre RR",
+      "X": 199,
+      "Y": 417,
+      "W": 183,
+      "H": 39,
+      "Bind": "prop:DataCorePlugin.GameData.TyreTemperatureRearRight",
+      "Format": "0",
+      "Font": 101,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "188"
+      ],
+      "PreviewText": "84",
+      "Empty": "-",
+      "ColorBind": "prop:DataCorePlugin.GameData.TyreTemperatureRearRight",
+      "ColorStops": [
+        {
+          "Value": 50,
+          "Color": "#3FA9FF"
+        },
+        {
+          "Value": 75,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 100,
+          "Color": "#30E060"
+        },
+        {
+          "Value": 115,
+          "Color": "#FF3B30"
+        }
+      ]
+    },
+    {
+      "Type": "box",
+      "X": 400,
+      "Y": 350,
+      "W": 190,
+      "H": 110,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Water frame"
+    },
+    {
+      "Type": "label",
+      "Name": "WATER",
+      "X": 406,
+      "Y": 354,
+      "W": 178,
+      "H": 24,
+      "Text": "WATER",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Water",
+      "X": 408,
+      "Y": 382,
+      "W": 174,
+      "H": 72,
+      "Bind": "waterTemp",
+      "Format": "0",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "188"
+      ],
+      "PreviewText": "91",
+      "Empty": "-"
+    },
+    {
+      "Type": "box",
+      "X": 600,
+      "Y": 350,
+      "W": 190,
+      "H": 110,
+      "Color": "#4A0B12",
+      "Border": 2,
+      "Radius": 10,
+      "Fill": "#12070A",
+      "Name": "Oil frame"
+    },
+    {
+      "Type": "label",
+      "Name": "OIL",
+      "X": 606,
+      "Y": 354,
+      "W": 178,
+      "H": 24,
+      "Text": "OIL",
+      "Font": 60,
+      "Color": "#FF3048",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "Oil",
+      "X": 608,
+      "Y": 382,
+      "W": 174,
+      "H": 72,
+      "Bind": "oilTemp",
+      "Format": "0",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "188"
+      ],
+      "PreviewText": "99",
+      "Empty": "-"
+    },
+    {
+      "Type": "rect",
+      "X": 265,
+      "Y": 0,
+      "W": 260,
+      "H": 110,
+      "Color": "#1E5BFF",
+      "Name": "Pit limiter band",
+      "Visible": "pitLimiter",
+      "PreviewVisible": false
+    },
+    {
+      "Type": "label",
+      "Name": "Pit limiter text",
+      "X": 275,
+      "Y": 4,
+      "W": 240,
+      "H": 102,
+      "Text": "PIT LIMITER",
+      "Font": 5,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Visible": "pitLimiter",
+      "PreviewVisible": false
+    }
+  ]
+}

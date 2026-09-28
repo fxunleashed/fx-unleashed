@@ -66,7 +66,9 @@ namespace User.FXProRpmSync
                     wasVis = vis;
                     screen.Begin(bytesBy);
                     current = "(areas of elements that hid)";
+                    int events = r.PopupEvents;
                     r.Update(v, now);
+                    popup |= r.PopupEvents != events; // a pop-up element came up or went: drawn on purpose
                     var flash = screen.End();
                     res.Updates++;
                     if (popup) res.PopupUpdates++;
@@ -81,7 +83,7 @@ namespace User.FXProRpmSync
                         }
                     }
                     if (k % 30 == 0) { res.WorstSecondBytes = (int)Math.Max(res.WorstSecondBytes, screen.Bytes - secStart); secStart = screen.Bytes; }
-                    if (res.RedrawMismatch == null && (res.Updates % compareEvery == 0 || k + 3 > steps))
+                    if (res.RedrawMismatch == null && !r.PopupShowing && (res.Updates % compareEvery == 0 || k + 3 > steps))
                     {
                         using (var full = new PreviewScreen())
                         {

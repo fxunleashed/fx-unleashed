@@ -693,6 +693,11 @@ namespace User.FXProRpmSync
             {
                 var r = Box(it, f);
                 if (r.Width <= 0 || r.Height <= 0) { Report.Skip(type + " (empty box)"); return; }
+                // text turned on its side (a faint watermark along a panel's edge): the screen can't draw it turned, and
+                // laid flat it lands on the panel's own text; fixed text like that is left out
+                double rot = ((((double?)it["Rotation"] ?? 0) % 360) + 360) % 360;
+                bool bound = binds?["Text"] != null || binds?["Value"] != null;
+                if (!bound && Math.Abs(rot - 90) < 20 || !bound && Math.Abs(rot - 270) < 20) { Report.Skip(type + " (turned text)", "fixed text drawn on its side left out"); return; }
                 double size = (double?)it["FontSize"] ?? 20;
                 var colour = Color((string)(it["TextColor"] ?? it["GearTextColor"])) ?? System.Drawing.Color.White;
                 var back = Color((string)it["BackgroundColor"]);
