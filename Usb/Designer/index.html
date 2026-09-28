@@ -3,148 +3,162 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FX Pro Dash Designer</title>
-<style>
-:root {
-  --bg: #16181c; --panel: #1f2227; --panel2: #262a30; --line: #343941; --text: #e6e8eb; --muted: #9aa0a6;
-  --accent: #3d8bfd; --error: #e84749; --warn: #f0a020; --ok: #3fb950;
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 "Segoe UI", system-ui, sans-serif; }
-button, select, input, textarea { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; }
-button { padding: 5px 10px; cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.on { background: #1d3b66; border-color: var(--accent); }
-button:disabled { opacity: .45; cursor: default; }
-input, select, textarea { padding: 4px 6px; }
-textarea { width: 100%; resize: vertical; font-family: Consolas, monospace; font-size: 12px; }
-#app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
-#top { display: flex; gap: 6px; align-items: center; padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-#top .title { font-weight: 600; margin-right: 8px; }
-#top .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
-#top .spacer { flex: 1; }
-#main { display: grid; grid-template-columns: 250px 1fr 330px; min-height: 0; }
-#left, #right { background: var(--panel); overflow: auto; min-height: 0; }
-#left { border-right: 1px solid var(--line); }
-#right { border-left: 1px solid var(--line); padding: 10px; }
-#center { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 14px; overflow: auto; min-height: 0; }
-#stagewrap { position: relative; box-shadow: 0 0 0 1px var(--line), 0 8px 30px rgba(0,0,0,.5); background: #000; }
-#stage { display: block; cursor: default; }
-#preview { position: absolute; left: 0; top: 0; pointer-events: none; display: none; image-rendering: pixelated; }
-#hint { color: var(--muted); margin-top: 8px; font-size: 12px; text-align: center; max-width: 900px; }
-.section { padding: 8px 10px; border-bottom: 1px solid var(--line); }
-.section h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-#elements { list-style: none; margin: 0; padding: 0; }
-#elements li { display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer; border-left: 3px solid transparent; }
-#elements li:hover { background: var(--panel2); }
-#elements li.sel { background: #1d2c44; border-left-color: var(--accent); }
-#elements li .t { font-size: 10px; color: var(--muted); width: 52px; flex: none; text-transform: uppercase; }
-#elements li .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#elements li .flag { font-size: 10px; color: var(--warn); }
-#elements li .eye { opacity: .6; font-size: 12px; }
-#elements li.hidden .n { opacity: .45; text-decoration: line-through; }
-.row { display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: center; margin-bottom: 6px; }
-.row label { color: var(--muted); font-size: 12px; }
-.row input[type=number] { width: 100%; }
-.row .inline { display: flex; gap: 4px; align-items: center; }
-.row .inline input[type=color] { width: 36px; height: 26px; padding: 1px; flex: none; }
-.row .inline input[type=text] { flex: 1; min-width: 0; }
-.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-.grid4 input { width: 100%; }
-.small { font-size: 11px; color: var(--muted); }
-#bottom { background: var(--panel); border-top: 1px solid var(--line); max-height: 180px; overflow: auto; padding: 6px 10px; }
-#summary { display: flex; gap: 14px; align-items: center; margin-bottom: 4px; }
-.badge { padding: 1px 8px; border-radius: 10px; font-size: 12px; }
-.badge.ok { background: #16391f; color: var(--ok); } .badge.err { background: #401a1b; color: var(--error); } .badge.warn { background: #3d2c10; color: var(--warn); }
-#issues { list-style: none; margin: 0; padding: 0; }
-#issues li { padding: 2px 0; cursor: pointer; }
-#issues li.error::before { content: "● "; color: var(--error); } #issues li.warning::before { content: "● "; color: var(--warn); }
-dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 16px; width: min(760px, 92vw); }
-dialog::backdrop { background: rgba(0,0,0,.6); }
-dialog h2 { margin: 0 0 10px; font-size: 16px; }
-#simhublist { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 5px; margin: 8px 0; }
-#simhublist div { padding: 5px 10px; cursor: pointer; } #simhublist div:hover { background: var(--panel2); } #simhublist div.sel { background: #1d2c44; }
-#report { white-space: pre-wrap; font-family: Consolas, monospace; font-size: 12px; max-height: 260px; overflow: auto; background: var(--panel2); padding: 8px; border-radius: 5px; }
-.toast { position: fixed; right: 16px; bottom: 16px; background: var(--panel2); border: 1px solid var(--line); padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
-.toast.show { opacity: 1; }
-kbd { background: var(--panel2); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 11px; }
-</style>
+<title>FX Pro Dash Studio</title>
+<link rel="stylesheet" href="designer.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23120a0c'/%3E%3Cpath d='M4 9c0-3 3-4 8-4s8 1 8 4v6c0 2-1 3-3 3l-2-2H9l-2 2c-2 0-3-1-3-3z' fill='none' stroke='%23ff1f2d' stroke-width='2'/%3E%3C/svg%3E">
 </head>
 <body>
 <div id="app">
-  <div id="top">
-    <span class="title">FX Pro Dash Designer</span>
-    <select id="library" title="Dashes in the library"></select>
-    <button id="btnNew" title="Start an empty dash">New</button>
-    <button id="btnImport" title="Convert a SimHub dash">Import SimHub dash…</button>
-    <span class="sep"></span>
-    <button id="btnSave" class="primary" title="Save to the plugin's dashes folder (Ctrl+S)">Save</button>
-    <button id="btnSaveAs" title="Save under a new Id">Save as…</button>
-    <button id="btnDownload" title="Download the dash as JSON">Download</button>
-    <button id="btnUpload" title="Open a dash JSON file">Open file…</button>
-    <input id="file" type="file" accept=".json,application/json" hidden>
-    <span class="sep"></span>
-    <button id="btnUndo" title="Undo (Ctrl+Z)">↶</button>
-    <button id="btnRedo" title="Redo (Ctrl+Y)">↷</button>
-    <span class="spacer"></span>
-    <label class="small" title="Padding the dash gets on the wheel (for the checks and previews)">Pad
-      <input id="padL" type="number" value="10" min="0" max="40" style="width:52px"> <input id="padT" type="number" value="20" min="0" max="40" style="width:52px"></label>
-    <button id="btnExact" title="Show the exact wheel rendering from the server over the canvas">Exact preview</button>
-    <button id="btnDemo" title="Animate the exact preview with the simulated lap">Demo lap</button>
-    <button id="btnWheel" title="Show this dash on the wheel while you edit (SimHub plugin only)">Show on wheel</button>
-  </div>
-  <div id="main">
-    <div id="left">
-      <div class="section">
-        <h3>Add</h3>
-        <select id="addType">
-          <option value="label">Label (fixed text)</option><option value="value">Value (data)</option>
-          <option value="rect">Rectangle</option><option value="box">Box (frame)</option><option value="ellipse">Ellipse</option>
-          <option value="gradient">Gradient</option><option value="image">Image…</option><option value="bar">Bar gauge</option>
-          <option value="deltabar">Delta bar</option><option value="popup">Pop-up</option>
-        </select>
-        <button id="btnAdd">Add</button>
-        <input id="imgfile" type="file" accept="image/*" hidden>
+  <header id="top">
+    <div class="brand">
+      <div class="mark" data-icon="wheel"></div>
+      <div class="name"><b>FX</b>PRO <span style="font-weight:300">UNLOCKED</span><small>DASH STUDIO</small></div>
+    </div>
+    <div class="docname">
+      <input id="dashName" spellcheck="false" title="The dash's name (shown in the plugin's dash list)">
+      <span class="dirty" id="dirty" title="Unsaved changes"></span>
+      <span class="id" id="dashId"></span>
+    </div>
+    <div class="spacer"></div>
+    <div class="group">
+      <button class="btn icon ghost" id="btnUndo" title="Undo (Ctrl+Z)" data-icon="undo"></button>
+      <button class="btn icon ghost" id="btnRedo" title="Redo (Ctrl+Y)" data-icon="redo"></button>
+    </div>
+    <div class="seg" id="viewSeg">
+      <span class="thumb"></span>
+      <button data-view="edit" class="on" title="Edit on the canvas"><span data-icon="edit"></span>Edit</button>
+      <button data-view="exact" title="The exact picture the wheel draws (rendered by the plugin)"><span data-icon="eye"></span>Exact</button>
+      <button data-view="demo" title="The exact picture with a simulated lap"><span data-icon="play"></span>Demo lap</button>
+    </div>
+    <button class="btn" id="btnWheel" title="Show this dash on your FX Pro while you edit"><span class="live"></span>On wheel</button>
+    <button class="pill busy" id="checksPill" title="Layout checks: click for details"><span class="dot"></span><span id="checksText">Checking…</span></button>
+    <div class="group" style="position:relative">
+      <button class="btn primary" id="btnSave" title="Save to the plugin's dashes (Ctrl+S)"><span data-icon="save"></span>Save</button>
+      <button class="btn icon" id="btnMore" title="More" data-icon="more"></button>
+      <div class="menu" id="moreMenu" style="right:0; top:42px">
+        <button data-act="saveas"><span data-icon="copy"></span>Save as a new dash…</button>
+        <button data-act="download"><span data-icon="download"></span>Download JSON</button>
+        <button data-act="open"><span data-icon="upload"></span>Open a JSON file…</button>
+        <hr>
+        <button data-act="new"><span data-icon="plus"></span>New empty dash</button>
+        <button data-act="import"><span data-icon="import"></span>Import a SimHub dash…</button>
+        <hr>
+        <button data-act="keys"><span data-icon="keyboard"></span>Keyboard shortcuts<kbd>?</kbd></button>
+        <button data-act="delete" class="danger"><span data-icon="trash"></span>Delete this dash from the library</button>
       </div>
-      <div class="section" style="border-bottom:none">
-        <h3>Elements (drawn top to bottom)</h3>
-        <div style="display:flex; gap:4px; margin-bottom:6px">
-          <button id="btnUp" title="Draw earlier (further back)">▲</button>
-          <button id="btnDown" title="Draw later (further forward)">▼</button>
-          <button id="btnDup" title="Duplicate (Ctrl+D)">Duplicate</button>
-          <button id="btnDel" title="Delete (Del)">Delete</button>
+    </div>
+    <input id="file" type="file" accept=".json,application/json" hidden>
+    <input id="imgfile" type="file" accept="image/*" hidden>
+  </header>
+
+  <aside id="left">
+    <nav class="tabs" id="tabs">
+      <button data-tab="add" class="on"><span data-icon="plus"></span>Add</button>
+      <button data-tab="layers"><span data-icon="layers"></span>Layers <span class="count" id="layerCount">0</span></button>
+      <button data-tab="library"><span data-icon="grid"></span>Dashes</button>
+    </nav>
+    <div class="panes">
+      <section class="pane on" data-pane="add">
+        <div class="eyebrow">Click or drag onto the screen</div>
+        <div class="palette" id="palette"></div>
+        <div class="eyebrow">Tip</div>
+        <div class="note" style="color:var(--text3); font-size:12px; padding:0 2px">Values show live data (speed, gear, lap times…). Shapes and labels are drawn once, so they cost nothing while you drive.</div>
+      </section>
+      <section class="pane" data-pane="layers">
+        <div class="eyebrow">Top = in front · drag to reorder</div>
+        <ul class="layers" id="layers"></ul>
+      </section>
+      <section class="pane" data-pane="library">
+        <div class="bigbtns">
+          <button class="btn" data-act="new"><span data-icon="plus"></span>New</button>
+          <button class="btn" data-act="import"><span data-icon="import"></span>From SimHub</button>
+        </div>
+        <label class="search"><span data-icon="search"></span><input id="libSearch" placeholder="Search dashes"></label>
+        <div id="library"></div>
+      </section>
+    </div>
+  </aside>
+
+  <main id="stage">
+    <div id="stageScroll">
+      <div id="bezel">
+        <div id="screen">
+          <canvas id="canvas" width="800" height="480"></canvas>
+          <img class="exact" id="exact" alt="">
+          <div id="overlay">
+            <div class="safe" id="safe" title="What the wheel shows: its bezel hides the screen's edges (the wheel padding)"></div>
+            <div class="hoverbox" id="hoverbox"></div>
+            <div class="selbox" id="selbox">
+              <div class="h nw" data-h="nw"></div><div class="h n" data-h="n"></div><div class="h ne" data-h="ne"></div><div class="h e" data-h="e"></div>
+              <div class="h se" data-h="se"></div><div class="h s" data-h="s"></div><div class="h sw" data-h="sw"></div><div class="h w" data-h="w"></div>
+              <div class="size" id="selsize"></div>
+            </div>
+          </div>
+          <div class="hint" id="hint"><span data-icon="sparkle"></span><b>An empty screen</b>Drag an element from the left, or open a dash from the Dashes tab.</div>
         </div>
       </div>
-      <ul id="elements"></ul>
     </div>
-    <div id="center">
-      <div id="stagewrap"><canvas id="stage" width="800" height="480"></canvas><img id="preview" alt=""></div>
-      <div id="hint">Click to select, drag to move, drag the corner handles to resize. <kbd>←↑→↓</kbd> nudge (Shift = 10 px),
-        <kbd>Del</kbd> delete, <kbd>Ctrl+D</kbd> duplicate, <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> undo/redo, <kbd>Ctrl+S</kbd> save.
-        Text is drawn at the screen fonts' real widths (letter shapes are stand-ins). Elements with conditions show by their "Preview" switch.</div>
+    <div class="viewbadge chip" id="viewBadge"><span data-icon="eye"></span><span id="viewBadgeText">Exact picture from the plugin</span></div>
+    <div class="stagebar l"><div class="chip" id="coords" title="Cursor position on the screen (800 x 480)">— , —</div><div class="chip" title="The dashed frame: what the wheel shows (its bezel hides the screen's edges)"><span style="width:16px;border-top:1px dashed #888;display:inline-block"></span>Wheel's visible area</div></div>
+    <div class="stagebar r">
+      <div class="chip">
+        <button id="zoomOut" title="Zoom out (-)" data-icon="minus"></button>
+        <span class="val" id="zoomVal">100%</span>
+        <button id="zoomIn" title="Zoom in (+)" data-icon="plus"></button>
+        <button id="zoomFit" title="Fit (0)" data-icon="fit"></button>
+      </div>
     </div>
-    <div id="right"><div id="props"></div></div>
-  </div>
-  <div id="bottom">
-    <div id="summary"><span id="status" class="badge">…</span><span id="cost" class="small"></span><span id="host" class="small"></span></div>
-    <ul id="issues"></ul>
+    <div id="drawer">
+      <header>
+        <b id="drawerTitle">Checks</b>
+        <span class="note" id="costText" style="color:var(--text3)"></span>
+        <div class="meter" title="Time to draw the dash on the wheel (the wheel's screen takes ~25 KB/s)"><i id="costMeter" style="width:0"></i></div>
+        <div class="spacer"></div>
+        <button class="btn icon ghost" id="drawerClose" data-icon="x" title="Close"></button>
+      </header>
+      <div class="list" id="issues"></div>
+    </div>
+  </main>
+
+  <aside id="right"><div id="inspector"></div></aside>
+</div>
+
+<div class="modal-bg" id="importModal">
+  <div class="modal">
+    <header><div class="ti" data-icon="import"></div><div><h2>Import a SimHub dash</h2><p>Converted to the wheel's screen: fonts fitted, images simplified, SimHub formulas kept.</p></div></header>
+    <div class="mbody">
+      <label class="search" style="margin:0"><span data-icon="search"></span><input id="simFilter" placeholder="Search your SimHub dashes"></label>
+      <div class="simgrid" id="simGrid"></div>
+      <div class="f"><label>Screen</label><select class="in" id="simScreen"><option value="">The main in-game screen</option></select></div>
+      <div class="f"><label>Images</label><label class="switch"><input type="checkbox" id="impImages" checked><i></i><span class="note" style="color:var(--text2)">Keep pictures, up to <b id="impColorsVal">6</b> colours each</span></label></div>
+      <div class="f"><label>Colours</label><div class="range"><input type="range" id="impColors" min="2" max="32" value="6"><output id="impColorsOut">6</output></div></div>
+      <div class="f"><label>Draw time</label><div class="range"><input type="range" id="impSeconds" min="2" max="30" value="8"><output id="impSecondsOut">8 s</output></div></div>
+      <div id="impProgress" class="progress" style="display:none"><i></i></div>
+      <div id="impResult" style="display:none; gap:10px" class="mbody"></div>
+    </div>
+    <footer><button class="btn" data-close>Close</button><button class="btn primary" id="impGo"><span data-icon="import"></span>Import</button></footer>
   </div>
 </div>
 
-<dialog id="importDlg">
-  <h2>Import a SimHub dash</h2>
-  <input id="simhubFilter" placeholder="Filter…" style="width:100%">
-  <div id="simhublist"></div>
-  <div class="row"><label>Screen</label><select id="simhubScreen"></select></div>
-  <div class="row"><label>Images</label><div class="inline"><input id="impImages" type="checkbox" checked> <span class="small">colours per image</span> <input id="impColors" type="number" value="6" min="2" max="32" style="width:60px"></div></div>
-  <div class="row"><label>Max draw time</label><div class="inline"><input id="impSeconds" type="number" value="8" min="1" max="60" style="width:60px"> <span class="small">s (images are simplified to stay under it)</span></div></div>
-  <div id="report" style="display:none"></div>
-  <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px">
-    <button id="impCancel">Close</button><button id="impGo" class="primary">Import</button>
+<div class="modal-bg" id="promptModal">
+  <div class="modal small">
+    <header><div class="ti" id="promptIcon" data-icon="save"></div><div><h2 id="promptTitle"></h2><p id="promptText"></p></div></header>
+    <div class="mbody" id="promptBody"></div>
+    <footer><button class="btn" data-close>Cancel</button><button class="btn primary" id="promptOk">OK</button></footer>
   </div>
-</dialog>
-<div id="toast" class="toast"></div>
+</div>
+
+<div class="modal-bg" id="keysModal">
+  <div class="modal small" style="width:min(600px,92vw)">
+    <header><div class="ti" data-icon="keyboard"></div><div><h2>Keyboard shortcuts</h2><p>Mouse: drag to move, handles to resize. Hold Alt to turn snapping off, Shift to keep proportions.</p></div></header>
+    <div class="mbody"><div class="keys" id="keysList"></div></div>
+    <footer><button class="btn primary" data-close>Got it</button></footer>
+  </div>
+</div>
+
+<div class="menu" id="ctxMenu" style="position:fixed"></div>
+<div class="pop" id="pop"></div>
+<div id="toasts"></div>
 <script src="designer.js"></script>
 </body>
 </html>

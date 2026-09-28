@@ -309,7 +309,11 @@ namespace User.FXProRpmSync
         private static Response Asset(string name)
         {
             var resource = "User.FXProRpmSync.Designer." + name.Replace('/', '.');
-            using (var st = typeof(DesignerServer).Assembly.GetManifestResourceStream(resource))
+            // Development: FXDASH_DESIGNER_DIR serves the page's files from disk (edit, reload, no rebuild)
+            var dir = Environment.GetEnvironmentVariable("FXDASH_DESIGNER_DIR");
+            var onDisk = string.IsNullOrEmpty(dir) ? null : Path.Combine(dir, name.Replace('/', Path.DirectorySeparatorChar));
+            using (var st = onDisk != null && File.Exists(onDisk) ? File.OpenRead(onDisk)
+                          : typeof(DesignerServer).Assembly.GetManifestResourceStream(resource))
             {
                 if (st == null) return Json(new { error = "not found: " + name }, 404);
                 using (var ms = new MemoryStream())
@@ -317,7 +321,7 @@ namespace User.FXProRpmSync
                     st.CopyTo(ms);
                     string ext = Path.GetExtension(name).ToLowerInvariant();
                     string type = ext == ".html" ? "text/html; charset=utf-8" : ext == ".js" ? "text/javascript; charset=utf-8"
-                                : ext == ".css" ? "text/css; charset=utf-8" : ext == ".png" ? "image/png" : "application/octet-stream";
+                                : ext == ".css" ? "text/css; charset=utf-8" : ext == ".png" ? "image/png" : ext == ".svg" ? "image/svg+xml" : "application/octet-stream";
                     return new Response { Type = type, Body = ms.ToArray() };
                 }
             }
