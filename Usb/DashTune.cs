@@ -138,13 +138,27 @@ namespace User.FXProRpmSync
             foreach (var g in values.Where(e => (e.Format == "gear" || (e.Bind ?? "").IndexOf("gear", StringComparison.OrdinalIgnoreCase) >= 0) && (e.Visible == null || e.Visible.Count == 0)))
             {
                 // in a panel of its own (a filled shape around it, nothing else in it): the gear takes the panel's inside
+                // (its centre in the panel; a caption at the panel's top or bottom only takes those rows)
+                var gc = new Point(g.X + g.W / 2, g.Y + g.H / 2);
                 var panel = d.Elements.Where(sh => (sh.Type == "rect" || sh.Type == "box" || sh.Type == "ellipse") && (sh.Visible == null || sh.Visible.Count == 0)
-                                                   && Box(sh).Contains(Box(g)) && sh.W * sh.H < 4 * Math.Max(1, g.W * g.H) * 4)
+                                                   && Box(sh).Contains(gc) && sh.W * sh.H < 16 * Math.Max(1, g.W * g.H) && sh.W >= 40 && sh.H >= 40)
                                       .OrderBy(sh => sh.W * sh.H).FirstOrDefault();
-                if (panel != null && !d.Elements.Any(o => o != g && o != panel && (o.Type == "value" || o.Type == "label") && (o.Visible == null || o.Visible.Count == 0) && Box(o).IntersectsWith(Box(panel))))
+                var inPanel = panel == null ? new List<DashElement>() :
+                    d.Elements.Where(o => o != g && o != panel && (o.Type == "value" || o.Type == "label") && (o.Visible == null || o.Visible.Count == 0)
+                                          && Box(o).IntersectsWith(Box(panel))).ToList();
+                // captions: labels in the panel's top or bottom quarter; any other text in it and the panel isn't the gear's
+                bool Caption(DashElement o) => o.Type == "label" && Box(panel).Contains(new Point(o.X + o.W / 2, o.Y + o.H / 2))
+                                               && (o.Y + o.H <= panel.Y + panel.H / 4 + 8 || o.Y >= panel.Y + panel.H * 3 / 4 - 8);
+                if (panel != null && inPanel.All(Caption))
                 {
                     int inset = Math.Max(2, panel.Border + 2);
                     var inner = new Rectangle(panel.X + inset, panel.Y + inset, panel.W - 2 * inset, panel.H - 2 * inset);
+                    foreach (var c in inPanel)
+                    {
+                        var cb = Covers(c);
+                        if (cb.Y < inner.Y + inner.Height / 2) inner = Rectangle.FromLTRB(inner.Left, Math.Max(inner.Top, cb.Bottom + 2), inner.Right, inner.Bottom);
+                        else inner = Rectangle.FromLTRB(inner.Left, inner.Top, inner.Right, Math.Min(inner.Bottom, cb.Top - 2));
+                    }
                     if (inner.Width * inner.Height > g.W * g.H)
                     {
                         changes.Add($"{Name(g)}: gear box {Str(Box(g))} -> {Str(inner)}, the inside of {Name(panel)}");
@@ -187,9 +201,10 @@ namespace User.FXProRpmSync
                 {
                     if (o == v) continue;
                     // shown under other conditions than this value: it comes and goes over it
+                    // (a pop-up with formula conditions is dealt with later: the value hides while it shows)
                     bool popup = o.Visible != null && o.Visible.Count > 0 && !(v.Visible != null && o.Visible.SequenceEqual(v.Visible));
                     if (!popup && (o.Type == "value" || o.Type == "label")) { var oo = o; obstacles.Add((oo, () => Band(oo, Widest(oo)))); }
-                    else if (popup && d.Elements.IndexOf(o) > d.Elements.IndexOf(v) && !Box(o).Contains(Band(v, vs))) { var oo = o; obstacles.Add((oo, () => Box(oo))); }
+                    else if (popup && d.Elements.IndexOf(o) > d.Elements.IndexOf(v) && !Box(o).Contains(Band(v, vs)) && !o.Visible.All(c => c.StartsWith("ncalc:"))) { var oo = o; obstacles.Add((oo, () => Box(oo))); }
                 }
                 foreach (var (o, obox) in obstacles)
                 {
@@ -557,20 +572,24 @@ namespace User.FXProRpmSync
             foreach (var v in d.Elements.Where(x => x.Type == "value").ToList())
             {
                 int vi = d.Elements.IndexOf(v);
+                // there whenever the value is: always, or under the very same conditions
+                bool Always(DashElement x) => x.Visible == null || x.Visible.Count == 0 || (v.Visible != null && x.Visible.SequenceEqual(v.Visible));
+                // pop-up shapes, and opaque shapes always there that are drawn over it (a panel's background covering
+                // the bottom of its digits: every change redraws the panel over them)
                 foreach (var sh in d.Elements.Skip(vi + 1).Where(x => (x.Type == "rect" || x.Type == "box" || x.Type == "ellipse" || x.Type == "image")
-                                                                     && x.Visible != null && x.Visible.Count > 0
-                                                                     && !(v.Visible != null && x.Visible.SequenceEqual(v.Visible))).ToList())
+                                                                     && ((x.Visible != null && x.Visible.Count > 0 && !Always(x))
+                                                                         || (Always(x) && (x.Type == "rect" || (x.Type == "box" && x.Fill != null)) && x.Opacity >= 100))).ToList())
                 {
                     var sb = Box(sh);
                     if (!Box(v).IntersectsWith(sb) || sb.Contains(Band(v, Widest(v)))) continue; // (a shape over all of its text hides it anyway)
                     // hidden while that shape shows (they take turns): never on the screen together
-                    if (v.Visible != null && sh.Visible.All(c => c.StartsWith("ncalc:")))
+                    if (v.Visible != null && sh.Visible != null && sh.Visible.Count > 0 && sh.Visible.All(c => c.StartsWith("ncalc:")))
                     {
                         var conds = sh.Visible.Distinct().ToList();
                         string cond = conds.Count == 1 ? conds[0].Substring(6) : string.Join(" and ", conds.Select(c => "(" + c.Substring(6) + ")"));
                         if (v.Visible.Contains("ncalc:!(" + cond + ")")) continue;
                     }
-                    Trim(v, sb, changes, name(v), name(sh), slack: 0);
+                    Trim(v, sb, changes, name(v), name(sh), slack: 0, minRatio: Always(sh) ? 0.0 : 0.75);
                 }
             }
         }
@@ -604,14 +623,16 @@ namespace User.FXProRpmSync
                 var band = DashRenderer.TextBand(v, v.Font, ws, 1);
                 int vi = d.Elements.IndexOf(v);
                 // a tag made for it (a small rect under it), or a filled panel it sits on that it pokes out of a little
-                var tag = d.Elements.Take(vi).LastOrDefault(r => r.Type == "rect" && (r.Visible == null || r.Visible.Count == 0 || (v.Visible != null && r.Visible.SequenceEqual(v.Visible)))
+                // shown when the value is, and only then (both always, or under the same conditions)
+                bool Same(DashElement r) => (r.Visible == null || r.Visible.Count == 0) ? (v.Visible == null || v.Visible.Count == 0) : (v.Visible != null && r.Visible.SequenceEqual(v.Visible));
+                var tag = d.Elements.Take(vi).LastOrDefault(r => r.Type == "rect" && Same(r)
                                                                  && Box(r).Contains(new Point(band.X + band.Width / 2, band.Y + band.Height / 2))
                                                                  && Box(v).Contains(new Point(r.X + r.W / 2, r.Y + r.H / 2))
                                                                  && r.W * r.H <= v.W * v.H * 1.2);
                 bool panel = false;
                 if (tag == null)
                 {
-                    tag = d.Elements.Take(vi).LastOrDefault(r => (r.Type == "rect" || (r.Type == "box" && r.Fill != null)) && (r.Visible == null || r.Visible.Count == 0)
+                    tag = d.Elements.Take(vi).LastOrDefault(r => (r.Type == "rect" || (r.Type == "box" && r.Fill != null)) && Same(r)
                                                                && Box(r).Contains(new Point(band.X + band.Width / 2, band.Y + band.Height / 2)));
                     panel = true;
                 }
@@ -657,7 +678,7 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>Trims a value's box off `ob` (to at most 2 px of overlap), keeping its widest text; else a smaller font.</summary>
-        private static bool Trim(DashElement v, Rectangle ob, List<string> changes, string vn, string on, int slack = 2)
+        private static bool Trim(DashElement v, Rectangle ob, List<string> changes, string vn, string on, int slack = 2, double minRatio = 0.75)
         {
             var box = Box(v);
             var cands = new List<Rectangle>();
@@ -676,7 +697,7 @@ namespace User.FXProRpmSync
                     if (samples.Count == 0) continue;
                     var probe = new DashElement { W = c.Width + 4, H = c.Height };
                     int nf = BestFont(probe, samples, c.Height, preferNarrow: true, gearOnly: false);
-                    if (nf < 0 || DashRenderer.FontHeight(nf) < 0.75 * DashRenderer.FontHeight(v.Font) || NeedWidth(v, nf) > c.Width) continue;
+                    if (nf < 0 || DashRenderer.FontHeight(nf) < minRatio * DashRenderer.FontHeight(v.Font) || NeedWidth(v, nf) > c.Width) continue;
                     font = nf;
                 }
                 int f0 = v.Font;
