@@ -13,26 +13,28 @@ agree with each other and with the wheel:
 The dash format: [dash-format.md](dash-format.md). Designing with an AI agent: the `/create-dash` skill in
 `.claude/skills/` (and the "For agents" section below).
 
-## Web designer
+## Web designer (Dash Studio)
 
-SimHub → FXPro RPM Sync → USB mode → **Open the dash designer** (or http://127.0.0.1:8899/ while SimHub runs; port in
-settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas not evaluated).
+SimHub → FXPro Unlocked → Unlocked → Dashes → **Designer** (or http://127.0.0.1:8899/ while SimHub runs; port in
+settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas not evaluated). Same look as the plugin.
 
-- **Top bar:** open a dash from the library (built-in and saved), New, **Import SimHub dash…**, Save (to
-  `PluginsData\Common\FXProRpmSync\Dashes\<Id>.json`; the plugin's dash list picks it up), Save as, Download / Open file
-  (JSON), undo/redo, the wheel's padding (for checks and imports), **Exact preview** (the server's rendering, exactly
-  what the wheel draws, over the canvas), **Demo lap** (the exact preview animated), **Show on wheel**.
-- **Canvas:** click to select, drag to move, corner handles to resize, arrow keys nudge (Shift = 10 px), Del, Ctrl+D,
-  Ctrl+Z/Y, Ctrl+S. Text is drawn at the screen fonts' real widths (letter shapes are stand-ins), so what fits here fits
-  on the wheel.
-- **Elements:** drawing order (▲▼ to reorder), add (label, value, rect, box, ellipse, gradient, image from a file, bar,
-  delta bar, pop-up), duplicate, delete. ◉/◌ marks elements with conditions (shown/hidden in previews); ⚠ has issues.
-- **Properties:** everything in the format, with a font list (height, characters) and **Fit** (the tallest font whose
-  text fits the box), a bindings list, formats, colour pickers (alpha kept), conditions, "show in previews".
-- **Checks:** live under the canvas (errors, warnings, draw time); click one to select its element.
-- **Show on wheel** (plugin only, USB mode on): the wheel shows the dash being edited, with live data while a game runs
-  and the simulated lap otherwise; it follows every change. It stops when you switch it off, close the page, or after a
-  minute without the page.
+- **Top bar:** the dash's name (edit in place; amber dot = unsaved), undo/redo, **Edit / Exact / Demo lap** (Exact and
+  Demo are the plugin's own rendering, exactly what the wheel draws), **On wheel** (the wheel follows every change),
+  the checks pill (click for the list), **Save** and a menu (save as, download/open JSON, new, import, delete).
+- **Left:** **Add** (element tiles: click, or drag onto the screen where you want it), **Layers** (top = in front;
+  drag to reorder; eye = shown/hidden in previews for conditional elements; ⚠ = a check issue; hover highlights on the
+  screen), **Dashes** (the library with rendered thumbnails, New, From SimHub).
+- **Screen:** in a bezel, with the wheel's visible area dashed (the padding). Click to select, drag to move, 8 handles
+  to resize; smart snapping (screen edges/centre, the visible area, other elements) with red guides; Alt = no snap,
+  Shift = straight moves / keep proportions. Right-click menu, double-click to edit the text or data, zoom
+  (+/-/0, Ctrl+wheel). A click only selects (no undo step).
+- **Inspector:** position & size (drag the X/Y/W/H letters to scrub), align in the visible area; text with a **font
+  picker** that measures the element's widest text in every screen font ("use the biggest that fits"); colour
+  swatches (palette, hex, opacity); **data picker** (searchable, grouped, plain-English, or any SimHub property /
+  formula); format chips; widest-text chips; colour from data; **Show when** conditions as chips; raw JSON.
+- **Keys:** arrows (Shift = 10 px), Del, Ctrl+D, Ctrl+C/V, Ctrl+Z/Y, [ ], Esc, Ctrl+S, 1/2/3 views, ? for the list.
+- Development: `FXDASH_DESIGNER_DIR=<repo>\Usb\Designer fxdash serve --port 8898` serves the page's files from disk
+  (edit and reload, no rebuild).
 
 ## SimHub import
 
