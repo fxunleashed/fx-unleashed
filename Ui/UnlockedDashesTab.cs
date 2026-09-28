@@ -292,7 +292,6 @@ namespace User.FXProRpmSync
             wheelTiles.Children.Clear();
             tiles.Clear();
             foreach (var d in DashCache.All()) customTiles.Children.Add(LibraryTile(DashRef.Custom(d.Id), d.Name, d.Author, 226, 124));
-            wheelTiles.Children.Add(LibraryTile(DashRef.Wheel(null), "Whatever the wheel shows", "The dash you pick on the wheel", 170, 102));
             foreach (var w in DashCatalog.All.Where(x => x.Id != DashCatalog.SettingsPageId))
                 wheelTiles.Children.Add(LibraryTile(DashRef.Wheel(w.Id), w.Name, "Wheel dash " + w.Id, 170, 102));
             RefreshBadges();
@@ -340,7 +339,7 @@ namespace User.FXProRpmSync
             focusInfo.Text = wheel
                 ? (DashRef.Id(focus) == null
                     ? "The plugin gives the screen back and leaves the wheel on the dash you pick with its dash button."
-                    : "One of the wheel's own dashes: the plugin gives the screen back and switches the wheel to it through SimPro.")
+                    : "One of the wheel's own dashes. The wheel draws it itself; over USB the plugin switches to it and feeds it SimHub's data (the wheel's units apply).")
                 : string.Join("  ·  ", new[] { d?.Author, d?.Description, d?.BuiltIn == true ? "built in" : null }.Where(x => !string.IsNullOrWhiteSpace(x)));
             var refs = TargetList(out bool own, out int current);
             bool inList = refs.Contains(focus);
@@ -358,16 +357,20 @@ namespace User.FXProRpmSync
                     var l = new List<string>(refs); int at = l.IndexOf(focus); l.RemoveAt(at);
                     Save(l, Math.Min(current, Math.Max(0, l.Count - 1)));
                 }, icon: ""));
-            if (!wheel && d != null)
+            string demoRef = wheel ? (DashRef.Id(focus) == null ? null : focus) : d?.Id;
+            if (demoRef != null)
             {
-                bool demoing = Usb?.DemoOn == true && Usb.DemoDashId == d.Id;
+                bool demoing = Usb?.DemoOn == true && Usb.DemoDashId == demoRef;
                 var demo = Theme.Btn(demoing ? "Stop the demo" : "Demo on the wheel", () =>
                 {
-                    Usb?.SetDemo(!demoing, d.Id);
+                    Usb?.SetDemo(!demoing, demoRef);
                     ShowFocus();
                 }, icon: demoing ? "" : "");
                 demo.IsEnabled = Usb != null && S.FirmwareConfirmed;
                 focusButtons.Children.Add(demo);
+            }
+            if (!wheel && d != null)
+            {
                 focusButtons.Children.Add(Theme.Btn("Edit in the designer", () => OpenDesigner(d.Id), icon: ""));
                 if (d.BuiltIn) focusButtons.Children.Add(Theme.Btn("Save a copy", () => SaveCopy(d), icon: ""));
             }

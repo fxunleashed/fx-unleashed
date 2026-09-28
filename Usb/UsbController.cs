@@ -358,6 +358,7 @@ namespace User.FXProRpmSync
             // What the screen should show
             string key = null;
             DashDefinition pd = previewDash, want = null;
+            string wantPage = null; // a wheel dash: its page (null = leave the wheel's)
             SaverItem item = null;
             int reloads = Volatile.Read(ref dashReloads);
             if (sleeping) key = "sleep";
@@ -367,14 +368,20 @@ namespace User.FXProRpmSync
                 else
                 {
                     var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
-                    if (testing || demoOn)
+                    if (demoOn && demoDashId != null)
+                    {
+                        // the demo of one dash from the dashes page: one of the plugin's, or a wheel dash ("w:N")
+                        wheelDash = DashRef.IsWheel(demoDashId);
+                        id = wheelDash ? DashRef.Id(demoDashId) : demoDashId;
+                    }
+                    else if (testing || demoOn)
                     {
                         // the test and the demo are about the plugin's dashes
-                        if (demoOn && demoDashId != null) id = demoDashId;
-                        else if (wheelDash) id = plugin.Settings.Usb.DefaultDashes.Where(r => !DashRef.IsWheel(r)).Select(DashRef.Id).FirstOrDefault();
+                        if (wheelDash) id = plugin.Settings.Usb.DefaultDashes.Where(r => !DashRef.IsWheel(r)).Select(DashRef.Id).FirstOrDefault();
                         wheelDash = false;
                     }
                     if (!wheelDash) key = $"dash|{id ?? BuiltInDashes.MustangId}|{s.PadLeft}|{s.PadTop}|{reloads}";
+                    else wantPage = id;
                 }
             }
             else if (s.ScreenSaver)
@@ -383,11 +390,12 @@ namespace User.FXProRpmSync
                 key = $"saver|{item.Id}|{s.PadLeft}|{s.PadTop}|{reloads}";
             }
 
-            if (key == null) { ReleaseScreen(); return; }
+            WheelPage = source && key == null ? (wantPage ?? "") : null;
+            if (key == null) { ReleaseScreen(wantPage); ShowPage(wantPage); return; }
             if (screen != null && key == screenKey) return;
             screenKey = key;
             renderer = null; dash = null; saver = null;
-            if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); }
+            if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); shownPage = null; }
 
             if (key == "sleep")
             {
@@ -460,14 +468,72 @@ namespace User.FXProRpmSync
             SimHub.Logging.Current.Info("[FXProRpmSync] USB mode awake");
         }
 
-        /// <summary>The wheel's own dash back (`page dp`); the lights stay.</summary>
-        private void ReleaseScreen()
+        /// <summary>The wheel's own dash back (`page dp`, or `page N` for one of its dashes); the lights stay.</summary>
+        private void ReleaseScreen(string page = null)
         {
             if (screen == null) return;
-            try { Undim(); screen.Release(); } catch { }
+            try { Undim(); screen.Release(page != null ? "page " + page : "page dp"); } catch { }
             screen.Dispose();
             screen = null; renderer = null; dash = null; screenKey = null; saver = null;
-            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the screen (wheel's own dash back)");
+            shownPage = page;
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the screen (" + (page != null ? "wheel dash " + page : "wheel's own dash") + ")");
+        }
+
+        /// <summary>
+        /// The wheel's own dash `page` (a screen page number): sent straight to the screen, which the wheel then keeps
+        /// until its dash button (its page task only resends a page when its index changes, and without the flash save).
+        /// </summary>
+        private void ShowPage(string page)
+        {
+            if (page == null || page == shownPage || screen != null) return;
+            shownPage = page;
+            var cmd = System.Text.Encoding.ASCII.GetBytes("page " + page);
+            var bytes = new byte[cmd.Length + 3];
+            Array.Copy(cmd, bytes, cmd.Length);
+            bytes[cmd.Length] = bytes[cmd.Length + 1] = bytes[cmd.Length + 2] = 0xFF;
+            conn.ScreenBytes(bytes, bytes.Length);
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode wheel dash " + page);
+        }
+
+        private string shownPage;
+
+        /// <summary>A wheel dash is on the screen with the plugin feeding it: its page ("" = the wheel's choice), else null.</summary>
+        public string WheelPage { get; private set; }
+
+        private volatile byte[] wheelRam;
+        private long wheelRamTicks;
+        private double lastWheelRam;
+        private DemoCar wheelDemo;
+        private SimProTelemetry wheelDemoData;
+        private double wheelDemoLast;
+
+        /// <summary>The wheel dashes' data from SimHub (WheelTelemetry layout), from DataUpdate.</summary>
+        public void PublishWheelTelemetry(byte[] ram)
+        {
+            wheelRam = ram;
+            Interlocked.Exchange(ref wheelRamTicks, DateTime.UtcNow.Ticks);
+        }
+
+        /// <summary>10 times a second while a wheel dash shows: its data into the wheel's RAM (live, or the demo lap).</summary>
+        private void FeedWheelDash(double now, bool demoLap)
+        {
+            if (WheelPage == null || screen != null || now - lastWheelRam < 0.1) return;
+            lastWheelRam = now;
+            byte[] ram;
+            if (demoLap)
+            {
+                if (wheelDemo == null) { wheelDemo = new DemoCar(); wheelDemoData = new SimProTelemetry(); wheelDemoLast = now; }
+                wheelDemo.Step(now - wheelDemoLast, wheelDemoData);
+                wheelDemoLast = now;
+                ram = WheelTelemetry.Build(wheelDemoData);
+            }
+            else
+            {
+                wheelDemo = null;
+                if (DateTime.UtcNow.Ticks - Interlocked.Read(ref wheelRamTicks) > TimeSpan.FromSeconds(2).Ticks) return;
+                ram = wheelRam;
+            }
+            if (ram != null) conn.WriteRamBlock(WheelTelemetry.Address, ram);
         }
 
         private void RunFrame(UsbSettings s, bool source, bool testing, bool sleeping)
@@ -512,6 +578,7 @@ namespace User.FXProRpmSync
             if (source && screen == null) Detail += " This car uses the wheel's own dash.";
 
             frameS = s; frameV = v; frameSource = source; frameTesting = testing; frameSleeping = sleeping;
+            FeedWheelDash(now, demoOn || testing);
             SendLeds(now);
             if (renderer != null && now - lastDash >= 0.1)
             {
@@ -559,6 +626,7 @@ namespace User.FXProRpmSync
             screen?.Dispose();
             try { conn.Dispose(); } catch { }
             conn = null; screen = null; leds = null; renderer = null; dash = null; demo = null; saver = null; screenKey = null; dimmed = false;
+            shownPage = null; WheelPage = null;
             LastFrame = null;
             if (!quiet) SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the wheel");
         }

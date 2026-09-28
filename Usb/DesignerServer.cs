@@ -21,6 +21,8 @@ namespace User.FXProRpmSync
         void StopWheelPreview();
         /// <summary>Shows these LED colours (38, "#RRGGBB", null/"" = off) for `seconds`, over whatever the lights show.</summary>
         void TestLeds(string[] colours, int brightness, double seconds);
+        /// <summary>The demo lap on the wheel with a dash ("c:id" / "w:page" / a plugin dash id); null stops it.</summary>
+        void Demo(string dash);
         /// <summary>Current SimHub values (null when no game), for rendering with live data.</summary>
         DashValues LiveValues();
         void DashesChanged();
@@ -201,6 +203,7 @@ namespace User.FXProRpmSync
             ("POST", "/api/wheel/show[?left=L&top=T]", "body = dash: show it on the wheel now (plugin only)"),
             ("POST", "/api/verify[?seconds=N&left=L&top=T]", "body = dash: demo lap on a simulated wheel: traffic, flashes, drawing errors"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
+            ("POST", "/api/wheel/demo?dash=c:ID|w:PAGE|off", "the demo lap on the wheel with that dash, e.g. w:12 for the wheel's own dash page 12 (plugin only)"),
             ("POST", "/api/wheel/leds[?brightness=1-90&seconds=N]", "body = 38 LED colours [\"#RRGGBB\" or null], in the wheel's LED order: shown for N s (plugin only)"),
         };
 
@@ -285,6 +288,14 @@ namespace User.FXProRpmSync
                 return Json(new { shown = true, status = host.WheelStatus() });
             }
             if (path == "/api/wheel/stop") { host?.StopWheelPreview(); return Json(new { stopped = true }); }
+            if (path == "/api/wheel/demo")
+            {
+                if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);
+                var dash = r.Q("dash");
+                WheelTelemetry.TestFlag = r.Q("flag") == null ? (int?)null : r.QI("flag", 0);
+                host.Demo(string.IsNullOrEmpty(dash) || dash == "off" ? null : dash);
+                return Json(new { demo = dash, status = host.WheelStatus() });
+            }
             if (path == "/api/wheel/leds")
             {
                 if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);

@@ -160,7 +160,8 @@ namespace User.FXProRpmSync
         internal UsbController Usb { get; private set; }
         /// <summary>The FX Pro's buttons read directly (bindings for next/previous dash, sleep).</summary>
         internal WheelButtons Buttons { get; private set; }
-        private long lastUsbPublishTicks, lastAtsrTicks, lastFormulaTicks;
+        private long lastUsbPublishTicks, lastAtsrTicks, lastFormulaTicks, lastWheelTeleTicks;
+        private readonly SimProTelemetry wheelTele = new SimProTelemetry();
         private readonly SimHubFormulas formulas = new SimHubFormulas();
         private readonly Dictionary<string, object> formulaResults = new Dictionary<string, object>();
         private string atsrMapText;
@@ -319,6 +320,17 @@ namespace User.FXProRpmSync
                     Usb.Publish(DashValues.FromSimHub(data, pluginManager, binds, b => formulaResults.TryGetValue(b, out var r) ? r : null));
                 }
                 catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] USB values: " + ex.Message); }
+            }
+            // A wheel dash on the screen: its data from SimHub, 10 times a second (see WheelTelemetry)
+            if (Settings.Usb.Enabled && Usb?.WheelPage != null && data.GameRunning && DateTime.UtcNow.Ticks - lastWheelTeleTicks >= TimeSpan.FromMilliseconds(100).Ticks)
+            {
+                lastWheelTeleTicks = DateTime.UtcNow.Ticks;
+                try
+                {
+                    SimHubFeedMapper.Fill(wheelTele, data, pluginManager, Settings.Feed, (section, ex) => SimHub.Logging.Current.Debug("[FXProRpmSync] wheel dash data " + section + ": " + ex.Message));
+                    Usb.PublishWheelTelemetry(WheelTelemetry.Build(wheelTele));
+                }
+                catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] wheel dash data: " + ex.Message); }
             }
             var usb = Settings.Usb;
             if (usb.Enabled && Usb != null && usb.LightsFrom == User.FXProRpmSync.LightsSource.AtsrHub && DateTime.UtcNow.Ticks - lastAtsrTicks >= TimeSpan.FromMilliseconds(30).Ticks)
@@ -528,9 +540,8 @@ namespace User.FXProRpmSync
         /// <summary>For the dash switcher: the wheel dash a car should show (unlocked: its current dash, when that's a wheel one).</summary>
         internal CarDash WheelDashTarget(string carKey)
         {
-            if (!Unlocked) return GetCarDash(carKey);
-            var (wheel, id) = UsbDashFor(carKey);
-            return wheel && id != null ? new CarDash { CarKey = carKey, DashId = id } : null;
+            // Unlocked: the wheel is on USB and ignores SimPro's RF dash switching; the plugin picks the page itself.
+            return Unlocked ? null : GetCarDash(carKey);
         }
 
         // ---------- Per-car overrides ----------
@@ -847,7 +858,7 @@ namespace User.FXProRpmSync
             dashCarName = string.IsNullOrEmpty(t.CarModel) ? t.CarId : t.CarModel;
             try
             {
-                if (Unlocked && !UsbDashFor(t.CarKey).WheelDash) return; // a custom dash covers the screen
+                if (Unlocked) return; // over USB the plugin switches the wheel's pages itself (UsbController)
                 var w = await GetWheel().ConfigureAwait(false);
                 await dashes.OnCarAsync(w, t.CarKey).ConfigureAwait(false);
             }
