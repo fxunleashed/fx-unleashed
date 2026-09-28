@@ -33,6 +33,9 @@
   <!-- simgame.exe (SimGameStub/) is built first and embedded; the plugin extracts it at runtime (see SimGameFeed). -->
   <ItemGroup>
     <Compile Remove="SimGameStub\**" />
+    <!-- tools/: offline test programs and scripts (docs/usb-mode.md), not part of the plugin -->
+    <Compile Remove="tools\**" />
+    <None Remove="tools\**" />
     <None Remove="SimGameStub\**" />
   </ItemGroup>
   <Target Name="BuildSimGameStub" BeforeTargets="BeforeBuild">

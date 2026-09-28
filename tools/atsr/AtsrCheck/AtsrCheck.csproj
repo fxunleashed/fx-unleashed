@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Runs ATSR-Hub's own ElementInfoConverter on an .atsrdevice file (the call its "add device" button makes) and prints
+       the LED layout it would create, as JSON. Needs SimHub with ATSR-Hub EVO installed.
+       Build with "dotnet build", then run bin\Debug\net48\AtsrCheck.exe ..\..\..\assets\Simagic_FX-Pro.atsrdevice -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Newtonsoft.Json"><HintPath>C:\Program Files (x86)\SimHub\Newtonsoft.Json.dll</HintPath></Reference>
+  </ItemGroup>
+
+</Project>
