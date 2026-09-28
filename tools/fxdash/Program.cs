@@ -20,6 +20,10 @@ internal static class FxDash
   fxdash check DASH.json [--pad L,T]         layout problems and draw cost (exit 1 if errors)
   fxdash render DASH.json OUT.png [--mode preview|demo] [--seconds N] [--pad L,T]
                                              picture of the dash as the wheel shows it
+  fxdash verify DASH.json [--seconds N] [--pad L,T]
+                                             the demo lap on a simulated wheel: USB traffic, flashes, drawing
+                                             errors, top senders (exit 1 if not ok; default pad 10,20, 120 s)
+  fxdash fit-bands DASH.json [OUT.json]      values whose text crosses a border line: nudged or a smaller font
   fxdash builtin [ID] [OUT.json]             list built-in dashes, or write one out as a starting point
   fxdash simhub                              installed SimHub dashes
   fxdash simhub-screens NAME|PATH            screens of a SimHub dash
@@ -62,6 +66,16 @@ internal static class FxDash
                     double seconds = opts.TryGetValue("seconds", out var sec) ? double.Parse(sec) : 20;
                     File.WriteAllBytes(pos[2], DashTools.Render(Load(pos[1]), mode, seconds, pad.L, pad.T));
                     return Out(new { written = Path.GetFullPath(pos[2]), mode });
+                }
+                case "verify":
+                {
+                    // the demo lap on a simulated wheel: traffic, flashes, drawing errors; exit 1 when not ok
+                    Need(pos, 2);
+                    double vsec = opts.TryGetValue("seconds", out var vs) ? double.Parse(vs, System.Globalization.CultureInfo.InvariantCulture) : 120;
+                    var vpad = opts.ContainsKey("pad") ? pad : (10, 20);
+                    var vr = DashVerify.Run(Load(pos[1]), vpad.Item1, vpad.Item2, vsec);
+                    Out(vr);
+                    return vr.Ok ? 0 : 1;
                 }
                 case "fit-bands":
                 {

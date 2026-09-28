@@ -280,7 +280,8 @@ namespace User.FXProRpmSync
             r.Set("completedLaps", t.Get("completedLaps"));
             r.Set("sessionTypeName", "PRACTICE");
             r.Set("fuel", t.Get("fuel"));
-            r.FuelPercent = t.Get("fuelPercent");
+            // the demo car has a tank, not a percentage
+            r.FuelPercent = t.Get("fuelPercent") > 0 ? t.Get("fuelPercent") : (t.Get("maxFuel") > 0 ? Math.Min(100, t.Get("fuel") / t.Get("maxFuel") * 100) : 0);
             r.Set("fuelPercent", r.FuelPercent);
             if (extra.FuelLastLap > 0) r.Set("fuelLastLap", extra.FuelLastLap);
             r.Set("fuelThisLap", extra.FuelThisLap);

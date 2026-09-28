@@ -10,7 +10,7 @@ agree with each other and with the wheel:
 | **HTTP API** | agents, scripts, the web designer | same |
 | **`fxdash`** command line | agents, scripts | SimHub installed (its DLLs); SimHub needn't run |
 
-The dash format: [dash-format.md](dash-format.md). Designing with an AI agent: the `fxpro-dash-design` skill in
+The dash format: [dash-format.md](dash-format.md). Designing with an AI agent: the `/create-dash` skill in
 `.claude/skills/` (and the "For agents" section below).
 
 ## Web designer
@@ -92,6 +92,7 @@ fxdash schema | bindings | fonts [--sample TEXT] | suggest-font W H TEXT
 fxdash check DASH.json [--pad 10,20]
 fxdash render DASH.json OUT.png [--mode preview|demo] [--seconds N] [--pad L,T]
 fxdash fit-bands DASH.json [OUT.json]    # values whose text crosses a border line: nudged or a smaller font (no flashing)
+fxdash verify DASH.json [--seconds N]    # demo lap on a simulated wheel: traffic, flashes, drawing errors (exit 1 if not ok)
 fxdash builtin [ID] [OUT.json]           # e.g. fxdash builtin lmgt3-mustang mustang.json
 fxdash simhub | simhub-screens NAME
 fxdash import NAME|PATH OUT.json [--screen S] [--fit 790,460] [--colors N] [--no-images] [--png OUT.png]
@@ -102,5 +103,5 @@ fxdash serve [--port 8899]
 
 The loop that works: read the format (`fxdash schema`), write the dash JSON, `fxdash check` it, `fxdash render` it and
 look at the PNG, fix, repeat; then save it into the dashes folder (or `PUT /api/dashes/{id}`), and with SimHub running
-`POST /api/wheel/show` to see it on the wheel. The skill `.claude/skills/fxpro-dash-design/SKILL.md` spells this out with
+`POST /api/wheel/show` to see it on the wheel. The skill `.claude/skills/create-dash/SKILL.md` (`/create-dash`) spells this out with
 the screen's constraints. In the browser, `window.fxdash` exposes the designer's dash (`fxdash.dash`, `fxdash.load(d)`).

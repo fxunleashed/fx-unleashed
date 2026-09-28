@@ -247,6 +247,27 @@ static class UsbTestMain
                 Console.WriteLine("no difference");
                 return 0;
             }
+            if (args.Length > 4 && args[3] == "trace")
+            {
+                // what the renderer does for one element over the first updates
+                int idx = int.Parse(args[4]);
+                var ts = new Counter(); var tr = new DashRenderer(ts, d, 10, 20);
+                var log = new System.Collections.Generic.List<string>(); ts.Log = log;
+                tr.Trace = t0 => log.Add("// " + t0);
+                tr.DrawAll();
+                var td = new UsbDemo(d);
+                var el = d.Elements[idx];
+                string sx = (el.X + 10).ToString() + ",";
+                for (int k = 1; k <= 30; k++)
+                {
+                    var tv = td.Step(1 / 30.0);
+                    if (k % 3 != 0) continue;
+                    log.Clear(); log.Add($"-- update {k / 30.0:0.00}s text={DashRenderer.Format(el, tv, out _)}");
+                    tr.Update(tv, k / 30.0);
+                    foreach (var c in log) if (c.StartsWith("--") || c.Contains("#" + idx + " ") || c.Contains(" " + sx) || c.Contains("xstr " + sx) || c.Contains("fill " + sx)) Console.WriteLine(c);
+                }
+                return 0;
+            }
             if (args.Length > 4 && args[3] == "watch")
             {
                 var we = d.Elements[int.Parse(args[4])]; var wd = new UsbDemo(d);

@@ -197,6 +197,7 @@ namespace User.FXProRpmSync
             ("POST", "/api/import", "body = {name|path, screen?, images?, colors?, maxSeconds?, fitWidth?, fitHeight?}: convert a SimHub dash -> {dash, report, check}"),
             ("GET", "/api/wheel", "wheel status (plugin only)"),
             ("POST", "/api/wheel/show[?left=L&top=T]", "body = dash: show it on the wheel now (plugin only)"),
+            ("POST", "/api/verify[?seconds=N&left=L&top=T]", "body = dash: demo lap on a simulated wheel: traffic, flashes, drawing errors"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
         };
 
@@ -247,6 +248,7 @@ namespace User.FXProRpmSync
                 }
             }
             if (path == "/api/check") return Json(DashTools.Check(DashTools.Parse(r.Body), r.QI("left", 0), r.QI("top", 0)));
+            if (path == "/api/verify") return Json(DashVerify.Run(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20), r.QD("seconds", 60)));
             if (path == "/api/render")
             {
                 var mode = r.Q("mode", "preview");

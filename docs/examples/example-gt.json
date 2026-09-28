@@ -1,0 +1,364 @@
+{
+  "FormatVersion": 2,
+  "Id": "example-gt",
+  "Name": "Example GT",
+  "Description": "Template: gear, speed, lap times, delta, fuel, TC/ABS, a settings pop-up.",
+  "Elements": [
+    {
+      "Type": "box",
+      "Name": "Gear frame",
+      "X": 300,
+      "Y": 20,
+      "W": 190,
+      "H": 180,
+      "Color": "#FFFFFF",
+      "Border": 2,
+      "Radius": 8
+    },
+    {
+      "Type": "value",
+      "Name": "Gear",
+      "X": 310,
+      "Y": 34,
+      "W": 170,
+      "H": 150,
+      "Bind": "gearText",
+      "Format": "gear",
+      "Font": 117,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "8"
+      ],
+      "PreviewText": "4",
+      "Empty": "N"
+    },
+    {
+      "Type": "label",
+      "Name": "Speed label",
+      "X": 20,
+      "Y": 24,
+      "W": 260,
+      "H": 24,
+      "Text": "SPEED",
+      "Font": 5,
+      "Color": "#9A9A9A"
+    },
+    {
+      "Type": "value",
+      "Name": "Speed",
+      "X": 20,
+      "Y": 52,
+      "W": 260,
+      "H": 70,
+      "Bind": "speed",
+      "Format": "0",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "left",
+      "Samples": [
+        "388"
+      ],
+      "PreviewText": "214"
+    },
+    {
+      "Type": "label",
+      "Name": "Delta label",
+      "X": 510,
+      "Y": 24,
+      "W": 260,
+      "H": 24,
+      "Text": "DELTA",
+      "Font": 5,
+      "Color": "#9A9A9A",
+      "Align": "right"
+    },
+    {
+      "Type": "value",
+      "Name": "Delta",
+      "X": 510,
+      "Y": 52,
+      "W": 260,
+      "H": 70,
+      "Bind": "delta",
+      "Format": "delta",
+      "Font": 99,
+      "Color": "#FFFFFF",
+      "Align": "right",
+      "PositiveColor": "#FF3030",
+      "NegativeColor": "#30FF60",
+      "Samples": [
+        "+88.88"
+      ],
+      "PreviewText": "-0.35",
+      "Empty": "-.--"
+    },
+    {
+      "Type": "rect",
+      "Name": "Divider",
+      "X": 20,
+      "Y": 214,
+      "W": 750,
+      "H": 2,
+      "Color": "#404040"
+    },
+    {
+      "Type": "label",
+      "Name": "Last label",
+      "X": 20,
+      "Y": 232,
+      "W": 240,
+      "H": 24,
+      "Text": "LAST",
+      "Font": 5,
+      "Color": "#9A9A9A"
+    },
+    {
+      "Type": "value",
+      "Name": "Last lap",
+      "X": 20,
+      "Y": 260,
+      "W": 240,
+      "H": 48,
+      "Bind": "lastLapTime",
+      "Format": "laptime",
+      "Font": 98,
+      "Color": "#FFFFFF",
+      "Samples": [
+        "8:88.888"
+      ],
+      "PreviewText": "1:32.481",
+      "Empty": "-:--.---"
+    },
+    {
+      "Type": "label",
+      "Name": "Best label",
+      "X": 275,
+      "Y": 232,
+      "W": 240,
+      "H": 24,
+      "Text": "BEST",
+      "Font": 5,
+      "Color": "#9A9A9A"
+    },
+    {
+      "Type": "value",
+      "Name": "Best lap",
+      "X": 275,
+      "Y": 260,
+      "W": 240,
+      "H": 48,
+      "Bind": "bestLapTime",
+      "Format": "laptime",
+      "Font": 98,
+      "Color": "#B070FF",
+      "Samples": [
+        "8:88.888"
+      ],
+      "PreviewText": "1:31.902",
+      "Empty": "-:--.---"
+    },
+    {
+      "Type": "label",
+      "Name": "Lap label",
+      "X": 530,
+      "Y": 232,
+      "W": 240,
+      "H": 24,
+      "Text": "CURRENT",
+      "Font": 5,
+      "Color": "#9A9A9A",
+      "Align": "right"
+    },
+    {
+      "Type": "value",
+      "Name": "Current lap",
+      "X": 530,
+      "Y": 260,
+      "W": 240,
+      "H": 48,
+      "Bind": "currentLapTime",
+      "Format": "laptime",
+      "Font": 98,
+      "Color": "#FFFFFF",
+      "Align": "right",
+      "Samples": [
+        "8:88.888"
+      ],
+      "PreviewText": "0:47.112"
+    },
+    {
+      "Type": "label",
+      "Name": "Fuel label",
+      "X": 20,
+      "Y": 330,
+      "W": 160,
+      "H": 24,
+      "Text": "FUEL",
+      "Font": 5,
+      "Color": "#9A9A9A"
+    },
+    {
+      "Type": "value",
+      "Name": "Fuel",
+      "X": 20,
+      "Y": 358,
+      "W": 160,
+      "H": 44,
+      "Bind": "fuel",
+      "Format": "0.0",
+      "Font": 96,
+      "Color": "#FFD000",
+      "Samples": [
+        "188.8"
+      ],
+      "PreviewText": "61.4"
+    },
+    {
+      "Type": "bar",
+      "Name": "Fuel bar",
+      "X": 20,
+      "Y": 410,
+      "W": 160,
+      "H": 12,
+      "Bind": "fuelPercent",
+      "Min": 0,
+      "Max": 100,
+      "Color": "#FFD000",
+      "Fill": "#303030"
+    },
+    {
+      "Type": "label",
+      "Name": "Laps left label",
+      "X": 200,
+      "Y": 330,
+      "W": 160,
+      "H": 24,
+      "Text": "LAPS LEFT",
+      "Font": 60,
+      "Color": "#9A9A9A"
+    },
+    {
+      "Type": "value",
+      "Name": "Laps left",
+      "X": 200,
+      "Y": 358,
+      "W": 160,
+      "H": 44,
+      "Bind": "fuelRemainingLaps",
+      "Format": "0.0",
+      "Font": 96,
+      "Color": "#FFFFFF",
+      "Samples": [
+        "88.8"
+      ],
+      "PreviewText": "14.2",
+      "Empty": "--"
+    },
+    {
+      "Type": "label",
+      "Name": "TC label",
+      "X": 470,
+      "Y": 330,
+      "W": 140,
+      "H": 24,
+      "Text": "TC",
+      "Font": 5,
+      "Color": "#9A9A9A",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "TC",
+      "X": 470,
+      "Y": 358,
+      "W": 140,
+      "H": 70,
+      "Bind": "tcLevel",
+      "Format": "0",
+      "Font": 99,
+      "Color": "#30C0FF",
+      "Align": "center",
+      "Samples": [
+        "88"
+      ],
+      "PreviewText": "6"
+    },
+    {
+      "Type": "label",
+      "Name": "ABS label",
+      "X": 630,
+      "Y": 330,
+      "W": 140,
+      "H": 24,
+      "Text": "ABS",
+      "Font": 5,
+      "Color": "#9A9A9A",
+      "Align": "center"
+    },
+    {
+      "Type": "value",
+      "Name": "ABS",
+      "X": 630,
+      "Y": 358,
+      "W": 140,
+      "H": 70,
+      "Bind": "absLevel",
+      "Format": "0",
+      "Font": 99,
+      "Color": "#FFA020",
+      "Align": "center",
+      "Samples": [
+        "88"
+      ],
+      "PreviewText": "4"
+    },
+    {
+      "Type": "box",
+      "Name": "Bias popup",
+      "X": 268,
+      "Y": 222,
+      "W": 254,
+      "H": 96,
+      "Color": "#FFFFFF",
+      "Fill": "#101820",
+      "Border": 2,
+      "Radius": 10,
+      "Visible": "ncalc:changed(2000, [BrakeBias])",
+      "PreviewVisible": false
+    },
+    {
+      "Type": "label",
+      "Name": "Bias popup label",
+      "X": 278,
+      "Y": 228,
+      "W": 234,
+      "H": 28,
+      "Text": "BRAKE BIAS",
+      "Font": 60,
+      "Color": "#9A9A9A",
+      "Align": "center",
+      "Visible": "ncalc:changed(2000, [BrakeBias])",
+      "PreviewVisible": false
+    },
+    {
+      "Type": "value",
+      "Name": "Bias popup value",
+      "X": 278,
+      "Y": 258,
+      "W": 234,
+      "H": 54,
+      "Bind": "brakeBias",
+      "Format": "0.0",
+      "Font": 100,
+      "Color": "#FFFFFF",
+      "Align": "center",
+      "Samples": [
+        "88.8"
+      ],
+      "PreviewText": "56.2",
+      "Visible": "ncalc:changed(2000, [BrakeBias])",
+      "PreviewVisible": false
+    }
+  ]
+}
