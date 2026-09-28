@@ -11,7 +11,8 @@ static class UsbTestMain
     {
         public PreviewScreen P = new PreviewScreen(); public long Bytes; public int Reports; int pending;
         public System.Collections.Generic.List<string> Log;
-        public void Cmd(string c) { Log?.Add(c); int n = c.Length + 3; if (n > 61) throw new Exception("too long: " + c); if (pending + n > 61) Flush(); pending += n; Bytes += n; P.Cmd(c); }
+        public Action<string> OnCmd;
+        public void Cmd(string c) { Log?.Add(c); OnCmd?.Invoke(c); int n = c.Length + 3; if (n > 61) throw new Exception("too long: " + c); if (pending + n > 61) Flush(); pending += n; Bytes += n; P.Cmd(c); }
         public void Flush() { if (pending > 0) { Reports++; pending = 0; } }
     }
 
@@ -223,23 +224,49 @@ static class UsbTestMain
             }
             if (args.Length > 3 && args[3] == "diverge")
             {
-                // first update after which the incremental screen differs from a full redraw, and what drew then
-                var ds = new Counter(); var dr = new DashRenderer(ds, d, 10, 20); dr.DrawAll();
+                // first update after which the incremental screen differs from a full redraw; then, for the spot that
+                // differs, every command each side drew there and for which element (why)
+                var ds = new Counter(); var dr = new DashRenderer(ds, d, 10, 20);
+                var hist = new System.Collections.Generic.List<(double T, string Why, string Cmd)>();
+                string why = "(DrawAll)"; double tnow = 0;
+                dr.Trace = t0 => why = t0.Trim();
+                ds.Log = new System.Collections.Generic.List<string>();
+                dr.DrawAll();
+                foreach (var c in ds.Log) hist.Add((0, "(DrawAll)", c));
                 var ddm = new UsbDemo(d);
                 for (int k = 1; k <= 3000; k++)
                 {
                     var dv = ddm.Step(1 / 30.0);
                     if (k % 3 != 0) continue;
-                    dr.DrawCounts = new System.Collections.Generic.Dictionary<DashElement, int>();
-                    var log = new System.Collections.Generic.List<string>(); ds.Log = log;
-                    dr.Update(dv, k / 30.0);
-                    var fs = new Counter(); var frr = new DashRenderer(fs, d, 10, 20); frr.DrawAll(); frr.Update(dv, k / 30.0);
+                    tnow = k / 30.0;
+                    var log = new System.Collections.Generic.List<string>();
+                    ds.Log = log; why = "(hide/popups)";
+                    var cmdWhy = new System.Collections.Generic.List<string>();
+                    dr.Trace = t0 => why = t0.Trim();
+                    ds.OnCmd = c => cmdWhy.Add(why);
+                    dr.Update(dv, tnow);
+                    for (int i = 0; i < log.Count; i++) hist.Add((tnow, i < cmdWhy.Count ? cmdWhy[i] : "?", log[i]));
+                    var fs = new Counter(); var fwhy = new System.Collections.Generic.List<(string, string)>(); string fw = "(DrawAll)";
+                    var frr = new DashRenderer(fs, d, 10, 20); frr.Trace = t0 => fw = t0.Trim();
+                    fs.OnCmd = c => fwhy.Add((fw, c));
+                    frr.DrawAll(); frr.Update(dv, tnow);
                     int[] A2 = Pixels(ds.P.Bitmap), B2 = Pixels(fs.P.Bitmap); int nd = 0;
-                    for (int i = 0; i < A2.Length; i++) if (A2[i] != B2[i]) nd++;
+                    int x0 = 9999, y0 = 9999, x1 = -1, y1 = -1;
+                    for (int i = 0; i < A2.Length; i++) if (A2[i] != B2[i]) { nd++; int x = i % 800, y = i / 800; x0 = Math.Min(x0, x); y0 = Math.Min(y0, y); x1 = Math.Max(x1, x); y1 = Math.Max(y1, y); }
                     if (nd > 0)
                     {
-                        Console.WriteLine($"first difference after update at {k / 30.0:0.00}s: {nd} px; drawn: " + string.Join(", ", dr.DrawCounts.Keys.Select(x => "#" + d.Elements.IndexOf(x) + " " + x.Name)));
-                        foreach (var c in log) Console.WriteLine("   " + c);
+                        var box = Rectangle.FromLTRB(x0, y0, x1 + 1, y1 + 1);
+                        Console.WriteLine($"first difference after update at {tnow:0.00}s: {nd} px in {box} (screen)");
+                        bool Hits(string c)
+                        {
+                            if (!(c.StartsWith("fill ") || c.StartsWith("xstr "))) return false;
+                            var a = c.Substring(5).Split(',');
+                            return new Rectangle(int.Parse(a[0]), int.Parse(a[1]), int.Parse(a[2]), int.Parse(a[3])).IntersectsWith(box);
+                        }
+                        Console.WriteLine("  incremental, commands over that spot (latest 25):");
+                        foreach (var h in hist.Where(h => Hits(h.Cmd)).Reverse().Take(25).Reverse()) Console.WriteLine($"    {h.T,6:0.00}s  [{h.Why}]  {h.Cmd}");
+                        Console.WriteLine("  full redraw, commands over that spot:");
+                        foreach (var (w, c) in fwhy.Where(x => Hits(x.Item2))) Console.WriteLine($"    [{w}]  {c}");
                         ds.P.Bitmap.Save(Path.Combine(dir, "incremental.png"), ImageFormat.Png); fs.P.Bitmap.Save(Path.Combine(dir, "full.png"), ImageFormat.Png);
                         return 0;
                     }

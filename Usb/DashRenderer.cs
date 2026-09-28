@@ -119,6 +119,7 @@ namespace User.FXProRpmSync
             public Rectangle? TextAt;       // where the value's text was last drawn (its extent in the box)
             public bool SolidAt;            // ...with its background (all of TextAt painted), not just the glyphs
             public int SolidBg;             // that background
+            public bool LinesAt;            // ...drawn on its main background colour, then the lines through it put back
             public int? StaticBg;           // the one colour under the box in the static layer, if it is one
             public int[] Px;                // shape pixels for Key (Transparent = not drawn)
             public string PxKey;
@@ -571,7 +572,16 @@ namespace User.FXProRpmSync
                         if (n.Shown && n.Sent == n.Key) break;
                         // a pop-up under another one that shows: only what isn't covered is drawn (no flash of the
                         // covered part), and only what's over the drawn parts is drawn again
+                        var oldPx = n.Shown ? n.Px : null;
                         EnsurePx(n); // known even when nothing of it shows (what's over it is drawn on it)
+                        // changed to a look with see-through pixels where it had colour (a fill that goes transparent):
+                        // what's under those is drawn back first, else the old colour would stay
+                        if (oldPx != null && oldPx != n.Px && oldPx.Length == n.Px.Length)
+                        {
+                            bool uncovered = false;
+                            for (int i = 0; i < n.Px.Length && !uncovered; i++) uncovered = n.Px[i] == Transparent && oldPx[i] != Transparent;
+                            if (uncovered) Repaint(n.R, n.Index);
+                        }
                         foreach (var part in Subtract(Clip(n.R), SolidShapesAbove(n.Index)))
                         {
                             DrawShapeNode(n, part);
@@ -831,6 +841,9 @@ namespace User.FXProRpmSync
             foreach (var n in dynamic)
             {
                 if (floor != null && n.Index < floor.Index) continue; // under the floor: not seen, not touched
+                // the bar this repaint is for (behind its emptied part): the area may have grown past that part, so its
+                // own pixels there are put back too (without another repaint)
+                if (n.Index == layer && n.Kind == "bar" && n.Shown && n.Visible) { BarPixelsIn(n, area); continue; }
                 // a value only needs drawing again where its text is (its box may reach well past it)
                 if (!(IsText(n) && n.TextAt.HasValue ? Ink(n) : n.R).IntersectsWith(area)) continue;
                 if (n.Kind == "shape" && n.Shown && n.Visible) { DrawShapeNode(n, area); continue; }
@@ -838,8 +851,7 @@ namespace User.FXProRpmSync
                 if (Trace != null) Trace($"  {(n.Kind == "shape" && n.Shown && n.Visible ? "shape back" : below ? "back" : "marked")} #{n.Index} {n.Kind} {n.E.Name}");
                 if (below && n.Kind == "bar") DrawBar(n, area);
                 else if (below && n.Kind == "label" && !n.TextAt.HasValue) DrawLabel(n, n.Colour);
-                else if (below && IsText(n) && n.TextAt.HasValue) // as it was drawn: with its background, if it had one
-                    screen.Cmd(Xstr(n.TextAt.Value, n.E.Font, DashColors.To565(n.Colour), n.SolidBg, n.XCen, n.SolidAt ? 1 : 3, n.Text));
+                else if (below && IsText(n) && n.TextAt.HasValue) RedrawText(n); // exactly as it was drawn
                 else Invalidate(n);
             }
         }
@@ -909,6 +921,68 @@ namespace User.FXProRpmSync
             return px.All(c => c == c0) ? c0 : (int?)null;
         }
 
+        private static string WidestText(Node n)
+        {
+            string w = n.Text ?? "";
+            if (n.Kind == "value" && n.E.Samples != null)
+                foreach (var s in n.E.Samples)
+                    if (!string.IsNullOrEmpty(s) && TextWidth(n.E.Font, s) > TextWidth(n.E.Font, w)) w = s;
+            return w;
+        }
+
+        /// <summary>Another text's glyphs (a label, or a value as last drawn) reach into `area`.</summary>
+        private bool TouchesOtherText(Node n, Rectangle area)
+        {
+            foreach (var l in staticLabels) if (GlyphRuns(l, l.R).Any(r => r.IntersectsWith(area))) return true;
+            foreach (var m in dynamic)
+            {
+                if (m == n || !IsText(m) || !m.Shown || !m.Visible) continue;
+                var box = m.TextAt ?? (m.Kind == "label" ? m.R : Rectangle.Empty);
+                if (!box.IsEmpty && GlyphRuns(m, box).Any(r => r.IntersectsWith(area))) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Where a text's characters are drawn in `box` (runs of non-space characters, a pixel of room each side, the font's rows).</summary>
+        private static List<Rectangle> GlyphRuns(Node n, Rectangle box)
+        {
+            var runs = new List<Rectangle>();
+            string t = n.Text ?? "";
+            int fh = FontHeight(n.E.Font);
+            int tw = TextWidth(n.E.Font, t);
+            int y = box.Y + Math.Max(0, (box.Height - fh) / 2), h = Math.Min(box.Height, fh);
+            if (tw < 0) { runs.Add(new Rectangle(box.X, y, box.Width, h)); return runs; }
+            int x = n.XCen == 1 ? box.X + (box.Width - tw) / 2 : n.XCen == 2 ? box.Right - tw : box.X;
+            int start = -1;
+            for (int i = 0; i <= t.Length; i++)
+            {
+                bool ink = i < t.Length && t[i] != ' ';
+                if (ink && start < 0) start = x;
+                if (!ink && start >= 0) { runs.Add(new Rectangle(start - 2, y, x - start + 4, h)); start = -1; }
+                if (i < t.Length) x += Math.Max(0, TextWidth(n.E.Font, t[i].ToString()));
+            }
+            return runs;
+        }
+
+        /// <summary>A text drawn back exactly as it was last drawn: with its background, or on it with lines put back, or glyphs only.</summary>
+        private void RedrawText(Node n)
+        {
+            var at = n.TextAt.Value;
+            int colour = DashColors.To565(n.Colour);
+            if (n.LinesAt)
+            {
+                var under = Composite(at, n.Index);
+                if (under != null)
+                {
+                    int major = under.GroupBy(c => c).OrderByDescending(g => g.Count()).First().Key;
+                    screen.Cmd(Xstr(at, n.E.Font, colour, major, n.XCen, 1, n.Text));
+                    SendFills(under, at.Width, new Rectangle(0, 0, at.Width, at.Height), major, at.X, at.Y);
+                    return;
+                }
+            }
+            screen.Cmd(Xstr(at, n.E.Font, colour, n.SolidBg, n.XCen, n.SolidAt ? 1 : 3, n.Text));
+        }
+
         /// <summary>The pixels a label's text can cover in its box.</summary>
         private static Rectangle LabelInk(Node n)
         {
@@ -936,8 +1010,9 @@ namespace User.FXProRpmSync
         /// </summary>
         private Rectangle BandArea(Node n, int margin)
         {
-            var area = TextExtent(n, n.Text, margin);
-            if (n.TextAt.HasValue) area = Rectangle.Union(area, n.TextAt.Value);
+            // the widest text the value shows (its samples, or what it shows now if wider): a band that doesn't change
+            // with the text, so nothing is left behind when it gets shorter, and a full redraw draws the same
+            var area = TextExtent(n, WidestText(n), margin);
             area = Rectangle.Intersect(area, n.R);
             if (n.XCen == 1) { int half = Math.Max(n.R.Right - area.Right, 0); int left = Math.Max(area.X - n.R.X, 0); int m = Math.Min(half, left); area = new Rectangle(n.R.X + m, n.R.Y, n.R.Width - 2 * m, n.R.Height); }
             int fh = FontHeight(n.E.Font);
@@ -967,6 +1042,14 @@ namespace User.FXProRpmSync
                     int cb = BarColourAt(m, new Point(Math.Max(m.R.X, Math.Min(m.R.Right - 1, area.X + area.Width / 2)), Math.Max(m.R.Y, Math.Min(m.R.Bottom - 1, area.Y + area.Height / 2))));
                     for (int y = rb.Top; y < rb.Bottom; y++)
                         for (int x = rb.Left; x < rb.Right; x++) px[(y - area.Y) * area.Width + (x - area.X)] = cb;
+                    continue;
+                }
+                if (IsText(m) && SolidText(m) && m.TextAt.Value.IntersectsWith(area))
+                {
+                    // text drawn with its own background band: that colour, around its glyphs, is what's under things
+                    var rt = Rectangle.Intersect(area, m.TextAt.Value);
+                    for (int y = rt.Top; y < rt.Bottom; y++)
+                        for (int x = rt.Left; x < rt.Right; x++) px[(y - area.Y) * area.Width + (x - area.X)] = m.SolidBg;
                     continue;
                 }
                 if (m.Kind != "shape" || !m.Shown || !m.R.IntersectsWith(area)) continue;
@@ -1037,13 +1120,29 @@ namespace User.FXProRpmSync
             // and (its height differing from the box's by an even number) its vertical centre.
             // One colour there: the new text with that background, one command, nothing cleared first (no flash). The
             // room left beside the text (for glyph overhang) shrinks if a line runs through it.
+            // the widest room that keeps clear of other text's glyphs and, if possible, has one colour under it
             var area = BandArea(n, -1);
             var strip = BackgroundIn(area, n.Index);
-            for (int margin = (4 + FontHeight(n.E.Font) / 4) / 2; !strip.HasValue && margin >= 1; margin = margin > 1 ? margin / 2 : 0)
+            bool clear = !TouchesOtherText(n, area);
+            for (int margin = (4 + FontHeight(n.E.Font) / 4) / 2; (!strip.HasValue || !clear) && margin >= 1; margin = margin > 1 ? margin / 2 : 0)
             {
                 var a2 = BandArea(n, margin);
                 var s2 = BackgroundIn(a2, n.Index);
-                if (s2.HasValue) { area = a2; strip = s2; }
+                bool c2 = !TouchesOtherText(n, a2);
+                if ((c2 && !clear) || (c2 == clear && s2.HasValue && !strip.HasValue)) { area = a2; strip = s2; clear = c2; }
+            }
+            // where the old text reached beyond the new one: back to what's under it (a neighbour's label included), as a
+            // full redraw would show it; the new text's band is drawn over the rest
+            if (n.TextAt.HasValue)
+            {
+                var covered = SolidShapesAbove(n.Index); covered.Add(area);
+                foreach (var part in Subtract(Rectangle.Intersect(n.TextAt.Value, n.R), covered))
+                {
+                    if (TouchesOtherText(n, part)) { Repaint(part, n.Index); continue; } // a neighbour's glyphs to put back
+                    var px = Composite(part, n.Index);                                     // else just what's under it
+                    if (px != null) SendFills(px, part.Width, new Rectangle(0, 0, part.Width, part.Height), Transparent, part.X, part.Y);
+                    else Repaint(part, n.Index);
+                }
             }
             var under = strip.HasValue ? null : Composite(area, n.Index);
             int major = 0, odd = int.MaxValue;
@@ -1059,6 +1158,7 @@ namespace User.FXProRpmSync
                 // put back. Still no clearing first.
                 screen.Cmd(Xstr(area, n.E.Font, colour, major, n.XCen, 1, n.Text));
                 SendFills(under, area.Width, new Rectangle(0, 0, area.Width, area.Height), major, area.X, area.Y);
+                n.LinesAt = true;
             }
             else
             {
@@ -1069,6 +1169,7 @@ namespace User.FXProRpmSync
                 screen.Cmd(Xstr(area, n.E.Font, colour, 0, n.XCen, 3, n.Text));
             }
             n.TextAt = area; n.SolidAt = strip.HasValue; n.SolidBg = strip ?? 0;
+            if (strip.HasValue || under == null || odd > under.Length / 10) n.LinesAt = false;
         }
 
         /// <summary>Diagnostics: value redraws that had to clear their area first (may flash on the wheel).</summary>
@@ -1115,6 +1216,19 @@ namespace User.FXProRpmSync
             }
             foreach (var part in Subtract(filled, holes))
                 screen.Cmd(Fill(part.X, part.Y, part.Width, part.Height, DashColors.To565(n.Colour)));
+        }
+
+        /// <summary>A bar's filled part (and its empty part if it has a Fill colour) within `area`, as plain fills.</summary>
+        private void BarPixelsIn(Node n, Rectangle area)
+        {
+            var e = n.E; var r = n.R;
+            bool vertical = e.Orientation == "vertical";
+            int len = vertical ? r.Height : r.Width, f = Math.Max(0, Math.Min(len, n.FillEnd));
+            var filled = BarRange(n, 0, f); var empty = BarRange(n, f, len);
+            filled.Intersect(area); empty.Intersect(area);
+            var holes = dynamic.Where(m => m.Index > n.Index && SolidText(m) && m.TextAt.Value.IntersectsWith(n.R)).Select(m => m.TextAt.Value).ToList();
+            foreach (var part in Subtract(filled, holes)) screen.Cmd(Fill(part.X, part.Y, part.Width, part.Height, DashColors.To565(n.Colour)));
+            if (e.Fill != null) foreach (var part in Subtract(empty, holes)) screen.Cmd(Fill(part.X, part.Y, part.Width, part.Height, Rgb565(e.Fill)));
         }
 
         /// <summary>A bar's colour at a point now: its colour where filled, else its Fill or what's under it.</summary>
