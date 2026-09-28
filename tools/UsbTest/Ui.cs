@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -9,33 +10,42 @@ using User.FXProRpmSync;
 
 static class UiTest
 {
-    public static void Run(string outFile, bool custom)
+    /// <summary>
+    /// The settings page in both modes, every tab, rendered offscreen: ui-standard-*.png and ui-unlocked-*.png in `dir`.
+    /// `only` limits it to the tabs whose name contains it.
+    /// </summary>
+    public static void RunFull(string dir, string only = null)
     {
         var t = new System.Threading.Thread(() =>
         {
-            var plugin = new FXProRpmSyncPlugin { Settings = new FXProRpmSyncSettings() };
-            plugin.Settings.Usb.Enabled = true;
-            if (custom) { plugin.Settings.Usb.LightsFrom = LightsSource.AtsrHub; plugin.Settings.Usb.CustomLights = LightPresets.Find("synthwave").Clone(); plugin.Settings.Usb.LightPreset = "custom"; }
-            var section = new UsbSection(plugin);
-            var w = new Window { Width = 1180, Height = 900, Background = new SolidColorBrush(Color.FromRgb(0x1f, 0x21, 0x25)), Foreground = Brushes.White,
-                                 Content = new ScrollViewer { Content = new Border { Padding = new Thickness(16), Child = section } }, Left = -3000, Top = 0, ShowActivated = false };
-            TextElement_SetForeground(section);
+            var jobs = new System.Collections.Generic.Queue<(WheelMode Mode, string Tab)>();
+            foreach (var mode in new[] { WheelMode.Standard, WheelMode.Unlocked })
+            {
+                var probe = new SettingsControl(Plugin(mode));
+                foreach (var tab in probe.TabNames)
+                    if (only == null || tab.IndexOf(only, StringComparison.OrdinalIgnoreCase) >= 0 || mode.ToString().Equals(only, StringComparison.OrdinalIgnoreCase))
+                        jobs.Enqueue((mode, tab));
+            }
+            var w = new Window { Width = 1300, Height = 900, Left = -3000, Top = 0, ShowActivated = false, ShowInTaskbar = false };
             w.Show();
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            SettingsControl control = null;
+            WheelMode? shownMode = null;
+            (WheelMode Mode, string Tab) job = default;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(0.2) };
+            bool waiting = false;
             timer.Tick += (s, e) =>
             {
-                timer.Stop();
-                section.Measure(new Size(1150, double.PositiveInfinity));
-                section.Arrange(new Rect(0, 0, 1150, section.DesiredSize.Height));
-                var bmp = new RenderTargetBitmap(1150, (int)section.DesiredSize.Height, 96, 96, PixelFormats.Pbgra32);
-                var dv = new DrawingVisual();
-                using (var dc = dv.RenderOpen()) { dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x1f, 0x21, 0x25)), null, new Rect(0, 0, 1150, section.DesiredSize.Height)); dc.DrawRectangle(new VisualBrush(section), null, new Rect(0, 0, 1150, section.DesiredSize.Height)); }
-                bmp.Render(dv);
-                var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(bmp));
-                using (var f = File.Create(outFile)) enc.Save(f);
-                Console.WriteLine("ui: " + outFile + " " + section.DesiredSize);
-                w.Close();
-                Dispatcher.CurrentDispatcher.InvokeShutdown();
+                if (waiting)
+                {
+                    waiting = false;
+                    Save(control, Path.Combine(dir, $"ui-{job.Mode.ToString().ToLowerInvariant()}-{job.Tab.ToLowerInvariant().Replace(" ", "").Replace("&", "-")}.png"));
+                }
+                if (jobs.Count == 0) { timer.Stop(); w.Close(); Dispatcher.CurrentDispatcher.InvokeShutdown(); return; }
+                job = jobs.Dequeue();
+                if (shownMode != job.Mode) { control = new SettingsControl(Plugin(job.Mode)); w.Content = control; shownMode = job.Mode; }
+                control.OpenTab(job.Tab);
+                waiting = true;
+                timer.Interval = TimeSpan.FromSeconds(2.5); // animations and gallery pictures
             };
             timer.Start();
             Dispatcher.Run();
@@ -43,5 +53,43 @@ static class UiTest
         t.SetApartmentState(System.Threading.ApartmentState.STA);
         t.Start(); t.Join();
     }
-    static void TextElement_SetForeground(FrameworkElement e) => System.Windows.Documents.TextElement.SetForeground(e, Brushes.White);
+
+    private static FXProRpmSyncPlugin Plugin(WheelMode mode)
+    {
+        var plugin = new FXProRpmSyncPlugin { Settings = new FXProRpmSyncSettings() };
+        plugin.Settings.Mode = mode;
+        plugin.Settings.Usb.Enabled = mode == WheelMode.Unlocked;
+        if (Environment.GetEnvironmentVariable("UI_CUSTOM") == "1")
+        {
+            var u = plugin.Settings.Usb;
+            u.FirmwareConfirmed = true;
+            u.CustomLights = LightPresets.Find("synthwave").Clone();
+            u.CustomLights.Id = LightPresets.CustomId; u.CustomLights.Name = "Your own";
+            u.LightPreset = LightPresets.CustomId;
+            u.SleepEnabled = true;
+        }
+        return plugin;
+    }
+
+    private static void Save(SettingsControl control, string file)
+    {
+        var page = (FrameworkElement)((ScrollViewer)control.Content).Content;
+        const double width = 1240;
+        page.Measure(new Size(width, double.PositiveInfinity));
+        page.Arrange(new Rect(0, 0, width, page.DesiredSize.Height));
+        page.UpdateLayout();
+        double h = page.DesiredSize.Height;
+        var bmp = new RenderTargetBitmap((int)width, (int)h, 96, 96, PixelFormats.Pbgra32);
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0A, 0x0B, 0x0D)), null, new Rect(0, 0, width, h));
+            dc.DrawRectangle(new VisualBrush(page) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, 0, width, h));
+        }
+        bmp.Render(dv);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(bmp));
+        using (var f = File.Create(file)) enc.Save(f);
+        Console.WriteLine("ui: " + file + " " + (int)h + " px");
+    }
 }

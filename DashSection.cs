@@ -13,9 +13,9 @@ namespace User.FXProRpmSync
     /// <summary>"Dash per car" part of the settings page: current car, dash gallery, saved cars.</summary>
     public class DashSection : StackPanel
     {
-        private static readonly Brush CardBackground = Frozen(Color.FromArgb(0x14, 0xff, 0xff, 0xff));
-        private static readonly Brush CardBorder = Frozen(Color.FromArgb(0x26, 0xff, 0xff, 0xff));
-        private static readonly Brush Accent = Frozen(Color.FromRgb(0x3d, 0x8b, 0xfd));
+        private static readonly Brush CardBackground = Theme.Raised;
+        private static readonly Brush CardBorder = Theme.Line;
+        private static readonly Brush Accent = Theme.Red;
         private static readonly Dictionary<string, ImageSource> thumbs = new Dictionary<string, ImageSource>();
 
         private readonly FXProRpmSyncPlugin plugin;
@@ -33,12 +33,8 @@ namespace User.FXProRpmSync
         {
             this.plugin = plugin;
             Margin = new Thickness(0, 0, 0, 24);
-
-            Children.Add(new TextBlock { Text = "Dash per car", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
-            Children.Add(Muted("Shows each car's dash on the wheel's screen when you get in it. Pick a dash with the wheel's dash button " +
-                               "while driving and it's remembered for that car, or choose one below. The dash button keeps cycling " +
-                               "through your preset's dashes as usual. Your SimPro preset isn't changed; its dash order is restored " +
-                               "when SimHub exits.", new Thickness(0, 0, 0, 12)));
+            Children.Add(Muted("The wheel switches to each car's dash when you get in it. Choose one below, or pick it with the wheel's dash button " +
+                               "while driving and it's remembered for the car. Your preset's dash order is restored when SimHub exits.", new Thickness(0, 0, 0, 12)));
 
             var enabled = new CheckBox { Content = "Switch the wheel's dash per car", IsChecked = plugin.Settings.DashSwitching, Margin = new Thickness(0, 0, 0, 6) };
             enabled.Checked += (s, e) => { plugin.Settings.DashSwitching = true; plugin.SaveSettings(); plugin.Reapply(); };
@@ -225,7 +221,7 @@ namespace User.FXProRpmSync
             return new Image { Source = img, Width = width, Height = height, Stretch = Stretch.Uniform };
         }
 
-        private static ImageSource ThumbSource(string dashId)
+        internal static ImageSource ThumbSource(string dashId)
         {
             if (dashId == null) return null;
             lock (thumbs)

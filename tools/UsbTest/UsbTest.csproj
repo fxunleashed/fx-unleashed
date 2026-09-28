@@ -22,7 +22,9 @@
     <Compile Include="*.cs" />
     <Compile Include="..\..\*.cs" />
     <Compile Include="..\..\Usb\*.cs" />
+    <Compile Include="..\..\Ui\*.cs" />
     <EmbeddedResource Include="..\..\assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
+    <EmbeddedResource Include="..\..\assets\fxpro-outline.svg" LogicalName="User.FXProRpmSync.fxpro-outline.svg" />
     <Reference Include="GameReaderCommon"><HintPath>$(SimHubPath)GameReaderCommon.dll</HintPath></Reference>
     <Reference Include="SimHub.Plugins"><HintPath>$(SimHubPath)SimHub.Plugins.dll</HintPath></Reference>
     <Reference Include="SimHub.Logging"><HintPath>$(SimHubPath)SimHub.Logging.dll</HintPath></Reference>

@@ -119,7 +119,7 @@ static class UsbTestMain
             sv.Step(sc, 1.3, 24); sc.P.Bitmap.Save(Path.Combine(dir, "saver_b.png"), ImageFormat.Png);
             return 0;
         }
-        if (args.Length > 1 && args[1] == "ui") { UiTest.Run(Path.Combine(dir, "ui.png"), false); UiTest.Run(Path.Combine(dir, "ui-custom.png"), true); return 0; }
+        if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 2 && args[1] == "traffic")
         {
             // screen traffic and demo CPU for a dash: fxdash-style JSON file, or "mustang"

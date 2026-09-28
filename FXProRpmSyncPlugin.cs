@@ -11,6 +11,10 @@ namespace User.FXProRpmSync
 {
     public class FXProRpmSyncSettings
     {
+        /// <summary>Standard: stock wheel, lights and dashes through SimPro. Unlocked: flashed wheel, everything over USB.</summary>
+        public WheelMode Mode = WheelMode.Standard;
+
+        /// <summary>Standard mode: keep the rev lights matched to the car through SimPro.</summary>
         public bool Enabled = true;
 
         /// <summary>Use each car's real shift lights (Lovely Car Data) when available; otherwise rescale the preset.</summary>
@@ -212,6 +216,11 @@ namespace User.FXProRpmSync
             if (Settings.Feed == null) Settings.Feed = new FeedSettings();
             if (Settings.Feed.Overrides == null) Settings.Feed.Overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (Settings.Usb == null) Settings.Usb = new UsbSettings();
+            if (Settings.Usb.CarDashes == null) Settings.Usb.CarDashes = new Dictionary<string, UsbCarDash>();
+            if (Settings.Usb.Savers == null) Settings.Usb.Savers = new List<SaverItem>();
+            // Before modes, USB mode was a tick box: carry it over (the two are kept in step from here on).
+            if (Settings.Usb.Enabled) Settings.Mode = WheelMode.Unlocked;
+            Settings.Usb.Enabled = Settings.Mode == WheelMode.Unlocked;
             simPro.BaseUrl = Settings.SimProUrl;
             dashes = new DashSwitcher(this, simPro);
             feed = new SimGameFeed(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync"));
@@ -238,6 +247,12 @@ namespace User.FXProRpmSync
             this.AttachDelegate("CurrentCarDash", () => DashCatalog.NameOf(GetCarDash(DashCarKey)?.DashId));
             this.AttachDelegate("UsbModeState", () => Usb?.State ?? "");
             this.AddAction("UsbModeToggleDemo", (a, b) => Usb?.SetDemo(!Usb.DemoOn));
+            // Unlocked mode: step the current car's custom dash through the library (saved for the car), sleep / wake.
+            this.AddAction("UsbNextDash", (a, b) => CycleUsbDash(+1));
+            this.AddAction("UsbPreviousDash", (a, b) => CycleUsbDash(-1));
+            this.AddAction("UsbSleepNow", (a, b) => Usb?.SleepNow());
+            this.AddAction("UsbWake", (a, b) => Usb?.Wake());
+            this.AttachDelegate("UsbDash", () => Usb?.ActiveDashName ?? "");
             Usb = new UsbController(this);
             if (Settings.Usb.DesignerServer) StartDesigner();
 
@@ -328,7 +343,7 @@ namespace User.FXProRpmSync
                 Interlocked.Exchange(ref lastGameTicks, DateTime.UtcNow.Ticks);
                 runningGameName = data.GameName;
             }
-            if (!Settings.Enabled || !data.GameRunning || data.NewData == null) return;
+            if (!(Settings.Enabled || Settings.DashSwitching || Unlocked) || !data.GameRunning || data.NewData == null) return;
             var d = data.NewData;
 
             double max = d.CarSettings_MaxRPM > 0 ? d.CarSettings_MaxRPM : d.MaxRpm;
@@ -375,6 +390,93 @@ namespace User.FXProRpmSync
         }
 
         public void SaveSettings() => this.SaveCommonSettings("GeneralSettings", Settings);
+
+        // ---------- Mode ----------
+
+        public bool Unlocked => Settings.Mode == WheelMode.Unlocked;
+
+        /// <summary>
+        /// Switches between the stock wheel (SimPro drives lights and dashes) and the flashed wheel (USB). Going unlocked
+        /// gives SimPro's preset back its own rev lights and dash order, since the plugin now drives the wheel directly.
+        /// </summary>
+        public void SetMode(WheelMode mode)
+        {
+            if (Settings.Mode == mode) return;
+            Settings.Mode = mode;
+            Settings.Usb.Enabled = mode == WheelMode.Unlocked;
+            SaveSettings();
+            if (mode == WheelMode.Unlocked) RequestRestore();
+            Reapply();
+            Usb?.SettingsChanged();
+            SimHub.Logging.Current.Info("[FXProRpmSync] mode: " + mode);
+        }
+
+        // ---------- Unlocked mode: dash per car ----------
+
+        public UsbCarDash GetUsbCarDash(string carKey)
+        {
+            lock (sync) return carKey != null && Settings.Usb.CarDashes.TryGetValue(carKey, out var d) ? d.Clone() : null;
+        }
+
+        public List<UsbCarDash> AllUsbCarDashes()
+        {
+            lock (sync) return Settings.Usb.CarDashes.Values.Select(d => d.Clone()).OrderBy(d => d.Game).ThenBy(d => d.CarName).ToList();
+        }
+
+        /// <summary>What the screen shows for a car in unlocked mode: its own choice, else the default.</summary>
+        public (bool WheelDash, string DashId) UsbDashFor(string carKey)
+        {
+            var d = GetUsbCarDash(carKey);
+            if (d != null) return (d.WheelDash, d.DashId);
+            return (!Settings.Usb.DashEnabled, Settings.Usb.DashId);
+        }
+
+        public void SaveUsbCarDash(UsbCarDash d)
+        {
+            d.UpdatedUtc = DateTime.UtcNow;
+            lock (sync) Settings.Usb.CarDashes[d.CarKey] = d.Clone();
+            SaveSettings();
+            UsbDashChanged(d.CarKey);
+        }
+
+        public void DeleteUsbCarDash(string carKey)
+        {
+            bool removed;
+            lock (sync) removed = Settings.Usb.CarDashes.Remove(carKey);
+            if (!removed) return;
+            SaveSettings();
+            UsbDashChanged(carKey);
+        }
+
+        private void UsbDashChanged(string carKey)
+        {
+            Usb?.SettingsChanged();
+            if (carKey == DashCarKey) Reapply(); // a wheel dash: switch the wheel to it
+        }
+
+        /// <summary>The current car's screen: a custom dash (dashId) or the wheel's own (wheelDashId, null = leave it).</summary>
+        public void PickUsbDashForCurrentCar(bool wheelDash, string dashId)
+        {
+            var key = DashCarKey;
+            if (key == null) return;
+            var d = GetUsbCarDash(key) ?? new UsbCarDash { CarKey = key, Game = dashCarGame, CarId = dashCarId, CarName = dashCarName };
+            d.WheelDash = wheelDash;
+            if (!wheelDash) d.DashId = dashId;
+            else if (dashId != null) PickDashForCurrentCar(dashId);
+            SaveUsbCarDash(d);
+        }
+
+        /// <summary>Steps the current car's custom dash through the library (SimHub action, e.g. on a wheel button).</summary>
+        public void CycleUsbDash(int step)
+        {
+            if (!Unlocked || DashCarKey == null) return;
+            var ids = DashLibrary.Load(null).Select(d => d.Id).ToList();
+            if (ids.Count == 0) return;
+            var (wheel, current) = UsbDashFor(DashCarKey);
+            int i = wheel ? -1 : ids.IndexOf(current);
+            int next = ((i < 0 ? (step > 0 ? -1 : 0) : i) + step + ids.Count) % ids.Count;
+            PickUsbDashForCurrentCar(false, ids[next]);
+        }
 
         // ---------- Per-car overrides ----------
 
@@ -689,6 +791,7 @@ namespace User.FXProRpmSync
             dashCarName = string.IsNullOrEmpty(t.CarModel) ? t.CarId : t.CarModel;
             try
             {
+                if (Unlocked && !UsbDashFor(t.CarKey).WheelDash) return; // a custom dash covers the screen
                 var w = await GetWheel().ConfigureAwait(false);
                 await dashes.OnCarAsync(w, t.CarKey).ConfigureAwait(false);
             }
@@ -698,6 +801,7 @@ namespace User.FXProRpmSync
         private async Task PollDash()
         {
             if (wheel == null || !Settings.DashSwitching) return;
+            if (Unlocked && Usb?.ScreenHeld == true) return; // the wheel's dash isn't what's on the screen
             try { await dashes.PollAsync(wheel, Driving, DashCarKey, NewCarDashForCurrentCar).ConfigureAwait(false); }
             catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] dash poll failed: " + ex.Message); }
         }
@@ -811,6 +915,8 @@ namespace User.FXProRpmSync
 
         private async Task ApplyAsync(Target t)
         {
+            bool unlocked = Unlocked;
+            if (!unlocked && !Settings.Enabled) return;
             var w = await GetWheel().ConfigureAwait(false);
             var sel = await simPro.GetSelectedPreset(w).ConfigureAwait(false);
             var presetUuid = (string)sel["preset_uuid"];
@@ -862,6 +968,15 @@ namespace User.FXProRpmSync
             }
             LightsSource = source;
             CurrentLightsLayout = layout;
+            if (unlocked)
+            {
+                // The USB lights show it (LightEngine); SimPro's preset is left alone.
+                CurrentCar = t.CarKey;
+                AppliedRedline = layout.ShiftRpm;
+                AppliedMaxRpm = t.MaxRpm;
+                Status = $"{t.CarKey}: {LightsSource}, shift {AppliedRedline:0} rpm (lights over USB)";
+                return;
+            }
 
             // 3) To SimPro's percent-of-game-max settings.
             if (scaleMax <= 0) return;

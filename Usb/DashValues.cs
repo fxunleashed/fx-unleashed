@@ -32,6 +32,7 @@ namespace User.FXProRpmSync
             ("waterTemp", "Water temperature"), ("oilTemp", "Oil temperature"),
             ("gearText", "Gear as text (R, N, 1...)"), ("rpmPercent", "RPM as % of max"), ("gameRunning", "A game is running"),
             ("absActive", "ABS working now"), ("tcActive", "TC working now"), ("pitLimiter", "Pit limiter on"),
+            ("clock", "Time of day, HH:mm (screensavers)"), ("date", "Date, e.g. SAT 27 SEP (screensavers)"),
         };
 
         private readonly Dictionary<string, object> v = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);

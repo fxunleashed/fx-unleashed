@@ -11,8 +11,8 @@ namespace User.FXProRpmSync
     /// <summary>"Dash values from SimHub" part of the settings page: on/off, status, options, live readout, overrides.</summary>
     public class FeedSection : StackPanel
     {
-        private static readonly Brush CardBackground = Frozen(Color.FromArgb(0x14, 0xff, 0xff, 0xff));
-        private static readonly Brush CardBorder = Frozen(Color.FromArgb(0x26, 0xff, 0xff, 0xff));
+        private static readonly Brush CardBackground = Theme.Raised;
+        private static readonly Brush CardBorder = Theme.Line;
 
         // Status banner tones: one color per state, so a glance says whether the dash shows SimHub's data.
         private static readonly Color Good = Color.FromRgb(0x3f, 0xb9, 0x50);
@@ -51,20 +51,14 @@ namespace User.FXProRpmSync
             this.plugin = plugin;
             Margin = new Thickness(0, 0, 0, 24);
             var fs = plugin.Settings.Feed;
-
-            Children.Add(new TextBlock { Text = "Dash values from SimHub", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
-            Children.Add(Muted(
-                "Sends SimHub's data to the wheel's dash instead of SimPro's own game telemetry, so every value SimHub knows " +
-                "(gaps, fuel per lap, tyre data, ...) reaches the dash in every game SimHub supports. It works through SimPro's " +
-                "built-in \"SimGame\" source: SimPro picks its data source when a game starts and keeps it, so turn this on " +
-                "(or start SimHub) before starting the game; restarting SimHub is fine. While it's on, SimPro sees SimGame instead of your game: its " +
-                "per-game preset switching doesn't trigger, and anything SimPro drives from game telemetry (dash, rev lights, " +
-                "telemetry effects) uses SimHub's data. Force feedback is unaffected.", new Thickness(0, 0, 0, 12)));
+            Children.Add(Muted("Sends SimHub's data to the wheel's own dashes through SimPro's \"SimGame\" source, so every value SimHub knows " +
+                               "reaches them, in every game. SimPro picks its source when a game starts: turn this on before starting the game. " +
+                               "Force feedback is unaffected." + (plugin.Unlocked ? " In unlocked mode it matters for cars showing the wheel's own dash." : ""), new Thickness(0, 0, 0, 12)));
 
             enabled = new CheckBox { Content = "Drive the wheel's dash from SimHub", IsChecked = fs.Enabled, Margin = new Thickness(0, 0, 0, 6) };
             var demo = new CheckBox
             {
-                Content = "Demo: animate every dash value with a simulated lap (with no game running; off again after a restart)",
+                Content = "Demo: a simulated lap on the wheel's dash (no game running)",
                 IsChecked = plugin.DemoOn, Margin = new Thickness(0, 0, 0, 8),
             };
             enabled.Checked += (s, e) => { if (!reverting) plugin.SetFeedEnabled(true); Refresh(); };

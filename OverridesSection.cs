@@ -13,9 +13,9 @@ namespace User.FXProRpmSync
     /// <summary>"Per-car overrides" part of the settings page: current car, override editor, saved overrides list.</summary>
     public class OverridesSection : StackPanel
     {
-        private static readonly Brush CardBackground = Frozen(Color.FromArgb(0x14, 0xff, 0xff, 0xff));
-        private static readonly Brush CardBorder = Frozen(Color.FromArgb(0x26, 0xff, 0xff, 0xff));
-        private static readonly Brush Accent = Frozen(Color.FromRgb(0x3d, 0x8b, 0xfd));
+        private static readonly Brush CardBackground = Theme.Raised;
+        private static readonly Brush CardBorder = Theme.Line;
+        private static readonly Brush Accent = Theme.Red;
         private static readonly Brush ErrorBrush = Frozen(Color.FromRgb(0xe8, 0x47, 0x49));
 
         private readonly FXProRpmSyncPlugin plugin;
@@ -57,12 +57,8 @@ namespace User.FXProRpmSync
         {
             this.plugin = plugin;
             Margin = new Thickness(0, 0, 0, 24);
-
-            Children.Add(new TextBlock { Text = "Per-car overrides", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
-            Children.Add(Muted("Fine-tune a car when its lights don't match the game: shift the whole sequence earlier or later, or set " +
-                               "every LED yourself. Overrides are saved per car and applied automatically. You can also map the " +
-                               "SimHub actions \"CurrentCarLightsLater\" / \"CurrentCarLightsEarlier\" to wheel buttons to nudge " +
-                               $"the current car by {FXProRpmSyncPlugin.NudgeStepRpm} rpm while driving.", new Thickness(0, 0, 0, 12)));
+            Children.Add(Muted("Fine-tune a car whose lights don't match the game: move them earlier or later, or set every LED. Saved per car. " +
+                               $"The SimHub actions CurrentCarLightsLater / CurrentCarLightsEarlier nudge the current car by {FXProRpmSyncPlugin.NudgeStepRpm} rpm from a wheel button.", new Thickness(0, 0, 0, 12)));
 
             // ----- Current car -----
             carTitle = new TextBlock { FontSize = 14, FontWeight = FontWeights.SemiBold };

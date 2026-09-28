@@ -46,6 +46,19 @@ namespace User.FXProRpmSync
         /// <summary>Follow ATSR-Hub's brightness (night mode).</summary>
         public bool AtsrBrightness = true;
 
+        /// <summary>Per car: a custom dash or the wheel's own (keyed by "Game | CarId"). Cars not here get the default:
+        /// DashId when DashEnabled, else the wheel's own dash.</summary>
+        public Dictionary<string, UsbCarDash> CarDashes = new Dictionary<string, UsbCarDash>();
+
+        /// <summary>The user's screensavers (pictures, dashes); the logo and the clock are built in.</summary>
+        public List<SaverItem> Savers = new List<SaverItem>();
+        /// <summary>The screensaver shown (ScreenSaver on).</summary>
+        public string SaverId = SaverItem.LogoId;
+
+        /// <summary>After SleepMinutes without a game: every light off and the screen's backlight off, until a game starts.</summary>
+        public bool SleepEnabled = false;
+        public int SleepMinutes = 10;
+
         public LightProfile ActiveLights =>
             (LightPreset == LightPresets.CustomId ? CustomLights : null) ?? LightPresets.Find(LightPreset) ?? LightPresets.All[0];
     }
@@ -87,7 +100,6 @@ namespace User.FXProRpmSync
         private readonly LightEngine engine = new LightEngine();
         private LightProfile lights;          // this thread's copy (the settings page edits the original)
         private bool reverseRev;
-        private string dashKey;               // what the drawn dash was built from
         private int dashReloads;
         private UsbDemo demo;
         private readonly Stopwatch clock = Stopwatch.StartNew();
@@ -103,7 +115,13 @@ namespace User.FXProRpmSync
         /// <summary>The custom dash is on the wheel's screen now.</summary>
         public bool DashActive => screen != null && renderer != null;
         /// <summary>The logo is on the wheel's screen now.</summary>
-        public bool SaverActive => screen != null && saver != null;
+        public bool SaverActive => screen != null && (saver != null || screenKey?.StartsWith("saver|") == true);
+        /// <summary>The plugin holds the wheel's screen (a dash, a screensaver, or dark for sleep).</summary>
+        public bool ScreenHeld => screen != null;
+        /// <summary>Sleeping: every light off, the screen's backlight off.</summary>
+        public bool Sleeping { get; private set; }
+        /// <summary>Seconds until sleep (null = sleep off or a game running).</summary>
+        public double? SleepIn { get; private set; }
         public bool DemoOn => demoOn;
         public bool Testing => DateTime.UtcNow.Ticks < Interlocked.Read(ref testUntilTicks);
         public string ActiveDashName => dash?.Name;
@@ -127,8 +145,18 @@ namespace User.FXProRpmSync
 
         private UsbSettings S => plugin.Settings.Usb;
 
-        /// <summary>Settings changed: re-read them (the dash is redrawn only if its own settings changed).</summary>
-        public void SettingsChanged() { Interlocked.Increment(ref settingsVersion); wake.Set(); }
+        /// <summary>Settings changed: re-read them (the dash is redrawn only if its own settings changed). Wakes the wheel:
+        /// someone is at the PC.</summary>
+        public void SettingsChanged() { Interlocked.Increment(ref settingsVersion); Wake(); }
+
+        // Sleep: counted from the last time something drove the wheel (a game, the demo, the designer) or the user acted
+        private double lastActive;
+        private volatile bool sleepNow;
+
+        /// <summary>Sleep now, until a game starts or Wake.</summary>
+        public void SleepNow() { sleepNow = true; wake.Set(); }
+
+        public void Wake() { sleepNow = false; lastActive = clock.Elapsed.TotalSeconds; wake.Set(); }
 
         /// <summary>Dash files changed on disk: redraw from them.</summary>
         public void ReloadDashes() { Interlocked.Increment(ref dashReloads); SettingsChanged(); }
@@ -215,7 +243,12 @@ namespace User.FXProRpmSync
                     bool preview = PreviewActive;
                     if (!preview && previewDash != null) previewDash = null; // timed out
                     bool source = testing || demoOn || preview || LiveFresh;
-                    bool idle = (s.LightsEnabled && s.IdleLights) || s.ScreenSaver;
+                    double now = clock.Elapsed.TotalSeconds;
+                    if (source) { lastActive = now; sleepNow = false; }
+                    bool sleeping = !source && (sleepNow || (s.SleepEnabled && now - lastActive >= Math.Max(1, s.SleepMinutes) * 60));
+                    SleepIn = s.SleepEnabled && !source && !sleeping ? Math.Max(1, s.SleepMinutes) * 60 - (now - lastActive) : (double?)null;
+                    Sleeping = sleeping && allowed;
+                    bool idle = (s.LightsEnabled && s.IdleLights) || s.ScreenSaver || sleeping;
                     if (!allowed || (!source && !idle))
                     {
                         Deactivate();
@@ -224,7 +257,7 @@ namespace User.FXProRpmSync
                         continue;
                     }
                     if (conn == null) Open();
-                    RunFrame(s, source, testing);
+                    RunFrame(s, source, testing, sleeping);
                     wake.WaitOne(15); // a settings change wakes it early, so the wheel shows it at once
                 }
                 catch (Exception ex)
@@ -264,16 +297,18 @@ namespace User.FXProRpmSync
         {
             conn = new FxConnection(path);
             appliedVersion = -1;
-            dashKey = null;
+            screenKey = null;
             lastDash = lastDemo = clock.Elapsed.TotalSeconds;
             SimHub.Logging.Current.Info("[FXProRpmSync] USB mode connected to the wheel");
         }
 
         /// <summary>
-        /// Copies the lights from the settings when they changed. The screen: the dash while `source` (a game, the demo or
-        /// the test), redrawn only when its own settings changed; else the logo (screensaver) if wanted; else the wheel's own.
+        /// Copies the lights from the settings when they changed, then puts on the screen what it should show now:
+        /// asleep: dark (backlight off); while `source` (a game, the demo, the test, the designer): the car's custom dash,
+        /// or the wheel's own dash for cars set to it; otherwise the screensaver if on, else the wheel's own screen.
+        /// Something is redrawn only when what it's built from changed.
         /// </summary>
-        private void ApplySettings(UsbSettings s, bool source)
+        private void ApplySettings(UsbSettings s, bool source, bool testing, bool sleeping)
         {
             int version = Volatile.Read(ref settingsVersion);
             if (version != appliedVersion)
@@ -282,33 +317,66 @@ namespace User.FXProRpmSync
                 try { lights = s.ActiveLights.Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
                 reverseRev = s.ReverseRev;
             }
-            if (s.LightsEnabled && leds == null) { leds = new FxLedWriter(conn); leds.Enable(); }
-            else if (!s.LightsEnabled && leds != null) { leds.Disable(); leds = null; LastFrame = null; }
+            bool wantLeds = s.LightsEnabled || sleeping;
+            if (wantLeds && leds == null) { leds = new FxLedWriter(conn); leds.Enable(); }
+            else if (!wantLeds && leds != null) { leds.Disable(); leds = null; LastFrame = null; }
 
-            if (!(source && s.DashEnabled))
+            // What the screen should show
+            string key = null;
+            DashDefinition pd = previewDash, want = null;
+            SaverItem item = null;
+            int reloads = Volatile.Read(ref dashReloads);
+            if (sleeping) key = "sleep";
+            else if (source)
             {
-                if (!source && s.ScreenSaver)
+                if (pd != null) key = "preview|" + previewKey;
+                else
                 {
-                    if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); }
-                    if (saver == null)
-                    {
-                        renderer = null; dash = null; dashKey = null;
-                        saver = new ScreenSaver();
-                        saver.Start();
-                        SimHub.Logging.Current.Info("[FXProRpmSync] USB mode screensaver on");
-                    }
+                    var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
+                    if (testing || demoOn) wheelDash = false; // the test and the demo are about the custom dash
+                    if (!wheelDash) key = $"dash|{id ?? s.DashId}|{s.PadLeft}|{s.PadTop}|{reloads}";
                 }
-                else ReleaseScreen();
+            }
+            else if (s.ScreenSaver)
+            {
+                item = IdleScreens.Find(s, s.SaverId);
+                key = $"saver|{item.Id}|{s.PadLeft}|{s.PadTop}|{reloads}";
+            }
+
+            if (key == null) { ReleaseScreen(); return; }
+            if (screen != null && key == screenKey) return;
+            screenKey = key;
+            renderer = null; dash = null; saver = null;
+            if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); }
+
+            if (key == "sleep")
+            {
+                foreach (var c in new[] { "page 0", "vis 255,0", "cls 0", "dim=0" }) screen.Cmd(c);
+                screen.Flush();
+                dimmed = true;
+                SimHub.Logging.Current.Info("[FXProRpmSync] USB mode asleep");
                 return;
             }
-            saver = null;
-            var pd = previewDash;
-            string key = pd != null ? "preview|" + previewKey : $"{s.DashId}|{s.PadLeft}|{s.PadTop}|{Volatile.Read(ref dashReloads)}";
-            if (screen != null && key == dashKey) return;
-            dashKey = key;
+            Undim();
+
             var errors = new List<string>();
-            dash = pd ?? DashLibrary.Load(errors).FirstOrDefault(d => d.Id == s.DashId) ?? BuiltInDashes.MustangGt3();
-            if (screen == null) { screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) }; screen.Take(); }
+            if (item != null)
+            {
+                want = item.Kind == SaverKind.Logo ? null : IdleScreens.DashFor(item, DashLibrary.Load(errors));
+                if (want == null)
+                {
+                    saver = new ScreenSaver();
+                    saver.Start();
+                    SimHub.Logging.Current.Info("[FXProRpmSync] USB mode screensaver: logo");
+                    return;
+                }
+            }
+            else
+            {
+                string id = key.Split('|')[1];
+                want = pd ?? DashLibrary.Load(errors).FirstOrDefault(d => d.Id == id) ?? BuiltInDashes.MustangGt3();
+            }
+            dash = want;
             var room = DashRenderer.Room(dash);
             int padL = pd != null ? previewLeft : s.PadLeft, padT = pd != null ? previewTop : s.PadTop;
             renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, padL), room.Right), Math.Min(Math.Max(0, padT), room.Down));
@@ -317,22 +385,35 @@ namespace User.FXProRpmSync
             DashProblems = renderer.Check();
             renderer.DrawAll();
             lastDash = clock.Elapsed.TotalSeconds;
-            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode dash on: " + dash.Name);
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode " + (item != null ? "screensaver: " : "dash on: ") + dash.Name);
+        }
+
+        private string screenKey;             // what the screen shows now (see ApplySettings)
+        private bool dimmed;
+
+        /// <summary>The backlight back on after sleep.</summary>
+        private void Undim()
+        {
+            if (!dimmed || screen == null) return;
+            dimmed = false;
+            screen.Cmd("dim=100");
+            screen.Flush();
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode awake");
         }
 
         /// <summary>The wheel's own dash back (`page dp`); the lights stay.</summary>
         private void ReleaseScreen()
         {
             if (screen == null) return;
-            try { screen.Release(); } catch { }
+            try { Undim(); screen.Release(); } catch { }
             screen.Dispose();
-            screen = null; renderer = null; dash = null; dashKey = null; saver = null;
+            screen = null; renderer = null; dash = null; screenKey = null; saver = null;
             SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the screen (wheel's own dash back)");
         }
 
-        private void RunFrame(UsbSettings s, bool source, bool testing)
+        private void RunFrame(UsbSettings s, bool source, bool testing, bool sleeping)
         {
-            ApplySettings(s, source);
+            ApplySettings(s, source, testing, sleeping);
             double now = clock.Elapsed.TotalSeconds;
             DashValues v;
             bool previewDemo = previewDash != null && !LiveFresh;
@@ -353,15 +434,24 @@ namespace User.FXProRpmSync
                 State = previewDash != null ? "Designer preview" : "Active";
                 Detail = previewDash != null ? "Showing the dash from the designer with live data." : "Driving the dash and lights from SimHub.";
             }
+            else if (sleeping)
+            {
+                v = new DashValues();
+                State = "Sleeping";
+                Detail = "Lights and screen off. Starting a game wakes the wheel.";
+            }
             else
             {
                 v = new DashValues(); // no game: ambient lights only, rev lights dark, no alerts
-                State = saver != null ? "Standing by" : "Lights on";
-                Detail = (saver != null ? "Showing the logo" + (leds != null ? " and your lights" : "") : "Showing your lights") +
+                IdleScreens.AddClock(v);
+                bool onScreen = screen != null;
+                State = onScreen ? "Standing by" : "Lights on";
+                Detail = (onScreen ? "Showing the screensaver" + (leds != null ? " and your lights" : "") : "Showing your lights") +
                          ". The dash takes over the screen when a game runs.";
             }
+            if (source && screen == null) Detail += " This car uses the wheel's own dash.";
 
-            frameS = s; frameV = v; frameSource = source; frameTesting = testing;
+            frameS = s; frameV = v; frameSource = source; frameTesting = testing; frameSleeping = sleeping;
             SendLeds(now);
             if (renderer != null && now - lastDash >= 0.1)
             {
@@ -375,7 +465,7 @@ namespace User.FXProRpmSync
         // what the current frame's lights are made from (SendLeds also runs while the screen waits for its pacing)
         private UsbSettings frameS;
         private DashValues frameV;
-        private bool frameSource, frameTesting;
+        private bool frameSource, frameTesting, frameSleeping;
 
         private void SendLeds(double now)
         {
@@ -385,7 +475,8 @@ namespace User.FXProRpmSync
             {
                 lastLed = now;
                 LedColor[] frame = null;
-                if (s.LightsFrom == LightsSource.AtsrHub && !testing)
+                if (frameSleeping) { frame = new LedColor[LightEngine.Count]; LightsState = "off (sleeping)"; }
+                else if (s.LightsFrom == LightsSource.AtsrHub && !testing)
                 {
                     if (ExternalFresh) { frame = Volatile.Read(ref external); LightsState = "ATSR-Hub"; }
                     else LightsState = "no data from ATSR-Hub" + (string.IsNullOrEmpty(s.AtsrDevice) ? " (no device picked)" : " for \"" + s.AtsrDevice + "\"") + ", showing the built-in lights";
@@ -406,7 +497,7 @@ namespace User.FXProRpmSync
             try { screen?.Release(); } catch { }
             screen?.Dispose();
             try { conn.Dispose(); } catch { }
-            conn = null; screen = null; leds = null; renderer = null; dash = null; demo = null; saver = null;
+            conn = null; screen = null; leds = null; renderer = null; dash = null; demo = null; saver = null; screenKey = null; dimmed = false;
             LastFrame = null;
             if (!quiet) SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the wheel");
         }
