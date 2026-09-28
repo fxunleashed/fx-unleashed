@@ -65,11 +65,23 @@ formula bindings). Designing, importing SimHub dashes, the HTTP API and `fxdash`
 
 ## Lights
 
-LED numbering (the firmware's renderer order): **buttons 0-11, encoders 12-16, side lights 17-19 (left of the rev bar)
-and 20-22 (right), rev lights 23-37.** The button and side-light left/right split is assumed, not verified; rev LED 23
-is the leftmost on the user's wheel (option to flip).
+LED numbering (the firmware's renderer order), **mapped with a camera on the wheel (2026-09-27)**, as the driver sees it:
 
-Built-in presets (`Usb/Lights.cs`): Mustang Rainbow, Aurora, Synthwave, Ember, Glacier, Scanner, Stealth, Full
+| LEDs | Where |
+|---|---|
+| 0-3 | left lower cluster, bottom to top (bottom, middle, inner "OK", outer) |
+| 4, 5 | left top pair: outer (mic), inner (PIT) |
+| 6, 7 | right top pair: inner, outer |
+| 8-11 | right lower cluster, top to bottom (outer, inner, middle, bottom) |
+| 12-16 | encoders ABS, TC, BB, DIFF, MAP |
+| 17-19 / 20-22 | the lights left / right of the rev bar, top to bottom |
+| 23-37 | rev lights, left to right |
+
+`Ui/WheelView.cs` draws them there, and `assets/Simagic_FX-Pro.atsrdevice` places them the same way (re-import it in
+ATSR-Hub after an update). To re-map (another wheel, a camera pointed at it): POST 38 colours to
+`/api/wheel/leds?seconds=N` (designer API) one LED at a time and find each in the picture.
+
+Built-in presets (`Usb/Lights.cs`): Prism, Aurora, Synthwave, Ember, Glacier, Scanner, Stealth, Full
 Rainbow. **Customize** copies the current one into an editor: per group (buttons, encoders, left, right, rev) an effect
 (solid, breathing, colour wave, rainbow flow, breathing rainbow, scanner, sparkle, off; rev lights also "shift
 lights"), 1-4 colours, speed and brightness. Rev lights use the car's real shift lights from the rev light database
@@ -168,6 +180,6 @@ Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, 
 - Firmware: build 4 has to reach users (FXProDashes `firmware-rebuild.md`); decide how, and document the stock
   round trip.
 - Patch detection: a marker in the `F1` status block in a future firmware build would replace the confirmation box.
-- Verify on the wheel: button and side-light left/right positions, encoder order; ATSR-Hub button input IDs.
+- Verify on the wheel: ATSR-Hub button input IDs.
 - Dash editor (next step): see FXProDashes `docs/custom-dash.md`.
 - README: user-facing section for USB mode; keep the ATSR-Hub preset file in releases.

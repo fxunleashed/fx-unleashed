@@ -157,7 +157,7 @@ namespace User.FXProRpmSync
                 $"If you turn this off now, SimPro switches to reading {game} directly and keeps it until the game closes. " +
                 "Turning this back on won't do anything until you restart the game.\n\n" +
                 "Turn it off anyway?",
-                "FXPro RPM Sync", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+                "FXPro Unlocked", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
         }
 
         private void SetBanner(Color tone, string icon, string title, string detail)

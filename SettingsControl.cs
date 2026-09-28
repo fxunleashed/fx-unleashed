@@ -56,7 +56,7 @@ namespace User.FXProRpmSync
             var name = new TextBlock { FontFamily = Theme.Display, FontSize = 26, FontWeight = FontWeights.Bold };
             name.Inlines.Add(new System.Windows.Documents.Run("FX") { Foreground = Theme.Red });
             name.Inlines.Add(new System.Windows.Documents.Run("PRO ") { Foreground = Theme.Text });
-            name.Inlines.Add(new System.Windows.Documents.Run("RPM SYNC") { Foreground = Theme.Text, FontWeight = FontWeights.Light });
+            name.Inlines.Add(new System.Windows.Documents.Run("UNLOCKED") { Foreground = Theme.Text, FontWeight = FontWeights.Light });
             titles.Children.Add(name);
             var version = typeof(SettingsControl).Assembly.GetName().Version;
             titles.Children.Add(new TextBlock { Text = $"Simagic FX Pro companion  ·  v{version.Major}.{version.Minor}.{version.Build}", Foreground = Theme.Text3, FontSize = 12 });

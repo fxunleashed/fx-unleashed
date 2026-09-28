@@ -17,8 +17,9 @@ namespace User.FXProRpmSync
     /// The FX Pro drawn from the front, with all 38 LEDs where they are on the wheel: the outline is traced from
     /// Simagic's front photo (assets/fxpro-outline.svg, 663x396), the LED positions measured on the same photo.
     /// Shows an LED frame (colour x brightness, with a glow), optionally a picture in the screen (the dash preview).
-    /// LED numbers as the firmware counts them: buttons 0-5 left / 6-11 right (top to bottom), encoders 12-16
-    /// (DIFF, BB, MAP, ABS, TC), the lights beside the rev bar 17-19 left / 20-22 right, rev lights 23-37.
+    /// LED numbers as the firmware counts them (mapped with a camera): buttons 0-5 left / 6-11 right (see LeftButtons),
+    /// encoders 12-16 (ABS, TC, BB, DIFF, MAP), the lights beside the rev bar 17-19 left / 20-22 right (top to bottom),
+    /// rev lights 23-37 (left to right).
     /// </summary>
     public class WheelView : Viewbox
     {
@@ -27,13 +28,17 @@ namespace User.FXProRpmSync
 
         private enum Kind { Rev, Side, Button, Encoder }
 
-        private static readonly (double X, double Y)[] ButtonsLeft =
-        {
-            (101.7, 61.6), (167.4, 76.1), (151.8, 217.5), (192.9, 245.3), (174.0, 284.3), (203.0, 325.5),
-        };
+        // Where each LED is (mapped on the wheel with a camera, 2026-09-27): per side, the lower cluster (outer-high,
+        // inner-high, middle, bottom) and the top pair (outer, inner). Left: 0-3 = lower cluster bottom-up, 4 = top outer
+        // (mic), 5 = top inner (PIT). Right: 6 = top inner, 7 = top outer, 8-11 = lower cluster top-down.
+        private static readonly (double X, double Y) TopOuter = (101.7, 61.6), TopInner = (167.4, 76.1), OuterHigh = (151.8, 217.5),
+                                                     InnerHigh = (192.9, 245.3), Middle = (174.0, 284.3), Bottom = (203.0, 325.5);
+        private static readonly (double X, double Y)[] LeftButtons = { Bottom, Middle, InnerHigh, OuterHigh, TopOuter, TopInner };
+        private static readonly (double X, double Y)[] RightButtons = { TopInner, TopOuter, OuterHigh, InnerHigh, Middle, Bottom }; // mirrored
+        /// <summary>Encoders 12-16.</summary>
         private static readonly (double X, double Y, string Name)[] Encoders =
         {
-            (251.9, 217.5, "DIFF"), (Mid, 239.7, "BB"), (411.1, 217.5, "MAP"), (260.8, 287.6, "ABS"), (402.2, 287.6, "TC"),
+            (260.8, 287.6, "ABS"), (402.2, 287.6, "TC"), (Mid, 239.7, "BB"), (251.9, 217.5, "DIFF"), (411.1, 217.5, "MAP"),
         };
 
         private static Geometry outline;
@@ -94,11 +99,12 @@ namespace User.FXProRpmSync
                 Led(12 + i, Kind.Encoder, x, y, 15, "Encoder " + name);
             }
             // Buttons
+            string[] names = { "bottom", "middle", "inner", "outer", "top outer", "top inner" };
+            string[] rightNames = { "top inner", "top outer", "outer", "inner", "middle", "bottom" };
             for (int i = 0; i < 6; i++)
             {
-                var (x, y) = ButtonsLeft[i];
-                Led(i, Kind.Button, x, y, 12, $"Button {i + 1} (left)");
-                Led(6 + i, Kind.Button, 2 * Mid - x, y, 12, $"Button {i + 1} (right)");
+                Led(i, Kind.Button, LeftButtons[i].X, LeftButtons[i].Y, 12, "Left button, " + names[i]);
+                Led(6 + i, Kind.Button, 2 * Mid - RightButtons[i].X, RightButtons[i].Y, 12, "Right button, " + rightNames[i]);
             }
             // Lights beside the rev bar, top to bottom
             for (int i = 0; i < 3; i++)

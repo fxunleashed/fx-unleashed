@@ -63,9 +63,12 @@ static class UiTest
         {
             var u = plugin.Settings.Usb;
             u.FirmwareConfirmed = true;
-            u.CustomLights = LightPresets.Find("synthwave").Clone();
-            u.CustomLights.Id = LightPresets.CustomId; u.CustomLights.Name = "Your own";
-            u.LightPreset = LightPresets.CustomId;
+            var mine = LightPresets.Find("synthwave").Clone(); mine.Id = "user-test"; mine.Name = "Night stint";
+            u.UserLights.Add(mine);
+            var two = LightPresets.Find("ember").Clone(); two.Id = "user-two"; two.Name = "Ember copy";
+            u.UserLights.Add(two);
+            u.LightPreset = mine.Id;
+            u.DefaultDashes = new System.Collections.Generic.List<string> { DashRef.Custom(BuiltInDashes.MustangId), DashRef.Wheel("3"), DashRef.Wheel("10") };
             u.SleepEnabled = true;
         }
         return plugin;

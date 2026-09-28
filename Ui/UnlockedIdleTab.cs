@@ -154,10 +154,9 @@ namespace User.FXProRpmSync
 
         private static string KindText(SaverItem item)
         {
+            if (item.Blurb != null) return "Built in · " + item.Blurb.ToLowerInvariant();
             switch (item.Kind)
             {
-                case SaverKind.Logo: return "Built in · the default";
-                case SaverKind.Clock: return "Built in · time and date";
                 case SaverKind.Image: return "Picture";
                 default: return "Dash";
             }
@@ -176,7 +175,7 @@ namespace User.FXProRpmSync
                 Changed();
                 BuildGallery();
             }
-            catch (Exception ex) { MessageBox.Show("Couldn't use that picture: " + ex.Message, "FXPro RPM Sync"); }
+            catch (Exception ex) { MessageBox.Show("Couldn't use that picture: " + ex.Message, "FXPro Unlocked"); }
             finally { Cursor = null; }
         }
     }

@@ -79,7 +79,7 @@ namespace User.FXProRpmSync
             }
 
             var original = GetOrCaptureOriginal(presetUuid, current);
-            var mapping = plugin.GetCarDash(carKey);
+            var mapping = plugin.WheelDashTarget(carKey);
 
             if (mapping == null)
             {
@@ -151,7 +151,7 @@ namespace User.FXProRpmSync
                 lastSeenDash = dash;
                 return;
             }
-            if (dash != lastSeenDash && driving && Settings.DashSwitching && Settings.LearnDashes && carKey != null
+            if (dash != lastSeenDash && driving && Settings.DashSwitching && Settings.LearnDashes && !plugin.Unlocked && carKey != null
                 && dash != DashCatalog.SettingsPageId)
             {
                 var existing = plugin.GetCarDash(carKey);

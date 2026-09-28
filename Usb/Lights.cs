@@ -103,9 +103,13 @@ namespace User.FXProRpmSync
     {
         public const string CustomId = "custom";
 
+        public static string NewUserId() => "user-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+        public static bool IsBuiltIn(string id) => All.Any(p => p.Id == id);
+
         public static readonly LightProfile[] All =
         {
-            Make("mustang", "Mustang Rainbow", "The demo's look: a rainbow drifting over the buttons and encoders, breathing slowly.",
+            Make("mustang", "Prism", "A rainbow drifting over the buttons and encoders, breathing slowly.",
                 (LedGroup.Buttons, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
                 (LedGroup.Encoders, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
                 (LedGroup.SideLeft, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),

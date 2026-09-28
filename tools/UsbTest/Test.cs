@@ -119,6 +119,43 @@ static class UsbTestMain
             sv.Step(sc, 1.3, 24); sc.P.Bitmap.Save(Path.Combine(dir, "saver_b.png"), ImageFormat.Png);
             return 0;
         }
+        if (args.Length > 1 && args[1] == "savers")
+        {
+            // the built-in screensavers: layout check, first-draw size, traffic while animating, pictures at a few moments
+            var last = new LastSession { Car = "McLaren 720S GT3 Evo", BestLap = 107.832, Laps = 23, Position = 3 };
+            foreach (var item in IdleScreens.All(new UsbSettings()).Where(x => x.Kind == SaverKind.Builtin || x.Kind == SaverKind.Clock))
+            {
+                var d = IdleScreens.DashFor(item);
+                if (d == null)
+                {
+                    var ac = new Counter(); var an = IdleScreens.Animated(item); an.Start();
+                    while (an.Drawing) an.Step(ac, 0, 60);
+                    long f0 = ac.Bytes, pk = 0, pv = ac.Bytes;
+                    for (int k = 1; k <= 300; k++)
+                    {
+                        an.Step(ac, k / 10.0, 60);
+                        if (k % 10 == 0) { pk = Math.Max(pk, ac.Bytes - pv); pv = ac.Bytes; }
+                        if (k == 25 || k == 57 || k == 100) ac.P.Bitmap.Save(Path.Combine(dir, $"saver-{item.Id}-{k}.png"), ImageFormat.Png);
+                    }
+                    Console.WriteLine($"{item.Id}: first draw {f0 / 1024.0:0.0} KB, then avg {(ac.Bytes - f0) / 30.0:0} B/s, worst {pk} B/s");
+                    continue;
+                }
+                var c = new Counter(); var rn = new DashRenderer(c, d, 10, 20);
+                var issues = rn.CheckDetailed(out var cost);
+                rn.DrawAll(); c.Flush(); long first = c.Bytes;
+                double peak = 0; long prev = c.Bytes;
+                for (int k = 1; k <= 300; k++)
+                {
+                    var v = new DashValues(); IdleScreens.IdleValues(v, k / 10.0, last);
+                    rn.Update(v, k / 10.0);
+                    if (k % 10 == 0) { peak = Math.Max(peak, c.Bytes - prev); prev = c.Bytes; }
+                    if (k == 25 || k == 57 || k == 100) c.P.Bitmap.Save(Path.Combine(dir, $"saver-{item.Id}-{k}.png"), ImageFormat.Png);
+                }
+                Console.WriteLine($"{item.Id}: first draw {first / 1024.0:0.0} KB ({first / 25000.0:0.0} s), then avg {(c.Bytes - first) / 30.0:0} B/s, worst {peak:0} B/s");
+                foreach (var i in issues) Console.WriteLine("   " + i);
+            }
+            return 0;
+        }
         if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 2 && args[1] == "traffic")
         {

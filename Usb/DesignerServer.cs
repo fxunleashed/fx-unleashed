@@ -19,6 +19,8 @@ namespace User.FXProRpmSync
         /// <summary>Shows a dash on the wheel (live data while a game runs, else the demo lap) until Stop or ~60 s idle.</summary>
         void ShowOnWheel(DashDefinition dash, int left, int top);
         void StopWheelPreview();
+        /// <summary>Shows these LED colours (38, "#RRGGBB", null/"" = off) for `seconds`, over whatever the lights show.</summary>
+        void TestLeds(string[] colours, int brightness, double seconds);
         /// <summary>Current SimHub values (null when no game), for rendering with live data.</summary>
         DashValues LiveValues();
         void DashesChanged();
@@ -199,6 +201,7 @@ namespace User.FXProRpmSync
             ("POST", "/api/wheel/show[?left=L&top=T]", "body = dash: show it on the wheel now (plugin only)"),
             ("POST", "/api/verify[?seconds=N&left=L&top=T]", "body = dash: demo lap on a simulated wheel: traffic, flashes, drawing errors"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
+            ("POST", "/api/wheel/leds[?brightness=1-90&seconds=N]", "body = 38 LED colours [\"#RRGGBB\" or null], in the wheel's LED order: shown for N s (plugin only)"),
         };
 
         private Response Route(Request r)
@@ -282,6 +285,13 @@ namespace User.FXProRpmSync
                 return Json(new { shown = true, status = host.WheelStatus() });
             }
             if (path == "/api/wheel/stop") { host?.StopWheelPreview(); return Json(new { stopped = true }); }
+            if (path == "/api/wheel/leds")
+            {
+                if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);
+                var colours = Newtonsoft.Json.JsonConvert.DeserializeObject<string[]>(string.IsNullOrWhiteSpace(r.Body) ? "[]" : r.Body);
+                host.TestLeds(colours, r.QI("brightness", 60), r.QD("seconds", 5));
+                return Json(new { shown = colours.Length });
+            }
             return Json(new { error = "no such endpoint; GET /api lists them" }, 404);
         }
 

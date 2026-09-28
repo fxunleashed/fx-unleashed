@@ -169,7 +169,7 @@ namespace User.FXProRpmSync
                 ? $"FX Pro wheel app {u.WheelVersion ?? "?"}" + (S.FirmwareConfirmed ? " · patched firmware confirmed" : " · not confirmed yet")
                 : "Wheel not found on USB";
             var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
-            string dashName = wheelDash ? "the wheel's own dash" : (DashCache.All().FirstOrDefault(d => d.Id == id)?.Name ?? id);
+            string dashName = wheelDash ? (id == null ? "the wheel's own dash" : DashCatalog.NameOf(id)) : DashCache.NameOf(id);
             screenInfo.Text = u?.Sleeping == true ? "Screen off (sleeping)"
                 : u?.DashActive == true ? "Showing " + u.ActiveDashName
                 : u?.SaverActive == true ? "Screensaver: " + IdleScreens.Find(S, S.SaverId).Name
@@ -179,7 +179,8 @@ namespace User.FXProRpmSync
             sleepButton.Content = Label(u?.Sleeping == true ? "Wake" : "Sleep now", u?.Sleeping == true ? "" : "");
             demoButton.IsEnabled = sleepButton.IsEnabled = S.FirmwareConfirmed;
 
-            dashTile.Text = (S.DashEnabled ? DashCache.All().FirstOrDefault(d => d.Id == S.DashId)?.Name ?? S.DashId : "Wheel's own dash") +
+            var rot = plugin.UsbRotation(plugin.DashCarKey, out _, out int cur);
+            dashTile.Text = DashRef.Name(rot[((cur % rot.Count) + rot.Count) % rot.Count]) + (rot.Count > 1 ? $"  ·  1 of {rot.Count}" : "") +
                             (S.CarDashes.Count > 0 ? $"  ·  {S.CarDashes.Count} car" + (S.CarDashes.Count == 1 ? "" : "s") : "");
             lightsTile.Text = !S.LightsEnabled ? "SimPro's lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : S.ActiveLights.Name;
             idleTile.Text = (S.ScreenSaver ? IdleScreens.Find(S, S.SaverId).Name : "No screensaver") + "  ·  " +
@@ -219,10 +220,10 @@ namespace User.FXProRpmSync
             if (wheelDash && u?.DemoOn != true)
             {
                 dashPreview.Show(null, 0, 0);
-                wheel.Screen.Source = DashSection.ThumbSource(plugin.WheelDash ?? plugin.GetCarDash(plugin.DashCarKey)?.DashId);
+                wheel.Screen.Source = DashSection.ThumbSource(id ?? plugin.WheelDash);
                 return;
             }
-            var d = DashCache.All().FirstOrDefault(x => x.Id == (id ?? S.DashId)) ?? BuiltInDashes.MustangGt3();
+            var d = DashCache.Find(Usb?.DemoDashId ?? id) ?? BuiltInDashes.MustangGt3();
             dashPreview.Show(d, S.PadLeft, S.PadTop);
             dashPreview.Tick();
         }

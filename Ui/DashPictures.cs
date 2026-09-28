@@ -56,9 +56,10 @@ namespace User.FXProRpmSync
                     var d = IdleScreens.DashFor(item);
                     if (d == null)
                     {
-                        var saver = new ScreenSaver();
+                        var saver = IdleScreens.Animated(item) ?? new ScreenSaver();
                         saver.Start();
-                        for (int i = 0; i < 400 && saver.Drawing; i++) saver.Step(screen, 1.2, 500);
+                        for (int i = 0; i < 400 && saver.Drawing; i++) saver.Step(screen, 3.3, 500);
+                        saver.Step(screen, 3.3, 500);
                     }
                     else
                     {
@@ -66,8 +67,9 @@ namespace User.FXProRpmSync
                         var r = new DashRenderer(screen, d, Math.Min(10, room.Right), Math.Min(20, room.Down));
                         r.DrawAll();
                         var v = new DashValues();
-                        IdleScreens.AddClock(v);
-                        r.Update(v, 1);
+                        // a moment with things lit, and a sample session for the pit board
+                        IdleScreens.IdleValues(v, 2.2, new LastSession { Car = "McLaren 720S GT3 Evo", BestLap = 107.832, Laps = 23, Position = 3 });
+                        r.Update(v, 2.2);
                     }
                     img = Theme.ToImage(screen.Bitmap);
                 }

@@ -13,7 +13,7 @@ namespace User.FXProRpmSync
     /// sorted into crisp black / red / white first (~3,300 rectangles at 420 px instead of ~10,000+), and the commands
     /// are sent in slices between LED frames, so it draws in over ~3 s while the lights keep animating.
     /// </summary>
-    internal sealed class ScreenSaver
+    internal sealed class ScreenSaver : IAnimatedSaver
     {
         private const int Size = 420, X = (DashRenderer.Width - Size) / 2, Y = (DashRenderer.Height - Size) / 2;
         private const double Scale = Size / 500.0;
@@ -110,5 +110,79 @@ namespace User.FXProRpmSync
                 return cmds;
             }
         }
+    }
+}
+
+namespace User.FXProRpmSync
+{
+    /// <summary>A screensaver that draws itself with screen commands (not a dash): the logo, the start lights.</summary>
+    internal interface IAnimatedSaver
+    {
+        /// <summary>Queues the first full draw.</summary>
+        void Start();
+        /// <summary>True while the first draw is still going out.</summary>
+        bool Drawing { get; }
+        /// <summary>Sends up to `max` queued commands, then the animation's changes for `now`.</summary>
+        void Step(IScreenSink screen, double now, int max = 60);
+    }
+
+    /// <summary>
+    /// "Lights out": a start gantry of five red lights that come on one a second, hold for a random moment and go out,
+    /// then "LIGHTS OUT" and the time. Each light is one native filled circle (`cirs`), so a change costs ~20 bytes.
+    /// </summary>
+    internal sealed class LightsOutSaver : IAnimatedSaver
+    {
+        private const int Cx0 = 140, Pitch = 130, Cy = 200, R = 50;
+        private readonly Queue<string> pending = new Queue<string>();
+        private readonly bool?[] lit = new bool?[5];
+        private bool? go;
+        private string clock;
+
+        private static readonly int On = DashRenderer.Rgb565("#FF1A1A"), Off = DashRenderer.Rgb565("#2A0606"), Rim = DashRenderer.Rgb565("#3A3D44"),
+                                    Frame = DashRenderer.Rgb565("#2A2D33"), Panel = DashRenderer.Rgb565("#0C0D10"), White = DashRenderer.Rgb565("#FFFFFF"),
+                                    Grey = DashRenderer.Rgb565("#6A717C");
+
+        public bool Drawing => pending.Count > 0;
+
+        public void Start()
+        {
+            pending.Clear();
+            foreach (var c in new[] { "page 0", "vis 255,0", "cls 0" }) pending.Enqueue(c);
+            pending.Enqueue(F("fill {0},{1},{2},{3},{4}", 65, 120, 670, 160, Frame));
+            pending.Enqueue(F("fill {0},{1},{2},{3},{4}", 69, 124, 662, 152, Panel));
+            for (int k = 0; k < 5; k++) pending.Enqueue(F("cirs {0},{1},{2},{3}", Cx0 + k * Pitch, Cy, R + 4, Rim));
+            for (int k = 0; k < 5; k++) lit[k] = null;
+            go = null; clock = null;
+        }
+
+        public void Step(IScreenSink screen, double now, int max = 60)
+        {
+            for (int n = 0; n < max && pending.Count > 0; n++) screen.Cmd(pending.Dequeue());
+            if (pending.Count == 0)
+            {
+                var on = IdleScreens.StartLights(now, out bool lightsOut);
+                for (int k = 0; k < 5; k++)
+                {
+                    if (lit[k] == on[k]) continue;
+                    lit[k] = on[k];
+                    screen.Cmd(F("cirs {0},{1},{2},{3}", Cx0 + k * Pitch, Cy, R, on[k] ? On : Off));
+                }
+                if (go != lightsOut)
+                {
+                    go = lightsOut;
+                    screen.Cmd(lightsOut ? F("xstr {0},{1},{2},{3},0,{4},0,1,1,1,\"LIGHTS OUT\"", 100, 305, 600, 56, White)
+                                         : F("fill {0},{1},{2},{3},0", 100, 305, 600, 56));
+                }
+                var time = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+                if (clock != time)
+                {
+                    clock = time;
+                    screen.Cmd(F("xstr {0},{1},{2},{3},4,{4},0,1,1,1,\"", 300, 405, 200, 32, Grey) + time + "\"");
+                }
+            }
+            screen.Flush();
+        }
+
+        private static string F(string format, params object[] args) => string.Format(CultureInfo.InvariantCulture, format, args);
     }
 }

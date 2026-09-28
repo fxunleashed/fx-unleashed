@@ -1518,6 +1518,14 @@ namespace User.FXProRpmSync
                     using (var br = new SolidBrush(DashRenderer.ToColor(a[4]))) g.FillRectangle(br, a[0], a[1], a[2], a[3]);
                 }
                 else if (cmd.StartsWith("xstr ")) Xstr(cmd);
+                else if (cmd.StartsWith("cirs "))
+                {
+                    var a = cmd.Substring(5).Split(',').Select(x => int.Parse(x, CultureInfo.InvariantCulture)).ToArray();
+                    var mode = g.SmoothingMode;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None; // the screen draws hard-edged circles
+                    using (var br = new SolidBrush(DashRenderer.ToColor(a[3]))) g.FillEllipse(br, a[0] - a[2], a[1] - a[2], a[2] * 2, a[2] * 2);
+                    g.SmoothingMode = mode;
+                }
             }
             catch { }
         }

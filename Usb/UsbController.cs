@@ -46,9 +46,13 @@ namespace User.FXProRpmSync
         /// <summary>Follow ATSR-Hub's brightness (night mode).</summary>
         public bool AtsrBrightness = true;
 
-        /// <summary>Per car: a custom dash or the wheel's own (keyed by "Game | CarId"). Cars not here get the default:
-        /// DashId when DashEnabled, else the wheel's own dash.</summary>
+        /// <summary>Per car (keyed by "Game | CarId"): the dashes it switches between. Cars not here use DefaultDashes.</summary>
         public Dictionary<string, UsbCarDash> CarDashes = new Dictionary<string, UsbCarDash>();
+        /// <summary>The dashes of cars without their own list (DashRef refs), and the one shown now.</summary>
+        public List<string> DefaultDashes = new List<string>();
+        public int DefaultCurrent;
+        /// <summary>The user's lights (duplicated from presets and edited); LightPreset can name one.</summary>
+        public List<LightProfile> UserLights = new List<LightProfile>();
 
         /// <summary>The user's screensavers (pictures, dashes); the logo and the clock are built in.</summary>
         public List<SaverItem> Savers = new List<SaverItem>();
@@ -56,11 +60,15 @@ namespace User.FXProRpmSync
         public string SaverId = SaverItem.LogoId;
 
         /// <summary>After SleepMinutes without a game: every light off and the screen's backlight off, until a game starts.</summary>
+        /// <summary>The last session driven (pit board screensaver).</summary>
+        public LastSession LastSession;
+
         public bool SleepEnabled = false;
         public int SleepMinutes = 10;
 
         public LightProfile ActiveLights =>
-            (LightPreset == LightPresets.CustomId ? CustomLights : null) ?? LightPresets.Find(LightPreset) ?? LightPresets.All[0];
+            UserLights?.FirstOrDefault(p => p.Id == LightPreset) ?? (LightPreset == LightPresets.CustomId ? CustomLights : null) ??
+            LightPresets.Find(LightPreset) ?? LightPresets.All[0];
     }
 
     /// <summary>
@@ -96,7 +104,7 @@ namespace User.FXProRpmSync
         private FxLedWriter leds;
         private DashRenderer renderer;
         private DashDefinition dash;
-        private ScreenSaver saver;
+        private IAnimatedSaver saver;
         private readonly LightEngine engine = new LightEngine();
         private LightProfile lights;          // this thread's copy (the settings page edits the original)
         private bool reverseRev;
@@ -153,6 +161,20 @@ namespace User.FXProRpmSync
         private double lastActive;
         private volatile bool sleepNow;
 
+        // A test frame (API / LED layout check) shown over everything until testLedsUntil
+        private LedColor[] testLeds;
+        private long testLedsUntil;
+
+        /// <summary>Shows this frame on the LEDs for `seconds` (the LED layout check, the designer API).</summary>
+        public void TestLeds(LedColor[] frame, double seconds)
+        {
+            Volatile.Write(ref testLeds, frame);
+            Interlocked.Exchange(ref testLedsUntil, DateTime.UtcNow.AddSeconds(Math.Max(0.1, seconds)).Ticks);
+            Wake();
+        }
+
+        public bool TestingLeds => DateTime.UtcNow.Ticks < Interlocked.Read(ref testLedsUntil);
+
         /// <summary>Sleep now, until a game starts or Wake.</summary>
         public void SleepNow() { sleepNow = true; wake.Set(); }
 
@@ -205,12 +227,21 @@ namespace User.FXProRpmSync
         /// <summary>SimHub's current values while a game runs (else null), for the designer's live render.</summary>
         public DashValues LiveNow => LiveFresh ? latest : null;
 
-        public void SetDemo(bool on)
+        public void SetDemo(bool on) => SetDemo(on, null);
+
+        /// <summary>The demo lap on the wheel: with `dashId`, that dash (from the dashes page), else the car's / default one.</summary>
+        public void SetDemo(bool on, string dashId)
         {
+            demoDashId = on ? dashId : null;
             demoOn = on;
             demo = null;
-            wake.Set();
+            Wake();
         }
+
+        private volatile string demoDashId;
+
+        /// <summary>The dash the demo runs on the wheel (null = the car's or the default).</summary>
+        public string DemoDashId => demoOn ? demoDashId : null;
 
         /// <summary>Takes the wheel for 8 s with the demo, to check the firmware before confirming it.</summary>
         public void RunTest()
@@ -333,8 +364,14 @@ namespace User.FXProRpmSync
                 else
                 {
                     var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
-                    if (testing || demoOn) wheelDash = false; // the test and the demo are about the custom dash
-                    if (!wheelDash) key = $"dash|{id ?? s.DashId}|{s.PadLeft}|{s.PadTop}|{reloads}";
+                    if (testing || demoOn)
+                    {
+                        // the test and the demo are about the plugin's dashes
+                        if (demoOn && demoDashId != null) id = demoDashId;
+                        else if (wheelDash) id = plugin.Settings.Usb.DefaultDashes.Where(r => !DashRef.IsWheel(r)).Select(DashRef.Id).FirstOrDefault();
+                        wheelDash = false;
+                    }
+                    if (!wheelDash) key = $"dash|{id ?? BuiltInDashes.MustangId}|{s.PadLeft}|{s.PadTop}|{reloads}";
                 }
             }
             else if (s.ScreenSaver)
@@ -365,9 +402,9 @@ namespace User.FXProRpmSync
                 want = item.Kind == SaverKind.Logo ? null : IdleScreens.DashFor(item, DashLibrary.Load(errors));
                 if (want == null)
                 {
-                    saver = new ScreenSaver();
+                    saver = IdleScreens.Animated(item) ?? new ScreenSaver();
                     saver.Start();
-                    SimHub.Logging.Current.Info("[FXProRpmSync] USB mode screensaver: logo");
+                    SimHub.Logging.Current.Info("[FXProRpmSync] USB mode screensaver: " + item.Name);
                     return;
                 }
             }
@@ -386,6 +423,25 @@ namespace User.FXProRpmSync
             renderer.DrawAll();
             lastDash = clock.Elapsed.TotalSeconds;
             SimHub.Logging.Current.Info("[FXProRpmSync] USB mode " + (item != null ? "screensaver: " : "dash on: ") + dash.Name);
+        }
+
+        private double lastSessionSave;
+
+        /// <summary>Keeps the session's car, best lap, laps and position for the pit board screensaver (every 2 s).</summary>
+        private void RememberSession(UsbSettings s, DashValues v, double now)
+        {
+            if (v == null || !v.Running || now - lastSessionSave < 2) return;
+            lastSessionSave = now;
+            double best = v.Number("bestLapTime") ?? 0;
+            if (best <= 0) return; // nothing worth showing yet
+            var ls = s.LastSession ?? new LastSession();
+            ls.Car = plugin.CurrentCarNameForDash ?? ls.Car;
+            ls.Game = plugin.CurrentGameForDash ?? ls.Game;
+            ls.BestLap = best;
+            ls.Laps = (int)(v.Number("completedLaps") ?? ls.Laps);
+            ls.Position = (int)(v.Number("position") ?? 0);
+            ls.When = DateTime.Now;
+            s.LastSession = ls;
         }
 
         private string screenKey;             // what the screen shows now (see ApplySettings)
@@ -431,6 +487,7 @@ namespace User.FXProRpmSync
             else if (source)
             {
                 v = latest;
+                RememberSession(s, v, now);
                 State = previewDash != null ? "Designer preview" : "Active";
                 Detail = previewDash != null ? "Showing the dash from the designer with live data." : "Driving the dash and lights from SimHub.";
             }
@@ -443,7 +500,7 @@ namespace User.FXProRpmSync
             else
             {
                 v = new DashValues(); // no game: ambient lights only, rev lights dark, no alerts
-                IdleScreens.AddClock(v);
+                IdleScreens.IdleValues(v, now, s.LastSession);
                 bool onScreen = screen != null;
                 State = onScreen ? "Standing by" : "Lights on";
                 Detail = (onScreen ? "Showing the screensaver" + (leds != null ? " and your lights" : "") : "Showing your lights") +
@@ -475,7 +532,8 @@ namespace User.FXProRpmSync
             {
                 lastLed = now;
                 LedColor[] frame = null;
-                if (frameSleeping) { frame = new LedColor[LightEngine.Count]; LightsState = "off (sleeping)"; }
+                if (TestingLeds) { frame = Volatile.Read(ref testLeds); LightsState = "test frame"; }
+                else if (frameSleeping) { frame = new LedColor[LightEngine.Count]; LightsState = "off (sleeping)"; }
                 else if (s.LightsFrom == LightsSource.AtsrHub && !testing)
                 {
                     if (ExternalFresh) { frame = Volatile.Read(ref external); LightsState = "ATSR-Hub"; }

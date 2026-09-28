@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace User.FXProRpmSync
 {
@@ -15,7 +16,7 @@ namespace User.FXProRpmSync
         {
             var u = Usb;
             var s = plugin.Settings.Usb;
-            string why = !s.Enabled ? "USB mode is off (SimHub > FXPro RPM Sync > USB mode)"
+            string why = !s.Enabled ? "USB mode is off (SimHub > FXPro Unlocked > Unlocked mode)"
                 : !s.FirmwareConfirmed ? "the wheel's firmware isn't confirmed in USB mode's settings"
                 : u == null || !u.WheelFound ? "the wheel isn't connected by USB"
                 : !u.SupportedApp ? "the wheel's firmware isn't supported"
@@ -29,6 +30,9 @@ namespace User.FXProRpmSync
                 wheelVersion = u?.WheelVersion,
                 previewing = u?.PreviewActive == true,
                 gameRunning = u?.LiveNow != null,
+                // the last LED frame sent, in the wheel's LED order (0-11 buttons, 12-16 encoders, 17-22 side, 23-37 rev)
+                leds = u?.LastFrame?.Select(f => $"#{f.R:X2}{f.G:X2}{f.B:X2}/{f.Brightness}").ToArray(),
+                lights = u?.LightsState,
             };
         }
 
@@ -39,6 +43,20 @@ namespace User.FXProRpmSync
         }
 
         public void StopWheelPreview() => Usb?.StopPreview();
+
+        public void TestLeds(string[] colours, int brightness, double seconds)
+        {
+            var u = Usb ?? throw new Exception("USB mode isn't running");
+            var frame = new LedColor[LightEngine.Count];
+            byte b = (byte)Math.Max(1, Math.Min(90, brightness));
+            for (int i = 0; i < frame.Length && i < (colours?.Length ?? 0); i++)
+            {
+                if (string.IsNullOrEmpty(colours[i])) continue;
+                var c = DashColors.Parse(colours[i], System.Drawing.Color.Black);
+                frame[i] = new LedColor(c.R, c.G, c.B, b);
+            }
+            u.TestLeds(frame, seconds);
+        }
 
         public DashValues LiveValues() => Usb?.LiveNow;
 

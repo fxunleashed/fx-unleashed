@@ -51,9 +51,9 @@ namespace User.FXProRpmSync
         public UsbSettings Usb = new UsbSettings();
     }
 
-    [PluginDescription("Keeps the Simagic FX Pro's rev lights matched to the car you're driving, through SimPro Manager")]
+    [PluginDescription("Simagic FX Pro companion: rev lights and dashes per car through SimPro, or, on the flashed wheel, your own dashes and every light over USB")]
     [PluginAuthor("ziadkadry99")]
-    [PluginName("FXPro RPM Sync")]
+    [PluginName("FXPro Unlocked")]
     public class FXProRpmSyncPlugin : IPlugin, IDataPlugin, IWPFSettingsV2
     {
         private const string RpmPart = "rpm_lights";
@@ -63,7 +63,7 @@ namespace User.FXProRpmSync
         public PluginManager PluginManager { get; set; }
         public System.Windows.Media.ImageSource PictureIcon => icon ?? (icon = LoadIcon());
         private System.Windows.Media.ImageSource icon;
-        public string LeftMenuTitle => "FXPro RPM Sync";
+        public string LeftMenuTitle => "FXPro Unlocked";
 
         private readonly SimProClient simPro = new SimProClient();
         private CarLedDatabase carDb;
@@ -218,6 +218,8 @@ namespace User.FXProRpmSync
             if (Settings.Usb == null) Settings.Usb = new UsbSettings();
             if (Settings.Usb.CarDashes == null) Settings.Usb.CarDashes = new Dictionary<string, UsbCarDash>();
             if (Settings.Usb.Savers == null) Settings.Usb.Savers = new List<SaverItem>();
+            MigrateUsb(Settings.Usb);
+            SaveSettings(); // keeps what the migration did (ids of moved lights) stable
             // Before modes, USB mode was a tick box: carry it over (the two are kept in step from here on).
             if (Settings.Usb.Enabled) Settings.Mode = WheelMode.Unlocked;
             Settings.Usb.Enabled = Settings.Mode == WheelMode.Unlocked;
@@ -391,6 +393,29 @@ namespace User.FXProRpmSync
 
         public void SaveSettings() => this.SaveCommonSettings("GeneralSettings", Settings);
 
+        /// <summary>Older USB settings to the current ones: one dash per car -> dash lists, "Your own" lights -> a list.</summary>
+        private void MigrateUsb(UsbSettings u)
+        {
+            if (u.UserLights == null) u.UserLights = new List<LightProfile>();
+            if (u.CustomLights != null)
+            {
+                var c = u.CustomLights;
+                c.Id = LightPresets.NewUserId();
+                if (string.IsNullOrEmpty(c.Name) || c.Name == "Your own") c.Name = "My lights";
+                if (u.LightPreset == LightPresets.CustomId) u.LightPreset = c.Id;
+                u.UserLights.Add(c);
+                u.CustomLights = null;
+            }
+            if (u.DefaultDashes == null || u.DefaultDashes.Count == 0)
+                u.DefaultDashes = new List<string> { u.DashEnabled ? DashRef.Custom(u.DashId ?? BuiltInDashes.MustangId) : DashRef.Wheel(null) };
+            foreach (var kv in u.CarDashes)
+                if (kv.Value.Dashes == null || kv.Value.Dashes.Count == 0)
+                    kv.Value.Dashes = new List<string>
+                    {
+                        kv.Value.WheelDash ? DashRef.Wheel(Settings.CarDashes.TryGetValue(kv.Key, out var w) ? w.DashId : null) : DashRef.Custom(kv.Value.DashId ?? u.DashId),
+                    };
+        }
+
         // ---------- Mode ----------
 
         public bool Unlocked => Settings.Mode == WheelMode.Unlocked;
@@ -411,71 +436,97 @@ namespace User.FXProRpmSync
             SimHub.Logging.Current.Info("[FXProRpmSync] mode: " + mode);
         }
 
-        // ---------- Unlocked mode: dash per car ----------
+        // ---------- Unlocked mode: dashes per car ----------
 
         public UsbCarDash GetUsbCarDash(string carKey)
         {
-            lock (sync) return carKey != null && Settings.Usb.CarDashes.TryGetValue(carKey, out var d) ? d.Clone() : null;
+            lock (sync) return carKey != null && Settings.Usb.CarDashes.TryGetValue(carKey, out var d) ? Copy(d) : null;
         }
+
+        private static UsbCarDash Copy(UsbCarDash d) { var c = d.Clone(); c.Dashes = new List<string>(d.Dashes ?? new List<string>()); return c; }
 
         public List<UsbCarDash> AllUsbCarDashes()
         {
-            lock (sync) return Settings.Usb.CarDashes.Values.Select(d => d.Clone()).OrderBy(d => d.Game).ThenBy(d => d.CarName).ToList();
+            lock (sync) return Settings.Usb.CarDashes.Values.Select(Copy).OrderBy(d => d.Game).ThenBy(d => d.CarName).ToList();
         }
 
-        /// <summary>What the screen shows for a car in unlocked mode: its own choice, else the default.</summary>
+        /// <summary>
+        /// The dashes a car switches between (DashRef refs): its own list, else the default list. `own` says which.
+        /// </summary>
+        public List<string> UsbRotation(string carKey, out bool own, out int current)
+        {
+            lock (sync)
+            {
+                var u = Settings.Usb;
+                if (carKey != null && u.CarDashes.TryGetValue(carKey, out var d) && d.Dashes?.Count > 0)
+                {
+                    own = true; current = d.Current;
+                    return new List<string>(d.Dashes);
+                }
+                own = false; current = u.DefaultCurrent;
+                return u.DefaultDashes?.Count > 0 ? new List<string>(u.DefaultDashes) : new List<string> { DashRef.Custom(BuiltInDashes.MustangId) };
+            }
+        }
+
+        /// <summary>The dash a car shows now: one of the plugin's (Id) or the wheel's own (Wheel; Id null = leave the wheel's).</summary>
         public (bool WheelDash, string DashId) UsbDashFor(string carKey)
         {
-            var d = GetUsbCarDash(carKey);
-            if (d != null) return (d.WheelDash, d.DashId);
-            return (!Settings.Usb.DashEnabled, Settings.Usb.DashId);
+            var list = UsbRotation(carKey, out _, out int current);
+            var r = list[((current % list.Count) + list.Count) % list.Count];
+            return (DashRef.IsWheel(r), DashRef.Id(r));
         }
 
-        public void SaveUsbCarDash(UsbCarDash d)
+        /// <summary>Sets a car's dashes (carKey null = the default ones); an empty list gives a car back to the default.</summary>
+        public void SetUsbRotation(string carKey, List<string> refs, int current)
         {
-            d.UpdatedUtc = DateTime.UtcNow;
-            lock (sync) Settings.Usb.CarDashes[d.CarKey] = d.Clone();
-            SaveSettings();
-            UsbDashChanged(d.CarKey);
-        }
-
-        public void DeleteUsbCarDash(string carKey)
-        {
-            bool removed;
-            lock (sync) removed = Settings.Usb.CarDashes.Remove(carKey);
-            if (!removed) return;
+            lock (sync)
+            {
+                var u = Settings.Usb;
+                current = refs.Count == 0 ? 0 : ((current % refs.Count) + refs.Count) % refs.Count;
+                if (carKey == null) { u.DefaultDashes = new List<string>(refs); u.DefaultCurrent = current; }
+                else if (refs.Count == 0) u.CarDashes.Remove(carKey);
+                else
+                {
+                    if (!u.CarDashes.TryGetValue(carKey, out var d))
+                        u.CarDashes[carKey] = d = carKey == DashCarKey
+                            ? new UsbCarDash { CarKey = carKey, Game = dashCarGame, CarId = dashCarId, CarName = dashCarName }
+                            : new UsbCarDash { CarKey = carKey, CarName = carKey };
+                    d.Dashes = new List<string>(refs);
+                    d.Current = current;
+                    d.UpdatedUtc = DateTime.UtcNow;
+                }
+            }
             SaveSettings();
             UsbDashChanged(carKey);
         }
 
+        public void DeleteUsbCarDash(string carKey) => SetUsbRotation(carKey, new List<string>(), 0);
+
         private void UsbDashChanged(string carKey)
         {
             Usb?.SettingsChanged();
-            if (carKey == DashCarKey) Reapply(); // a wheel dash: switch the wheel to it
+            if (carKey == null || carKey == DashCarKey) Reapply(); // a wheel dash: switch the wheel to it
         }
 
-        /// <summary>The current car's screen: a custom dash (dashId) or the wheel's own (wheelDashId, null = leave it).</summary>
-        public void PickUsbDashForCurrentCar(bool wheelDash, string dashId)
-        {
-            var key = DashCarKey;
-            if (key == null) return;
-            var d = GetUsbCarDash(key) ?? new UsbCarDash { CarKey = key, Game = dashCarGame, CarId = dashCarId, CarName = dashCarName };
-            d.WheelDash = wheelDash;
-            if (!wheelDash) d.DashId = dashId;
-            else if (dashId != null) PickDashForCurrentCar(dashId);
-            SaveUsbCarDash(d);
-        }
-
-        /// <summary>Steps the current car's custom dash through the library (SimHub action, e.g. on a wheel button).</summary>
+        /// <summary>
+        /// Next / previous dash of the current car (or of the default list without a car). A SimHub action, so any
+        /// button can do it: a wheel button, a button box, a key.
+        /// </summary>
         public void CycleUsbDash(int step)
         {
-            if (!Unlocked || DashCarKey == null) return;
-            var ids = DashLibrary.Load(null).Select(d => d.Id).ToList();
-            if (ids.Count == 0) return;
-            var (wheel, current) = UsbDashFor(DashCarKey);
-            int i = wheel ? -1 : ids.IndexOf(current);
-            int next = ((i < 0 ? (step > 0 ? -1 : 0) : i) + step + ids.Count) % ids.Count;
-            PickUsbDashForCurrentCar(false, ids[next]);
+            if (!Unlocked) return;
+            var key = DashCarKey;
+            var list = UsbRotation(key, out bool own, out int current);
+            if (list.Count < 2) return;
+            SetUsbRotation(own ? key : null, list, current + step);
+        }
+
+        /// <summary>For the dash switcher: the wheel dash a car should show (unlocked: its current dash, when that's a wheel one).</summary>
+        internal CarDash WheelDashTarget(string carKey)
+        {
+            if (!Unlocked) return GetCarDash(carKey);
+            var (wheel, id) = UsbDashFor(carKey);
+            return wheel && id != null ? new CarDash { CarKey = carKey, DashId = id } : null;
         }
 
         // ---------- Per-car overrides ----------

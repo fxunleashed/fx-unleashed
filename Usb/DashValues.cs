@@ -65,7 +65,7 @@ namespace User.FXProRpmSync
         private static readonly HashSet<string> keySet = new HashSet<string>(Keys.Select(k => k.Key), StringComparer.OrdinalIgnoreCase);
 
         /// <summary>A built-in key, or a SimHub binding that's an alias of one: it has a value without SimHub.</summary>
-        public static bool KnownKey(string bind) => !string.IsNullOrEmpty(bind) && (keySet.Contains(bind) || Alias(bind) != null);
+        public static bool KnownKey(string bind) => !string.IsNullOrEmpty(bind) && (keySet.Contains(bind) || Alias(bind) != null || bind.StartsWith("saver.", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>The binding has a value here (or is an alias of a key that has one).</summary>
         public bool Has(string key) => Raw(key) != null;

@@ -30,7 +30,9 @@ namespace User.FXProRpmSync
         private readonly ComboBox atsrDevice;
         private readonly TextBlock atsrState, atsrMapError;
         private LedGroup group = LedGroup.Buttons;
-        private Button makeOwn;
+        private Button duplicate, delete;
+        private TextBox nameBox;
+        private StackPanel nameRow;
         private bool loading;
 
         private readonly Stopwatch clock = Stopwatch.StartNew();
@@ -54,7 +56,7 @@ namespace User.FXProRpmSync
             srcText.Children.Add(Theme.Eyebrow("Lights come from"));
             srcHead.Children.Add(srcText);
             src.Children.Add(srcHead);
-            var seg = Theme.Segmented(new[] { "FXPro RPM Sync", "ATSR-Hub" }, S.LightsFrom == LightsSource.AtsrHub ? 1 : 0, i =>
+            var seg = Theme.Segmented(new[] { "FXPro Unlocked", "ATSR-Hub" }, S.LightsFrom == LightsSource.AtsrHub ? 1 : 0, i =>
             {
                 S.LightsFrom = i == 1 ? LightsSource.AtsrHub : LightsSource.BuiltIn;
                 Changed(); ShowSource();
@@ -119,15 +121,26 @@ namespace User.FXProRpmSync
                 Background = new RadialGradientBrush(Color.FromRgb(0x17, 0x0A, 0x0D), Color.FromRgb(0x07, 0x08, 0x0A)) { RadiusX = 0.7, RadiusY = 0.8 },
                 BorderBrush = Theme.Line, BorderThickness = new Thickness(1), Child = big,
             });
-            big.LedClicked += led => { if (S.LightPreset == LightPresets.CustomId) { group = WheelView.GroupOf(led); ShowEditor(); } };
+            big.LedClicked += led => { if (Mine != null) { group = WheelView.GroupOf(led); ShowEditor(); } };
             var side = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             side.Children.Add(Theme.Eyebrow("Preview"));
             bigName = Theme.Title("", 24);
             side.Children.Add(bigName);
             bigText = Theme.Note("", new Thickness(0, 6, 0, 14));
             side.Children.Add(bigText);
-            makeOwn = Theme.Btn("Make my own from this", Customize, primary: true, icon: "");
-            side.Children.Add(makeOwn);
+            nameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+            nameBox = new TextBox { Width = 240 };
+            nameBox.LostFocus += (s, e) => Rename();
+            nameBox.KeyDown += (s, e) => { if (e.Key == Key.Enter) Rename(); };
+            nameRow.Children.Add(new TextBlock { Text = "Name", Foreground = Theme.Text2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
+            nameRow.Children.Add(nameBox);
+            side.Children.Add(nameRow);
+            var presetButtons = new WrapPanel();
+            duplicate = Theme.Btn("Duplicate", Duplicate, primary: true, icon: "\uE8C8");
+            delete = Theme.Btn("Delete", Delete, icon: "\uE74D");
+            presetButtons.Children.Add(duplicate);
+            presetButtons.Children.Add(delete);
+            side.Children.Add(presetButtons);
             side.Children.Add(new TextBlock { Text = "The preview revs up and down and triggers ABS and TC now and then. While the plugin drives the wheel, it shows the wheel's lights.", TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text3, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0) });
             Grid.SetColumn(side, 1);
             stageGrid.Children.Add(side);
@@ -136,9 +149,7 @@ namespace User.FXProRpmSync
             builtIn.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 18, 0, 16) });
             builtIn.Children.Add(Theme.Eyebrow("Presets"));
             gallery = new WrapPanel();
-            foreach (var p in LightPresets.All) AddPreset(p.Id, p.Name, p.Description);
-            AddPreset(LightPresets.CustomId, "Your own", "Your lights: every group, colour, rev light and alert.");
-            builtIn.Children.Add(gallery);
+            builtIn.Children.Add(new ScrollViewer { Content = gallery, MaxHeight = 410, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
             Children.Add(Theme.CardBox(builtIn));
 
             // ----- Editor (your own) -----
@@ -160,12 +171,12 @@ namespace User.FXProRpmSync
             {
                 frameTimer.Start(); slowTimer.Start();
                 var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
-                big.Screen.Source = wheelDash ? null : DashPictures.Still(DashCache.Find(id ?? S.DashId) ?? BuiltInDashes.MustangGt3());
+                big.Screen.Source = wheelDash ? null : DashPictures.Still(DashCache.Find(id) ?? BuiltInDashes.MustangGt3());
             };
             Unloaded += (s, e) => { frameTimer.Stop(); slowTimer.Stop(); if (saveTimer.IsEnabled) { saveTimer.Stop(); plugin.SaveSettings(); } };
 
             ShowSource();
-            RefreshPresets();
+            BuildGallery();
             if (S.LightsFrom == LightsSource.AtsrHub) RefreshAtsrDevices();
         }
 
@@ -197,52 +208,97 @@ namespace User.FXProRpmSync
 
         // ---------- Presets ----------
 
-        private void AddPreset(string id, string name, string description)
+        /// <summary>The selected lights when they're the user's own (editable), else null.</summary>
+        private LightProfile Mine => S.UserLights.FirstOrDefault(p => p.Id == S.LightPreset);
+
+        private void BuildGallery()
+        {
+            gallery.Children.Clear();
+            presets.Clear();
+            foreach (var p in LightPresets.All) AddPreset(p);
+            foreach (var p in S.UserLights) AddPreset(p);
+            // "+": a new one, from the selected lights
+            var plus = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            plus.Children.Add(new TextBlock { Text = "\uE710", FontFamily = Theme.Icons, FontSize = 30, Foreground = Theme.Red, HorizontalAlignment = HorizontalAlignment.Center });
+            plus.Children.Add(new TextBlock { Text = "New lights", FontFamily = Theme.Display, FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0), HorizontalAlignment = HorizontalAlignment.Center });
+            plus.Children.Add(new TextBlock { Text = "from the selected ones", Foreground = Theme.Text3, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center });
+            var tile = Theme.Tile(new Border { Height = 146, Child = plus }, 222, Duplicate, "A copy of the selected lights to edit");
+            tile.BorderBrush = Theme.Line2;
+            gallery.Children.Add(tile);
+            RefreshPresets();
+        }
+
+        private void AddPreset(LightProfile p)
         {
             var view = new WheelView(glow: false) { Width = 196 };
             var body = new StackPanel();
             body.Children.Add(new Border { Background = Theme.B("#07080A"), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 10, 8, 8), Child = view });
-            body.Children.Add(new TextBlock { Text = name, FontFamily = Theme.Display, FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0) });
-            var tile = Theme.Tile(body, 222, () =>
+            var name = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
+            if (!LightPresets.IsBuiltIn(p.Id))
             {
-                if (id == LightPresets.CustomId && S.CustomLights == null) { Customize(); return; }
-                S.LightPreset = id;
-                Changed();
-                RefreshPresets();
-            }, description);
+                var tag = new TextBlock { Text = "YOURS", FontFamily = Theme.Display, FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Theme.Red, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(tag, Dock.Right);
+                name.Children.Add(tag);
+            }
+            name.Children.Add(new TextBlock { Text = p.Name, FontFamily = Theme.Display, FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+            body.Children.Add(name);
+            var id = p.Id;
+            var tile = Theme.Tile(body, 222, () => { S.LightPreset = id; Changed(); RefreshPresets(); }, p.Description);
             presets.Add((id, tile, view, new LightEngine()));
             gallery.Children.Add(tile);
         }
 
-        private void Customize()
+        /// <summary>A copy of the selected lights, selected, to edit.</summary>
+        private void Duplicate()
         {
-            if (S.LightPreset != LightPresets.CustomId || S.CustomLights == null)
-            {
-                var from = S.ActiveLights.Clone();
-                from.Id = LightPresets.CustomId;
-                from.Name = "Your own";
-                from.Description = "Based on " + (LightPresets.Find(S.LightPreset)?.Name ?? "a preset");
-                S.CustomLights = from;
-            }
-            S.LightPreset = LightPresets.CustomId;
+            var from = S.ActiveLights;
+            var copy = from.Clone();
+            copy.Id = LightPresets.NewUserId();
+            string baseName = from.Name + " copy";
+            copy.Name = baseName;
+            for (int n = 2; S.UserLights.Any(x => x.Name == copy.Name); n++) copy.Name = baseName + " " + n;
+            copy.Description = "Based on " + from.Name;
+            S.UserLights.Add(copy);
+            S.LightPreset = copy.Id;
             Changed();
-            RefreshPresets();
+            BuildGallery();
+        }
+
+        private void Delete()
+        {
+            var mine = Mine;
+            if (mine == null) return;
+            if (MessageBox.Show(Window.GetWindow(this), $"Delete \"{mine.Name}\"?", "FXPro Unlocked", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            int at = S.UserLights.IndexOf(mine);
+            S.UserLights.Remove(mine);
+            S.LightPreset = at > 0 ? S.UserLights[at - 1].Id : LightPresets.All[0].Id;
+            Changed();
+            BuildGallery();
+        }
+
+        private void Rename()
+        {
+            var mine = Mine;
+            var name = nameBox.Text.Trim();
+            if (mine == null || name.Length == 0 || name == mine.Name) return;
+            mine.Name = name;
+            Changed();
+            BuildGallery();
         }
 
         private void RefreshPresets()
         {
-            foreach (var (id, tile, _, _) in presets)
-            {
-                Theme.Select(tile, id == S.LightPreset);
-                tile.Opacity = id == LightPresets.CustomId && S.CustomLights == null ? 0.55 : 1;
-            }
+            foreach (var (id, tile, _, _) in presets) Theme.Select(tile, id == S.LightPreset);
             var p = S.ActiveLights;
+            var mine = Mine;
             bigName.Text = p.Name;
             bigText.Text = p.Description ?? "";
-            bool custom = S.LightPreset == LightPresets.CustomId && S.CustomLights != null;
-            ((Border)editor.Tag).Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
-            makeOwn.Visibility = custom ? Visibility.Collapsed : Visibility.Visible;
-            if (custom) ShowEditor(); else big.Highlight(null);
+            nameRow.Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
+            nameBox.Text = mine?.Name ?? "";
+            delete.Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
+            duplicate.Content = mine != null ? "Duplicate" : "Duplicate to edit";
+            ((Border)editor.Tag).Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
+            if (mine != null) ShowEditor(); else big.Highlight(null);
         }
 
         private void RenderFrame()
@@ -256,7 +312,7 @@ namespace User.FXProRpmSync
             if (++frame % 2 != 0) return;
             foreach (var (id, _, view, engine) in presets)
             {
-                var p = id == LightPresets.CustomId ? S.CustomLights : LightPresets.Find(id);
+                var p = S.UserLights.FirstOrDefault(x => x.Id == id) ?? LightPresets.Find(id);
                 view.Show(p == null ? null : engine.Render(p, sim, null, t, false));
             }
         }
@@ -277,7 +333,7 @@ namespace User.FXProRpmSync
 
         private void ShowEditor()
         {
-            var p = S.CustomLights;
+            var p = Mine;
             if (p == null) return;
             big.Highlight(WheelView.LedsOf(group));
             groupChips.Children.Clear();
