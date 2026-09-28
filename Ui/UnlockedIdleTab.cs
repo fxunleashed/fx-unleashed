@@ -39,9 +39,19 @@ namespace User.FXProRpmSync
             head.Children.Add(headText);
             saver.Children.Add(head);
             saver.Children.Add(Theme.Note("Shown on the wheel's screen between sessions; off gives the screen back to the wheel's own dash. " +
-                                          "Click one to use it. Pictures are drawn with the screen's rectangles, so they're simplified to draw in within 15 seconds."));
+                                          "Click one to make it the default; with \"Take turns\" on, tick the others to show in turn. Pictures are simplified to draw in within 15 seconds."));
             gallery = new WrapPanel { Opacity = S.ScreenSaver ? 1 : 0.5 };
             saver.Children.Add(gallery);
+            var rotate = Theme.SliderField(0, 60, S.SaverSwitchMinutes, 1, v => v < 1 ? "Just the default" : $"Every {v:0} min", v =>
+            {
+                if ((int)v == S.SaverSwitchMinutes) return;
+                S.SaverSwitchMinutes = (int)v;
+                Changed();
+                BuildGallery();
+            }, 260);
+            var rotateRow = Theme.Field("Take turns", rotate, 110);
+            rotateRow.Margin = new Thickness(0, 6, 0, 10);
+            saver.Children.Add(rotateRow);
             var add = new WrapPanel { Margin = new Thickness(0, 4, 0, -8) };
             add.Children.Add(Theme.Btn("Add a picture…", AddPicture, icon: ""));
             var dashBox = new ComboBox { Width = 260, Margin = new Thickness(0, 0, 8, 8), VerticalAlignment = VerticalAlignment.Top };
@@ -137,6 +147,7 @@ namespace User.FXProRpmSync
                     remove.Click += (s, e) =>
                     {
                         S.Savers.RemoveAll(x => x.Id == captured.Id);
+                        S.SaverRotation.Remove(captured.Id);
                         IdleScreens.Delete(captured);
                         if (S.SaverId == captured.Id) S.SaverId = SaverItem.LogoId;
                         Changed();
@@ -144,18 +155,46 @@ namespace User.FXProRpmSync
                     };
                     frame.Children.Add(remove);
                 }
+                var id = item.Id;
+                bool isDefault = item.Id == IdleScreens.Find(S, S.SaverId).Id;
+                var cycle = S.SaverCycle();
+                int turn = cycle.IndexOf(id);
+                var badges = new WrapPanel { Margin = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+                if (isDefault) badges.Children.Add(Badge("DEFAULT", Theme.Red));
+                if (turn >= 0 && cycle.Count > 1) badges.Children.Add(Badge("#" + (turn + 1), Theme.B("#3A3F4A")));
+                frame.Children.Add(badges);
                 var body = new StackPanel();
                 body.Children.Add(frame);
                 body.Children.Add(new TextBlock { Text = item.Name, FontFamily = Theme.Display, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
                 body.Children.Add(new TextBlock { Text = KindText(item), Foreground = Theme.Text3, FontSize = 11 });
-                var id = item.Id;
-                var tile = Theme.Tile(body, 226, () => { S.SaverId = id; Changed(); BuildGallery(); });
-                Theme.Select(tile, item.Id == IdleScreens.Find(S, S.SaverId).Id);
+                if (S.SaverSwitchMinutes > 0 && !isDefault)
+                {
+                    bool inTurn = S.SaverRotation.Contains(id);
+                    var toggle = Theme.Switch("In rotation", inTurn, on =>
+                    {
+                        S.SaverRotation.Remove(id);
+                        if (on) S.SaverRotation.Add(id);
+                        Changed();
+                        Dispatcher.BeginInvoke(new Action(BuildGallery));
+                    });
+                    toggle.Margin = new Thickness(0, 8, 0, 0);
+                    toggle.FontSize = 12;
+                    body.Children.Add(toggle);
+                }
+                var tile = Theme.Tile(body, 226, () => { S.SaverId = id; S.SaverRotation.Remove(id); Changed(); BuildGallery(); },
+                    "Click to make it the default");
+                Theme.Select(tile, isDefault);
                 gallery.Children.Add(tile);
                 var it = item;
                 Dispatcher.BeginInvoke(new Action(() => img.Source = DashPictures.Saver(it)), DispatcherPriority.Background);
             }
         }
+
+        private static Border Badge(string text, Brush bg) => new Border
+        {
+            Background = bg, CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1, 6, 2), Margin = new Thickness(0, 0, 4, 4),
+            Child = new TextBlock { Text = text, FontFamily = Theme.Display, FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Brushes.White },
+        };
 
         private static string KindText(SaverItem item)
         {

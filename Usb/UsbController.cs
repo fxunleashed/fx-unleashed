@@ -56,8 +56,20 @@ namespace User.FXProRpmSync
 
         /// <summary>The user's screensavers (pictures, dashes); the logo and the clock are built in.</summary>
         public List<SaverItem> Savers = new List<SaverItem>();
-        /// <summary>The screensaver shown (ScreenSaver on).</summary>
+        /// <summary>The screensaver shown (ScreenSaver on); with a rotation, the first one.</summary>
         public string SaverId = SaverItem.LogoId;
+        /// <summary>Screensavers to take turns with the default (ids), every SaverSwitchMinutes (0 = just the default).</summary>
+        public List<string> SaverRotation = new List<string>();
+        public int SaverSwitchMinutes = 0;
+
+        /// <summary>The screensavers taking turns, the default first (just the default without a rotation).</summary>
+        public List<string> SaverCycle()
+        {
+            var ids = new List<string> { SaverId ?? SaverItem.LogoId };
+            if (SaverSwitchMinutes > 0 && SaverRotation != null)
+                foreach (var id in SaverRotation) if (!ids.Contains(id) && IdleScreens.All(this).Any(x => x.Id == id)) ids.Add(id);
+            return ids;
+        }
 
         /// <summary>After SleepMinutes without a game: every light off and the screen's backlight off, until a game starts.</summary>
         /// <summary>The last session driven (pit board screensaver).</summary>
@@ -376,6 +388,7 @@ namespace User.FXProRpmSync
             string wantPage = null; // a wheel dash: its page (null = leave the wheel's)
             SaverItem item = null;
             int reloads = Volatile.Read(ref dashReloads);
+            if (source || sleeping || !s.ScreenSaver) saverSince = -1;
             if (sleeping) key = "sleep";
             else if (source)
             {
@@ -401,7 +414,12 @@ namespace User.FXProRpmSync
             }
             else if (s.ScreenSaver)
             {
-                item = IdleScreens.Find(s, s.SaverId);
+                // the default, or the one whose turn it is (counted from when the screensaver came on)
+                var cycle = s.SaverCycle();
+                if (saverSince < 0) saverSince = clock.Elapsed.TotalSeconds;
+                int turn = cycle.Count < 2 ? 0 : (int)((clock.Elapsed.TotalSeconds - saverSince) / (s.SaverSwitchMinutes * 60.0)) % cycle.Count;
+                item = IdleScreens.Find(s, cycle[turn]);
+                SaverShown = item.Id;
                 key = $"saver|{item.Id}|{s.PadLeft}|{s.PadTop}|{reloads}";
             }
 
@@ -477,6 +495,10 @@ namespace User.FXProRpmSync
         }
 
         private int sentBrightness = -1;
+        private double saverSince = -1; // when the screensaver came on (its rotation counts from there)
+
+        /// <summary>The screensaver whose turn it is (id), while one shows.</summary>
+        public string SaverShown { get; private set; }
 
         private static int Brightness(UsbSettings s) => Math.Max(5, Math.Min(100, s.ScreenBrightness));
 

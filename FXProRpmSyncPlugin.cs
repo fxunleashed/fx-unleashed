@@ -221,6 +221,7 @@ namespace User.FXProRpmSync
             if (Settings.Usb == null) Settings.Usb = new UsbSettings();
             if (Settings.Usb.CarDashes == null) Settings.Usb.CarDashes = new Dictionary<string, UsbCarDash>();
             if (Settings.Usb.Savers == null) Settings.Usb.Savers = new List<SaverItem>();
+            if (Settings.Usb.SaverRotation == null) Settings.Usb.SaverRotation = new List<string>();
             MigrateUsb(Settings.Usb);
             SaveSettings(); // keeps what the migration did (ids of moved lights) stable
             // Before modes, USB mode was a tick box: carry it over (the two are kept in step from here on).
@@ -1000,7 +1001,7 @@ namespace User.FXProRpmSync
             var scaleMax = simProMax > 0 ? simProMax : t.MaxRpm;
 
             CarLedProfile profile = null;
-            if (Settings.UseCarDatabase && !profileCache.TryGetValue(t.CarKey, out profile))
+            if ((Settings.UseCarDatabase || unlocked) && !profileCache.TryGetValue(t.CarKey, out profile))
             {
                 profile = await carDb.Find(t.GameName, t.CarId, t.CarModel).ConfigureAwait(false);
                 profileCache[t.CarKey] = profile;
@@ -1016,9 +1017,19 @@ namespace User.FXProRpmSync
             }
             else if (t.Redline > 0)
             {
-                var style = Settings.Fallback;
-                layout = RpmLightsMapper.FromStyle(style, original, t.Redline);
-                source = $"not in car database: {LedPatterns.Catalog.First(c => c.Kind == style.Pattern).Title}, shift point = SimHub redline";
+                if (unlocked)
+                {
+                    // the light preset's own pattern and colours (set in the Lights tab)
+                    var rev = Settings.Usb.ActiveLights.Rev;
+                    layout = rev.ForShift(t.Redline);
+                    source = $"not in car database: {Settings.Usb.ActiveLights.Name}'s rev lights ({LedPatterns.Catalog.First(c => c.Kind == rev.Pattern).Title}), shift point = SimHub redline";
+                }
+                else
+                {
+                    var style = Settings.Fallback;
+                    layout = RpmLightsMapper.FromStyle(style, original, t.Redline);
+                    source = $"not in car database: {LedPatterns.Catalog.First(c => c.Kind == style.Pattern).Title}, shift point = SimHub redline";
+                }
             }
             else return; // SimHub hasn't learned this car's RPM range yet
 

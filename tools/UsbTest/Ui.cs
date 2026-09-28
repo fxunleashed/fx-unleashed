@@ -70,6 +70,8 @@ static class UiTest
             u.LightPreset = mine.Id;
             u.DefaultDashes = new System.Collections.Generic.List<string> { DashRef.Custom(BuiltInDashes.MustangId), DashRef.Wheel("3"), DashRef.Wheel("10") };
             u.SleepEnabled = true;
+            u.SaverSwitchMinutes = 5; u.SaverRotation.Add("lights-out"); u.SaverRotation.Add("pit-board"); u.SaverId = "clock";
+            mine.Rev.Pattern = PatternKind.EdgesToCenter;
         }
         return plugin;
     }

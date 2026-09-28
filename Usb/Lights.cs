@@ -70,8 +70,36 @@ namespace User.FXProRpmSync
         public string FlashColor = "#0040FF";
         /// <summary>Blinks per second at the shift point (0 = steady).</summary>
         public double FlashHz = 8;
+        /// <summary>How the rev lights fill when the car's real lights aren't used (no data, or UseCarData off).</summary>
+        public PatternKind Pattern = PatternKind.LeftToRight;
 
         public RevLighting Clone() { var c = (RevLighting)MemberwiseClone(); c.Colors = new List<string>(Colors); return c; }
+
+        /// <summary>
+        /// The 15 rev LEDs for this pattern: each lights at a fraction of the shift point (from StartPercent to 100% in
+        /// the pattern's order), coloured by where it falls in that order (the colours split it evenly, low to high).
+        /// </summary>
+        public LedLayout Layout()
+        {
+            var ranks = LedPatterns.Ranks(Pattern == PatternKind.SimProPreset ? PatternKind.LeftToRight : Pattern);
+            var cols = Colors != null && Colors.Count > 0 ? Colors : new List<string> { "#00FF40" };
+            double start = Math.Max(0.1, Math.Min(0.99, StartPercent / 100));
+            var layout = new LedLayout { FlashColor = FlashColor, FlashBlinks = FlashHz > 0 };
+            for (int i = 0; i < ranks.Length; i++)
+            {
+                if (ranks[i] < 0) { layout.Fractions[i] = 0; layout.Colors[i] = "#000000"; continue; }
+                layout.Fractions[i] = start + (1 - start) * ranks[i];
+                layout.Colors[i] = cols[Math.Min(cols.Count - 1, (int)(ranks[i] * cols.Count))];
+            }
+            return layout;
+        }
+
+        /// <summary>The layout in real RPM for a shift point (for the plugin's per-car lights and overrides).</summary>
+        public RpmLayout ForShift(double shiftRpm)
+        {
+            int units = FlashHz > 0 ? Math.Max(1, (int)Math.Round(1000 / (2 * FlashHz * RpmLightsMapper.BlinkMsPerUnit))) : 0;
+            return RpmLayout.FromPattern(Layout(), shiftRpm, units);
+        }
     }
 
     /// <summary>Everything the lights do in USB mode. Presets are profiles; "Customize" edits a copy.</summary>
@@ -371,13 +399,13 @@ namespace User.FXProRpmSync
                 foreach (var l in leds) frame[l] = on ? new LedColor(fr, fg, fb, bright) : new LedColor(0, 0, 0, 1);
                 return;
             }
-            double start = shift * Math.Max(10, Math.Min(99, rev.StartPercent)) / 100;
-            int lit2 = rpm <= start ? 0 : (int)Math.Ceiling((rpm - start) / (shift - start) * leds.Length);
-            var cols = rev.Colors.Count > 0 ? rev.Colors : new List<string> { "#00FF40" };
-            for (int i = 0; i < leds.Length; i++)
+            // the preset's own pattern
+            var pattern = rev.Layout();
+            for (int i = 0; i < leds.Length && i < pattern.Fractions.Length; i++)
             {
-                var (r, g, b) = Rgb(cols[Math.Min(cols.Count - 1, i * cols.Count / leds.Length)]);
-                frame[leds[i]] = i < lit2 ? new LedColor(r, g, b, bright) : new LedColor(0, 0, 0, 1);
+                bool lit = pattern.Fractions[i] > 0 && rpm >= pattern.Fractions[i] * shift;
+                var (r, g, b) = Rgb(pattern.Colors[i]);
+                frame[leds[i]] = lit ? new LedColor(r, g, b, bright) : new LedColor(0, 0, 0, 1);
             }
         }
 

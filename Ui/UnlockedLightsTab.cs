@@ -30,6 +30,7 @@ namespace User.FXProRpmSync
         private readonly ComboBox atsrDevice;
         private readonly TextBlock atsrState, atsrMapError;
         private LedGroup group = LedGroup.Buttons;
+        private readonly List<(LedStrip Strip, PatternKind Kind, RevLighting Rev)> patternStrips = new List<(LedStrip, PatternKind, RevLighting)>();
         private Button duplicate, delete;
         private TextBox nameBox;
         private StackPanel nameRow;
@@ -184,6 +185,7 @@ namespace User.FXProRpmSync
         {
             if (loading) return;
             Usb?.SettingsChanged();
+            plugin.Reapply(); // the current car's rev lights come from the preset when it has no data
             saveTimer.Stop();
             saveTimer.Start();
         }
@@ -308,6 +310,14 @@ namespace User.FXProRpmSync
             big.ReverseRev = S.ReverseRev;
             var live = Usb?.Active == true && S.LightsEnabled ? Usb.LastFrame : null;
             big.Show(live ?? bigEngine.Render(S.ActiveLights, sim, null, t, false));
+            // the pattern previews: a sweep up to the shift point in the preset's colours
+            bool blinkOn = (int)(t * 8) % 2 == 0;
+            foreach (var (strip, kind, rev) in patternStrips)
+            {
+                var r = rev.Clone(); r.Pattern = kind;
+                strip.Layout = r.Layout();
+                strip.Render(LedStrip.SweepRpm(t, r.StartPercent / 100), blinkOn);
+            }
             // the small ones at half the rate
             if (++frame % 2 != 0) return;
             foreach (var (id, _, view, engine) in presets)
@@ -352,6 +362,7 @@ namespace User.FXProRpmSync
 
             loading = true;
             groupEditor.Children.Clear();
+            patternStrips.Clear();
             var l = p.Group(group);
             var effect = new ComboBox { Width = 240 };
             var effects = group == LedGroup.Rev ? Enum.GetValues(typeof(LightEffect)).Cast<LightEffect>()
@@ -436,7 +447,34 @@ namespace User.FXProRpmSync
         private void BuildRevEditor(StackPanel details, RevLighting rev)
         {
             details.Children.Add(Theme.Switch("Use the car's real rev lights when known", rev.UseCarData, v => { rev.UseCarData = v; Changed(); },
-                "From the rev light database and your car tuning. Otherwise (and for cars without data):"));
+                "From the rev light database and your car tuning. Cars without data, and every car when this is off, use the pattern below."));
+
+            // the pattern, each tile a live preview in this preset's colours
+            patternStrips.Clear();
+            var tiles = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+            var tileList = new List<(PatternKind Kind, Border Tile)>();
+            foreach (var entry in LedPatterns.Catalog.Where(c => c.Kind != PatternKind.SimProPreset))
+            {
+                var kind = entry.Kind;
+                var strip = new LedStrip(7);
+                var body = new StackPanel();
+                body.Children.Add(new TextBlock { Text = entry.Title, FontFamily = Theme.Display, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
+                body.Children.Add(strip);
+                Border tile = null;
+                tile = Theme.Tile(body, 190, () =>
+                {
+                    rev.Pattern = kind; Changed();
+                    foreach (var (k, t) in tileList) Theme.Select(t, k == kind);
+                }, entry.Description);
+                tile.Padding = new Thickness(10, 8, 10, 10);
+                tile.Margin = new Thickness(0, 0, 8, 8);
+                Theme.Select(tile, rev.Pattern == kind || (rev.Pattern == PatternKind.SimProPreset && kind == PatternKind.LeftToRight));
+                tileList.Add((kind, tile));
+                patternStrips.Add((strip, kind, rev));
+                tiles.Children.Add(tile);
+            }
+            details.Children.Add(Theme.Eyebrow("Pattern"));
+            details.Children.Add(tiles);
             details.Children.Add(Theme.Field("Colours, low to high", ColourList(rev.Colors, 1, 4)));
             details.Children.Add(Theme.Field("First LED at", Theme.SliderField(40, 98, rev.StartPercent, 1, v => $"{v:0}% of the shift point", v => { if (!loading) { rev.StartPercent = v; Changed(); } })));
             details.Children.Add(Theme.Field("Shift flash", new ColourField(rev.FlashColor, hex => { rev.FlashColor = hex; Changed(); })));

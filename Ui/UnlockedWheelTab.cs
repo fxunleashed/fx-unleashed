@@ -182,7 +182,7 @@ namespace User.FXProRpmSync
             string dashName = wheelDash ? (id == null ? "the wheel's own dash" : DashCatalog.NameOf(id)) : DashCache.NameOf(id);
             screenInfo.Text = u?.Sleeping == true ? "Screen off (sleeping)"
                 : u?.DashActive == true ? "Showing " + u.ActiveDashName
-                : u?.SaverActive == true ? "Screensaver: " + IdleScreens.Find(S, S.SaverId).Name
+                : u?.SaverActive == true ? "Screensaver: " + IdleScreens.Find(S, u.SaverShown ?? S.SaverId).Name
                 : (plugin.DashCarKey != null ? "This car: " : "Races show ") + dashName;
             lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom == LightsSource.AtsrHub ? "Lights from ATSR-Hub" + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + S.ActiveLights.Name;
             demoButton.Content = Label(u?.DemoOn == true ? "Stop the demo" : "Run the demo", u?.DemoOn == true ? "" : "");
@@ -223,7 +223,7 @@ namespace User.FXProRpmSync
             if (u?.SaverActive == true)
             {
                 dashPreview.Show(null, 0, 0);
-                wheel.Screen.Source = DashPictures.Saver(IdleScreens.Find(S, S.SaverId));
+                wheel.Screen.Source = DashPictures.Saver(IdleScreens.Find(S, u.SaverShown ?? S.SaverId));
                 return;
             }
             var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
