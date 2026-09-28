@@ -612,11 +612,21 @@ namespace User.FXProRpmSync
                             for (int i = 0; i < n.Px.Length && !uncovered; i++) uncovered = n.Px[i] == Transparent && oldPx[i] != Transparent;
                             if (uncovered) Repaint(n.R, n.Index);
                         }
-                        foreach (var part in Subtract(Clip(n.R), SolidShapesAbove(n.Index)))
+                        // a tile changing colour under text drawn with its own background (a temperature tile): the tile
+                        // is filled around that text, and the text drawn again once on the new colour (filling over it
+                        // first would wipe it for a moment: a flash)
+                        var keep = new List<Node>();
+                        if (oldPx != null)
+                            foreach (var m in dynamic)
+                                if (m.Index > n.Index && SolidText(m) && !Covered(m.R) && n.R.Contains(m.TextAt.Value)) keep.Add(m);
+                        var skip = SolidShapesAbove(n.Index);
+                        skip.AddRange(keep.Select(m => m.TextAt.Value));
+                        foreach (var part in Subtract(Clip(n.R), skip))
                         {
                             DrawShapeNode(n, part);
                             MarkAbove(n, part);
                         }
+                        foreach (var m in keep) Invalidate(m);
                         n.Shown = true; n.Sent = n.Key;
                         break;
                     case "label":

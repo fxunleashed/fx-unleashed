@@ -325,6 +325,7 @@ namespace User.FXProRpmSync
             //    shown with it): the value's box trimmed from the side that clears it with the least loss, keeping its
             //    widest text; a smaller font if no trim keeps it; a label moved out of the way as the last resort
             MergeColourTwins(d, changes, Name);
+            FlattenGradients(d, changes, Name);
             SwapOverlaid(d, changes, Name);
             GrowTags(d, changes, Name);
             OffFrames(d, changes, Name);
@@ -386,6 +387,7 @@ namespace User.FXProRpmSync
                     if (a.Type != "value" || b.Type != "value" || a.Bind != b.Bind || Box(a) != Box(b) || a.Font != b.Font) continue;
                     if (a.Visible == null || b.Visible == null || a.Visible.Count != 1 || b.Visible.Count != 1) continue;
                     if (!string.IsNullOrEmpty(a.ColorBind) || !string.IsNullOrEmpty(b.ColorBind) || a.Visible[0] == b.Visible[0]) continue;
+                    if (InPopup(d, a) || InPopup(d, b)) continue; // each on its own pop-up background: they never show together
                     string Expr(string c) => c.StartsWith("ncalc:") ? c.Substring(6) : "[" + c + "]";
                     string ca = Expr(a.Visible[0]), cb = Expr(b.Visible[0]);
                     string an = name(a), bn = name(b);
@@ -410,6 +412,7 @@ namespace User.FXProRpmSync
         private static void SwapOverlaid(DashDefinition d, List<string> changes, Func<DashElement, string> name)
         {
             // what comes and goes over other things: a value of its own, or a pop-up's opaque shape
+            List<string> Own(DashElement x) => x.Visible.Where(c => !c.StartsWith("ncalc:!(")).ToList();
             bool Opaque(DashElement x) => x.Type == "rect" || ((x.Type == "box" || x.Type == "ellipse") && x.Fill != null);
             foreach (var top in d.Elements.Where(x => x.Visible != null && x.Visible.Count >= 1 &&
                                                       ((x.Type == "value" && !InPopup(d, x)) || (Opaque(x) && x.Opacity >= 100))).ToList())
@@ -420,7 +423,13 @@ namespace User.FXProRpmSync
                 string cond = conds.Count == 1 ? conds[0] : "ncalc:" + string.Join(" and ", conds.Select(c => "(" + c.Substring(6) + ")"));
                 string not = "ncalc:!(" + cond.Substring(6) + ")";
                 int ti = d.Elements.IndexOf(top);
-                foreach (var under in d.Elements.Take(ti).Where(x => x.Type == "value" && (x.Visible == null || x.Visible.All(c => c.StartsWith("ncalc:!(")))))
+                // values shown on their own terms (always, or under conditions of their own), not part of this pop-up
+                foreach (var under in d.Elements.Take(ti).Where(x => x.Type == "value" &&
+                                                                      (x.Visible == null || x.Visible.Count == 0 ||
+                                                                       // shown whenever the pop-up is (its conditions a part of the pop-up's): always under it
+                                                                       // (the take-turns conditions added here don't count)
+                                                                       (Own(x).Count < top.Visible.Distinct().Count() && Own(x).All(c => top.Visible.Contains(c)) && !InPopup(d, x)) ||
+                                                                       x.Visible.All(c => c.StartsWith("ncalc:!(")))))
                 {
                     // where the value's text is (its box is often far bigger)
                     var band = Band(under, Widest(under));
@@ -553,9 +562,36 @@ namespace User.FXProRpmSync
                                                                      && !(v.Visible != null && x.Visible.SequenceEqual(v.Visible))).ToList())
                 {
                     var sb = Box(sh);
-                    if (!Clash(Box(v), sb) || sb.Contains(Band(v, Widest(v))) || Clash(Band(v, Widest(v)), sb)) continue;
-                    Trim(v, sb, changes, name(v), name(sh));
+                    if (!Box(v).IntersectsWith(sb) || sb.Contains(Band(v, Widest(v)))) continue; // (a shape over all of its text hides it anyway)
+                    // hidden while that shape shows (they take turns): never on the screen together
+                    if (v.Visible != null && sh.Visible.All(c => c.StartsWith("ncalc:")))
+                    {
+                        var conds = sh.Visible.Distinct().ToList();
+                        string cond = conds.Count == 1 ? conds[0].Substring(6) : string.Join(" and ", conds.Select(c => "(" + c.Substring(6) + ")"));
+                        if (v.Visible.Contains("ncalc:!(" + cond + ")")) continue;
+                    }
+                    Trim(v, sb, changes, name(v), name(sh), slack: 0);
                 }
+            }
+        }
+
+        /// <summary>
+        /// A gradient under a value's text: the text can't be redrawn on it in one step (every change wipes and redraws
+        /// the gradient there, a flash). The gradient becomes a flat fill in its middle colour.
+        /// </summary>
+        private static void FlattenGradients(DashDefinition d, List<string> changes, Func<DashElement, string> name)
+        {
+            foreach (var g in d.Elements.Where(x => x.Type == "gradient" && x.Colors != null && x.Colors.Count > 1).ToList())
+            {
+                int gi = d.Elements.IndexOf(g);
+                bool under = d.Elements.Skip(gi + 1).Any(v => v.Type == "value" && Box(g).IntersectsWith(Band(v, Widest(v))));
+                if (!under) continue;
+                var a = DashColors.Parse(g.Colors[0], Color.Black);
+                var b = DashColors.Parse(g.Colors[g.Colors.Count - 1], Color.Black);
+                var mid = g.Colors.Count % 2 == 1 ? DashColors.Parse(g.Colors[g.Colors.Count / 2], Color.Black)
+                                                  : Color.FromArgb((a.R + b.R) / 2, (a.G + b.G) / 2, (a.B + b.B) / 2);
+                g.Type = "rect"; g.Color = $"#{mid.R:X2}{mid.G:X2}{mid.B:X2}"; g.Colors = null;
+                changes.Add($"{name(g)}: gradient -> flat {g.Color}, as a value's text is drawn on it");
             }
         }
 
@@ -621,14 +657,14 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>Trims a value's box off `ob` (to at most 2 px of overlap), keeping its widest text; else a smaller font.</summary>
-        private static bool Trim(DashElement v, Rectangle ob, List<string> changes, string vn, string on)
+        private static bool Trim(DashElement v, Rectangle ob, List<string> changes, string vn, string on, int slack = 2)
         {
             var box = Box(v);
             var cands = new List<Rectangle>();
-            if (ob.Left > box.Left) cands.Add(Rectangle.FromLTRB(box.Left, box.Top, ob.Left + 2, box.Bottom));
-            if (ob.Right < box.Right) cands.Add(Rectangle.FromLTRB(ob.Right - 2, box.Top, box.Right, box.Bottom));
-            if (ob.Top > box.Top) cands.Add(Rectangle.FromLTRB(box.Left, box.Top, box.Right, ob.Top + 2));
-            if (ob.Bottom < box.Bottom) cands.Add(Rectangle.FromLTRB(box.Left, ob.Bottom - 2, box.Right, box.Bottom));
+            if (ob.Left > box.Left) cands.Add(Rectangle.FromLTRB(box.Left, box.Top, ob.Left + slack, box.Bottom));
+            if (ob.Right < box.Right) cands.Add(Rectangle.FromLTRB(ob.Right - slack, box.Top, box.Right, box.Bottom));
+            if (ob.Top > box.Top) cands.Add(Rectangle.FromLTRB(box.Left, box.Top, box.Right, ob.Top + slack));
+            if (ob.Bottom < box.Bottom) cands.Add(Rectangle.FromLTRB(box.Left, ob.Bottom - slack, box.Right, box.Bottom));
             var samples = Texts(v);
             // biggest first: the least loss
             foreach (var c in cands.OrderByDescending(c => c.Width * c.Height))
