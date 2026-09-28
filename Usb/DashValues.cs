@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace User.FXProRpmSync
 {
@@ -71,6 +72,12 @@ namespace User.FXProRpmSync
         public double? Number(string key) => ToNumber(Raw(key));
 
         public static double? ToNumber(object o)
+        {
+            var n = ToNumberRaw(o);
+            return n.HasValue && (double.IsNaN(n.Value) || double.IsInfinity(n.Value)) ? null : n;
+        }
+
+        private static double? ToNumberRaw(object o)
         {
             switch (o)
             {
@@ -295,10 +302,30 @@ namespace User.FXProRpmSync
 
     /// <summary>
     /// The USB demo: the plugin's DemoCar lap, plus what the Mustang dash shows on top: fuel per lap, virtual energy,
-    /// and a driver changing a setting every 12-20 s (so the pop-up shows).
+    /// and a driver changing a setting every 12-20 s (so the pop-up shows). Given a dash (UseDash), it also fills
+    /// everything else the dash shows: SimHub properties and formulas from simulated data (DemoFormulas), and where
+    /// even that can't work, the element's preview text, moving a little (FillDash).
     /// </summary>
     internal sealed class UsbDemo
     {
+        private DashDefinition dash;
+        private DemoFormulas formulas;
+        private readonly Dictionary<string, object> results = new Dictionary<string, object>();
+        private readonly HashSet<string> unresolved = new HashSet<string>();
+        private double lastFormulas = double.NegativeInfinity;
+
+        public UsbDemo(DashDefinition dash = null) { UseDash(dash); }
+
+        /// <summary>The dash the demo feeds (null: built-in keys only).</summary>
+        public void UseDash(DashDefinition d)
+        {
+            if (ReferenceEquals(d, dash)) return;
+            dash = d;
+            formulas = d == null ? null : new DemoFormulas(d.ScriptsFolder);
+            results.Clear(); unresolved.Clear();
+            lastFormulas = double.NegativeInfinity;
+        }
+
         private readonly DemoCar car = new DemoCar();
         public readonly SimProTelemetry Telemetry = new SimProTelemetry();
         private readonly Random rng = new Random();
@@ -340,7 +367,79 @@ namespace User.FXProRpmSync
                     }
                 }
             }
-            return DashValues.FromDemo(Telemetry, this);
+            var r = DashValues.FromDemo(Telemetry, this);
+            if (dash != null) FillDash(r);
+            return r;
+        }
+
+        /// <summary>Every binding of the dash the built-in keys don't cover, 10 times a second.</summary>
+        private void FillDash(DashValues r)
+        {
+            if (t - lastFormulas >= 0.099)
+            {
+                lastFormulas = t;
+                results.Clear(); unresolved.Clear();
+                foreach (var b in dash.Bindings)
+                {
+                    if (DashValues.KnownKey(b) || !(b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)))
+                        continue;
+                    var o = formulas.Eval(b, r, t, out bool known);
+                    if (known) results[b] = o; else unresolved.Add(b);
+                }
+            }
+            foreach (var kv in results) r.Set(kv.Key, kv.Value);
+            if (unresolved.Count == 0) return;
+            foreach (var e in dash.Elements)
+            {
+                if (e.Bind != null && unresolved.Contains(e.Bind) && (e.Type == "value" || e.Type == "bar") && !r.Has(e.Bind))
+                    r.Set(e.Bind, Sample(e, t));
+                // a condition the demo can't evaluate shows the element as its designer does
+                if (e.Visible != null)
+                    foreach (var c in e.Visible)
+                        if (unresolved.Contains(c) && !r.Has(c)) r.Set(c, e.PreviewVisible ?? true);
+            }
+        }
+
+        private static readonly Regex NumberToken = new Regex(@"[-+]?\d+(\.\d+)?");
+
+        /// <summary>
+        /// A stand-in for a value the demo can't compute: the element's preview text, its numbers moving a little every
+        /// few seconds (same decimals), so the dash looks alive; a bar sweeps around its middle.
+        /// </summary>
+        internal static object Sample(DashElement e, double t)
+        {
+            var ci = CultureInfo.InvariantCulture;
+            if (e.Type == "bar")
+                return (e.Min + e.Max) / 2 + (e.Max - e.Min) * 0.35 * Math.Sin(t * 0.5 + DemoFormulas.Phase(e.Bind));
+            string text = !string.IsNullOrEmpty(e.PreviewText) ? e.PreviewText : e.Samples?.FirstOrDefault(x => !string.IsNullOrEmpty(x));
+            if (string.IsNullOrEmpty(text)) return null;
+            double step = Math.Floor(t / 3);
+            string fmt = e.Format ?? "0";
+            double scale = Math.Abs(e.Scale) > 1e-12 ? e.Scale : 1;
+            // a lap time "1:23.456"
+            var lap = Regex.Match(text.Trim(), @"^(\d+):(\d{1,2}(\.\d+)?)$");
+            if (lap.Success)
+            {
+                double s = int.Parse(lap.Groups[1].Value, ci) * 60 + double.Parse(lap.Groups[2].Value, ci);
+                s += 0.4 * DemoFormulas.Noise(e.Bind, step);
+                if (fmt == "text") { int m = (int)(s / 60); int dec = lap.Groups[3].Length > 0 ? lap.Groups[3].Length - 1 : 0; return m + ":" + (s - m * 60).ToString("00" + (dec > 0 ? "." + new string('0', dec) : ""), ci); }
+                return s / scale;
+            }
+            int i = 0;
+            string moved = NumberToken.Replace(text, m =>
+            {
+                string tok = m.Value;
+                int dec = m.Groups[1].Success ? m.Groups[1].Value.Length - 1 : 0;
+                double x = double.Parse(tok, ci);
+                double unit = Math.Pow(10, -dec);
+                double amp = Math.Max(unit * (dec > 0 ? 3 : 1), Math.Abs(x) * 0.03);
+                double y = Math.Round((x + amp * DemoFormulas.Noise(e.Bind + "#" + i++, step)) / unit) * unit;
+                if (x >= 0 && y < 0) y = 0;
+                string s = y.ToString(dec > 0 ? "0." + new string('0', dec) : "0", ci);
+                return tok.StartsWith("+") && y > 0 ? "+" + s : s;
+            });
+            if (fmt != "text" && fmt != "gear" && double.TryParse(moved, NumberStyles.Float, ci, out var n)) return n / scale;
+            return moved;
         }
 
         private static int Clamp(int x, int lo, int hi) => Math.Max(lo, Math.Min(hi, x));

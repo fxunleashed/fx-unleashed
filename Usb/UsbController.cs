@@ -339,6 +339,7 @@ namespace User.FXProRpmSync
             if (testing || demoOn || previewDemo)
             {
                 if (demo == null) { demo = new UsbDemo(); lastDemo = now; }
+                demo.UseDash(dash);
                 v = demo.Step(now - lastDemo);
                 lastDemo = now;
                 Volatile.Write(ref latest, v);

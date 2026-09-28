@@ -21,6 +21,9 @@
     <Reference Include="SimHub.Logging"><HintPath>$(SimHubPath)SimHub.Logging.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="log4net"><HintPath>$(SimHubPath)log4net.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="Newtonsoft.Json"><HintPath>$(SimHubPath)Newtonsoft.Json.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="NCalc"><HintPath>$(SimHubPath)NCalc.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Jint"><HintPath>$(SimHubPath)Jint.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Acornima"><HintPath>$(SimHubPath)Acornima.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.IO.Compression" />

@@ -79,7 +79,16 @@ Colours: `"#RRGGBB"`, `"#AARRGGBB"` (alpha blends shapes over what's under them)
 - `"prop:<SimHub property>"`, e.g. `"prop:DataCorePlugin.GameRawData.PlayerNativeTelemetry.mVirtualEnergy"`;
 - a SimHub formula: `"ncalc:<NCalc>"` (e.g. `"ncalc:[DataCorePlugin.GameData.NewData.Rpms] > 7000"`) or
   `"js:<JavaScript>"` (a function body with `return`, SimHub's `$prop('...')` available). Evaluated by SimHub's own
-  engine while SimHub runs (not in fxdash/offline previews, which use `PreviewText`/`PreviewVisible` instead).
+  engine while SimHub runs. Previews (preview mode) show `PreviewText` / follow `PreviewVisible` instead.
+
+**Demo mode** (the Demo button, the designer's Demo lap and Show on wheel without a game, `fxdash render --mode demo`)
+fills every binding from the simulated lap: built-in keys directly; `prop:`, `ncalc:` and `js:` bindings are evaluated
+with the engines SimHub ships (NCalc, Jint) over simulated SimHub properties (the demo lap's speed, laps, fuel... plus
+tyre/brake temperatures, pressures, wear, settings, flags and more guessed from the property's name) and SimHub's
+formula functions (`isnull`, `format`, `changed`, `toshorttime`, `driver...`), loading the dash's
+`ScriptsFolder` scripts. A binding that still can't be worked out (an unknown plugin's property, say) shows its
+`PreviewText`, with its numbers moving a little every few seconds; such a condition follows `PreviewVisible`.
+So `PreviewText` is worth setting to a typical value.
 
 Formats: any .NET number format (`"0"`, `"0.0"`, `"0.00"`), `int`, `laptime` (m:ss.fff from seconds), `time:<fmt>`
 (TimeSpan format from seconds, e.g. `time:mm\:ss\.fff`), `gear` (R / N / number), `delta` (+0.00 / -0.00), `text`.
@@ -89,7 +98,8 @@ Formats: any .NET number format (`"0"`, `"0.0"`, `"0.00"`), `int`, `laptime` (m:
 
 - `Visible`: a binding or a list; the element shows while all are true (a number other than 0, `true`, a text other
   than "", "0", "false"). Hiding it redraws what was under it.
-- `PreviewVisible`: `false` = hidden in previews where the condition can't be evaluated (SimHub formulas offline).
+- `PreviewVisible`: `false` = hidden in previews where the condition isn't evaluated (SimHub formulas), and in the
+  demo where it can't be.
   The importer sets it for pop-ups and warnings.
 - `ColorBind`: a binding giving a colour (`"#FF0000"`, a colour name) or a number mapped through `ColorStops`
   `[{"Value": 0, "Color": "#00FF00"}, {"Value": 100, "Color": "#FF0000"}]` (blended between). Replaces `Color` for

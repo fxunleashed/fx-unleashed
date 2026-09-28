@@ -35,14 +35,16 @@ commands. You can't see the wheel, but you can render exactly what it draws. Wor
 - Values redraw only when they change; put them on plain backgrounds.
 - Order matters: later elements draw on top.
 - Conditions (`Visible`) and data colours (`ColorBind` + `ColorStops`) are live; in previews, SimHub formulas
-  (`ncalc:`/`js:`) can't be evaluated, so `PreviewVisible` decides whether such elements show.
+  (`ncalc:`/`js:`) aren't evaluated, so `PreviewVisible` decides whether such elements show. The demo does evaluate
+  them, over simulated SimHub properties; render `--mode demo` to see the dash with every value filled.
 
 ## Data
 
 Prefer built-in keys (`speed`, `gear`, `rpm`, `rpmPercent`, `currentLapTime`, `lastLapTime`, `bestLapTime`, `delta`,
 `predictedLap`, `position`, `lap`, `fuel`, `fuelRemainingLaps`, `brakeBias`, `tcLevel`, `absLevel`, `engineMap`,
-`pitLimiter`...): they render in demo mode. Anything else: `prop:<SimHub property>` or a SimHub formula
-`ncalc:...` / `js:...` (live only). Formats: `0`, `0.0`, `int`, `laptime`, `gear`, `delta`, `text`, `time:<fmt>`.
+`pitLimiter`...). Anything else: `prop:<SimHub property>` or a SimHub formula `ncalc:...` / `js:...` (live: SimHub's
+engine; demo: simulated, see `docs/dash-format.md`; what the demo can't simulate shows `PreviewText`, so set it to a
+typical value). Formats: `0`, `0.0`, `int`, `laptime`, `gear`, `delta`, `text`, `time:<fmt>`.
 
 ## Style guidance
 
