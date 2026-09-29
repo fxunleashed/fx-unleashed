@@ -235,6 +235,7 @@ namespace User.FXProRpmSync
         {
             lock (lk) SendNow(0);
             c.WriteRam(ModeAddress, BitConverter.GetBytes(Magic));
+            ScreenMirror.Held(true);
             if (keepalive == null) keepalive = new Timer(_ => Tick(), null, 250, 250);
             Thread.Sleep(30);
             lock (lk)
@@ -250,6 +251,7 @@ namespace User.FXProRpmSync
             try { if (page != null) { Cmd(page); Flush(); } } catch { }
             keepalive?.Dispose();
             keepalive = null;
+            ScreenMirror.Held(false);
             c.WriteRam(ModeAddress, BitConverter.GetBytes(0u));
         }
 
@@ -272,6 +274,7 @@ namespace User.FXProRpmSync
             else if (cmd == "vis 255,0" && skipVis) { skipVis = false; return; }
             else if (cmd.StartsWith("page ", StringComparison.Ordinal)) onPage0 = false;
             skipVis = false;
+            ScreenMirror.Cmd(cmd);
             var b = Encoding.ASCII.GetBytes(cmd);
             int len = b.Length + 3;
             if (len > 61) throw new ArgumentException("screen command too long (max 58 characters): " + cmd);

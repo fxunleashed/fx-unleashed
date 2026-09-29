@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheel mirror</title>
+<!--
+  FX Unleashed screen mirror (NEXT.md H): what the plugin sends to the wheel's screen, plus its lights, for an OBS browser
+  source. http://127.0.0.1:8899/mirror  Options: ?bg=transparent  ?leds=0 (screen only)  ?all=1 (buttons and encoders too)
+  ?fps=10 (1-30)  ?label=0 (no status line)
+-->
+<style>
+  :root { --bg: #07080a; --off: #16181c; --text: #9aa1ab; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  body.transparent { --bg: transparent; }
+  #stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #rig { position: relative; display: grid; grid-template-columns: auto auto auto; grid-template-rows: auto auto auto; gap: 14px; align-items: center; justify-items: center; transform-origin: center; }
+  .strip { display: flex; gap: 10px; }
+  .col { display: flex; flex-direction: column; gap: 16px; }
+  .led { width: 22px; height: 22px; border-radius: 50%; background: var(--off); box-shadow: inset 0 0 0 1px #2a2e35; transition: background 40ms linear, box-shadow 40ms linear; }
+  .led.small { width: 16px; height: 16px; }
+  #screen { width: 800px; height: 480px; background: #000; border-radius: 6px; box-shadow: 0 0 0 2px #1d2026, 0 20px 60px rgba(0,0,0,.6); position: relative; overflow: hidden; }
+  #screen img { width: 100%; height: 100%; display: block; image-rendering: auto; }
+  #note { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 6px; color: #5d646f; font-size: 22px; letter-spacing: .04em; text-transform: uppercase; }
+  #note small { font-size: 13px; letter-spacing: 0; text-transform: none; color: #454b55; }
+  #status { grid-column: 1 / 4; font-size: 12px; color: #4d535c; letter-spacing: .05em; text-transform: uppercase; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="rig">
+    <div></div><div class="strip" id="rev"></div><div></div>
+    <div class="col" id="left"></div>
+    <div id="screen"><img id="frame" alt=""><div id="note"><span id="noteTitle">Wheel not driven</span><small id="noteText"></small></div></div>
+    <div class="col" id="right"></div>
+    <div></div><div class="strip" id="lower"></div><div></div>
+    <div id="status"></div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const rev = $("rev"), left = $("left"), right = $("right"), lower = $("lower"), rig = $("rig"), frame = $("frame"),
+      note = $("note"), noteTitle = $("noteTitle"), noteText = $("noteText"), statusLine = $("status");
+const q = new URLSearchParams(location.search);
+if (q.get("bg") === "transparent") document.body.classList.add("transparent");
+const showLeds = q.get("leds") !== "0", showAll = q.get("all") === "1", showLabel = q.get("label") !== "0";
+const fps = Math.max(1, Math.min(30, +(q.get("fps") || 10)));
+
+// LED numbers as the firmware counts them: buttons 0-11, encoders 12-16, side 17-19 left / 20-22 right (top to bottom), rev 23-37
+const leds = [];
+function make(parent, i, small) { const d = document.createElement("div"); d.className = "led" + (small ? " small" : ""); parent.appendChild(d); leds[i] = d; }
+for (let i = 23; i <= 37; i++) make(rev, i);
+for (let i = 17; i <= 19; i++) make(left, i);
+for (let i = 20; i <= 22; i++) make(right, i);
+[0,1,2,3,4,5,12,13,14,15,16,6,7,8,9,10,11].forEach(i => make(lower, i, true));
+if (!showLeds) [rev, left, right, lower].forEach(e => e.classList.add("hide"));
+if (!showAll) lower.classList.add("hide");
+if (!showLabel) statusLine.classList.add("hide");
+
+function fit() {
+  const w = rig.scrollWidth, h = rig.scrollHeight;
+  const s = Math.min(innerWidth / (w + 80), innerHeight / (h + 80));
+  rig.style.transform = `scale(${s})`;
+}
+addEventListener("resize", fit);
+
+let version = -1, busy = false, lastUrl = null;
+async function tick() {
+  if (busy) return; busy = true;
+  try {
+    const st = await (await fetch("/api/wheel/mirror", { cache: "no-store" })).json();
+    // lights: colour x brightness (the wheel caps at 90)
+    (st.leds || []).forEach((l, i) => {
+      const e = leds[i]; if (!e) return;
+      const on = l.b > 0 && l.c !== "#000000";
+      if (!on) { e.style.background = ""; e.style.boxShadow = ""; return; }
+      const a = Math.min(1, 0.35 + l.b / 90 * 0.65);
+      e.style.background = l.c;
+      e.style.opacity = a;
+      e.style.boxShadow = `0 0 ${8 + l.b / 6}px ${2 + l.b / 30}px ${l.c}`;
+    });
+    if (!st.leds) leds.forEach(e => { if (e) { e.style.background = ""; e.style.boxShadow = ""; e.style.opacity = 1; } });
+    const picture = st.held || st.wheelDash;
+    note.style.display = picture ? "none" : "flex";
+    frame.style.visibility = picture ? "visible" : "hidden";
+    if (!picture) { noteTitle.textContent = "Wheel's own screen"; noteText.textContent = "FX Unleashed isn't drawing on the wheel right now."; }
+    statusLine.textContent = st.held ? (st.dark ? "screen off" : "live") : st.wheelDash ? `wheel dash: ${st.wheelDash} (picture, not live values)` : "idle";
+    if (picture && st.version !== version) {
+      const r = await fetch("/api/wheel/frame.png?v=" + st.version, { cache: "no-store" });
+      if (r.ok && r.status === 200) {
+        const url = URL.createObjectURL(await r.blob());
+        frame.src = url; if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = url;
+        version = st.version;
+      }
+    }
+  } catch (e) { statusLine.textContent = "plugin not reachable"; }
+  busy = false;
+}
+fit();
+setInterval(tick, 1000 / fps);
+tick();
+</script>
+</body>
+</html>

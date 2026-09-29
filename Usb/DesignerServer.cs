@@ -204,6 +204,9 @@ namespace User.FXProRpmSync
             ("POST", "/api/verify[?seconds=N&left=L&top=T]", "body = dash: demo lap on a simulated wheel: traffic, flashes, drawing errors"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
             ("POST", "/api/wheel/demo?dash=c:ID|w:PAGE|off", "the demo lap on the wheel with that dash, e.g. w:12 for the wheel's own dash page 12 (plugin only)"),
+            ("GET", "/mirror[?bg=transparent&leds=0&all=1&fps=N&label=0]", "screen mirror page for OBS: the wheel's screen and lights (plugin only)"),
+            ("GET", "/api/wheel/frame.png", "what the plugin last drew on the wheel's screen (204 while the wheel shows its own screen)"),
+            ("GET", "/api/wheel/mirror", "mirror state: held, dark, wheelDash, version, 38 LEDs {c, b}"),
             ("POST", "/api/wheel/leds[?brightness=1-90&seconds=N]", "body = 38 LED colours [\"#RRGGBB\" or null], in the wheel's LED order: shown for N s (plugin only)"),
         };
 
@@ -212,6 +215,13 @@ namespace User.FXProRpmSync
             if (r.Method == "OPTIONS") return new Response { Status = 204 };
             var path = r.Path.TrimEnd('/');
             if (path == "" || path == "/index.html") return Asset("index.html");
+            if (path == "/mirror") return Asset("mirror.html");
+            if (path == "/api/wheel/mirror") return Json(ScreenMirror.State());
+            if (path == "/api/wheel/frame.png")
+            {
+                var png = ScreenMirror.Png();
+                return png == null ? new Response { Status = 204 } : new Response { Type = "image/png", Body = png };
+            }
             if (!path.StartsWith("/api")) return Asset(path.TrimStart('/'));
 
             if (path == "/api") return Json(new

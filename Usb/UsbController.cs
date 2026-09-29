@@ -464,7 +464,7 @@ namespace User.FXProRpmSync
             // Idle with "keep the lights on between sessions" off: SimPro's lights, even while a screensaver holds the screen
             bool wantLeds = sleeping || (s.LightsEnabled && (source || s.IdleLights));
             if (wantLeds && leds == null) { leds = new FxLedWriter(conn); leds.Enable(); }
-            else if (!wantLeds && leds != null) { leds.Disable(); leds = null; LastFrame = null; }
+            else if (!wantLeds && leds != null) { leds.Disable(); leds = null; LastFrame = null; ScreenMirror.Leds(null); }
 
             // What the screen should show
             string key = null;
@@ -520,6 +520,7 @@ namespace User.FXProRpmSync
             }
 
             WheelPage = source && key == null ? (wantPage ?? "") : null;
+            ScreenMirror.WheelDash(string.IsNullOrEmpty(WheelPage) ? null : WheelPage);
             if (key == null) { ReleaseScreen(wantPage); ShowPage(wantPage); return; }
             if (screen != null && key == screenKey) return;
             screenKey = key;
@@ -783,6 +784,7 @@ namespace User.FXProRpmSync
                 for (int i = 0; i < frame.Length; i++) leds.Set(i, frame[i].R, frame[i].G, frame[i].B, Math.Min(ceiling, Math.Max((byte)1, frame[i].Brightness)));
                 leds.Send();
                 LastFrame = frame;
+                ScreenMirror.Leds(frame);
             }
         }
 
@@ -812,6 +814,7 @@ namespace User.FXProRpmSync
             conn = null; screen = null; leds = null; renderer = null; dash = null; demo = null; saver = null; screenKey = null; dimmed = false;
             shownPage = null; WheelPage = null;
             LastFrame = null;
+            ScreenMirror.Held(false); ScreenMirror.Leds(null);
             if (!quiet) SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the wheel");
         }
 

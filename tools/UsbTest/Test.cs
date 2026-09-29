@@ -166,6 +166,31 @@ static class UsbTestMain
             return 0;
         }
         if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
+        if (args.Length > 1 && args[1] == "mirror")
+        {
+            // the screen mirror page with the demo lap, no wheel: UsbTest OUT mirror [port] [seconds] -> http://127.0.0.1:PORT/mirror
+            int port = args.Length > 2 ? int.Parse(args[2]) : 8898;
+            double seconds = args.Length > 3 ? double.Parse(args[3], System.Globalization.CultureInfo.InvariantCulture) : 60;
+            var server = new DesignerServer(port, null); server.Start();
+            var d = BuiltInDashes.MustangGt3();
+            var sink = new MirrorDemoSink();
+            ScreenMirror.Held(true);
+            var rn = new DashRenderer(sink, d, 10, 20); rn.DrawAll();
+            var mdemo = new UsbDemo(d);
+            var lights = LightPresets.All[0].Clone();
+            var engine = new LightEngine();
+            Console.WriteLine($"mirror: http://127.0.0.1:{port}/mirror for {seconds} s");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.Elapsed.TotalSeconds < seconds)
+            {
+                var v = mdemo.Step(1 / 30.0);
+                rn.Update(v, sw.Elapsed.TotalSeconds);
+                ScreenMirror.Leds(engine.Render(lights, v, null, sw.Elapsed.TotalSeconds, false));
+                System.Threading.Thread.Sleep(33);
+            }
+            server.Dispose();
+            return 0;
+        }
         if (args.Length > 2 && args[1] == "traffic")
         {
             // screen traffic and demo CPU for a dash: fxdash-style JSON file, or "mustang"
