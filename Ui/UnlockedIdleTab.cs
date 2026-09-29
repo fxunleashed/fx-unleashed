@@ -120,7 +120,7 @@ namespace User.FXProRpmSync
         {
             var u = Usb;
             sleepButton.Content = u?.Sleeping == true ? "Wake" : "Sleep now";
-            sleepButton.IsEnabled = u?.Active == true || u?.Sleeping == true || S.FirmwareConfirmed;
+            sleepButton.IsEnabled = u?.Active == true || u?.Sleeping == true || (u?.FirmwarePatched ?? S.FirmwareConfirmed);
             if (u?.Sleeping == true) sleepState.Text = "Asleep";
             else if (!S.SleepEnabled) sleepState.Text = "";
             else if (u?.SleepIn is double left) sleepState.Text = $"Sleeping in {(int)(left / 60)}:{(int)(left % 60):00}";

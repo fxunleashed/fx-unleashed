@@ -63,6 +63,8 @@ namespace User.FXProRpmSync
         {
             public uint Version;   // 0x1030B = 1.3.11
             public uint RunMode;   // 0 = app, otherwise bootloader
+            /// <summary>Report byte 0x20 (low byte of 0x20000850): the patch build after a marker query (build 7+), else 0.</summary>
+            public byte Marker;
             public string VersionText => $"{(Version >> 16) & 0xFF}.{(Version >> 8) & 0xFF}.{Version & 0xFF}";
             /// <summary>The wheel app the patch was built for, running normally.</summary>
             public bool IsSupportedApp => Version == 0x1030B && RunMode == 0;
@@ -77,8 +79,53 @@ namespace User.FXProRpmSync
                 var b = new byte[33]; b[0] = 0xF1;
                 if (!HidD_GetFeature(h, b, b.Length)) return null;
                 // The report comes back without its id byte: 0x483, 3, version, run mode as u32 LE from byte 0.
-                return new Status { Version = BitConverter.ToUInt32(b, 8), RunMode = BitConverter.ToUInt32(b, 12) };
+                // The app fills 0x24 bytes but the descriptor declares 32 + id, so only bytes 0x00-0x20 arrive.
+                return new Status { Version = BitConverter.ToUInt32(b, 8), RunMode = BitConverter.ToUInt32(b, 12), Marker = b[32] };
             }
+        }
+
+        public const uint MarkerWord = 0x20000850;     // echoed by the status report at bytes 0x20-0x23
+        public const uint MarkerQuery = 0x46585131;    // 'FXQ1' at Ctrl+0x178
+
+        /// <summary>
+        /// The patch build the wheel runs: build 7+ answers 'FXQ1' at Ctrl+0x178 by writing its build number (then 'FXU')
+        /// to 0x20000850, which the stock status report shows at byte 0x20 (FXProDashes tools/fw/build_marker.py).
+        /// 0 = no answer: stock, or builds 4-6, which can't be told apart. Null = couldn't ask.
+        /// On older builds and stock both words are RAM nothing else reads (the status report aside, and 0x850 is
+        /// cleared first and after). Only for a wheel past its boot grace, in the app (not the bootloader).
+        /// </summary>
+        public static int? QueryBuild(string path)
+        {
+            try
+            {
+                using (var c = new FxConnection(path))
+                {
+                    try
+                    {
+                        c.WriteRam(MarkerWord, BitConverter.GetBytes(0u));
+                        c.WriteRam(FxConnection.Ctrl + 0x178, BitConverter.GetBytes(MarkerQuery));
+                        // the main loop answers on its next pass (a few ms); allow for a slow pass
+                        for (int i = 0; i < 3; i++)
+                        {
+                            Thread.Sleep(100);
+                            var st = ReadStatus(path);
+                            if (st == null) return null;
+                            if (st.Marker != 0) return st.Marker;
+                        }
+                        return 0;
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            c.WriteRam(FxConnection.Ctrl + 0x178, BitConverter.GetBytes(0u));
+                            c.WriteRam(MarkerWord, BitConverter.GetBytes(0u));
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { return null; }
         }
     }
 

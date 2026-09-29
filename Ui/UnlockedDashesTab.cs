@@ -410,7 +410,7 @@ namespace User.FXProRpmSync
                     Usb?.SetDemo(!demoing, demoRef);
                     ShowFocus();
                 }, icon: demoing ? "" : "");
-                demo.IsEnabled = Usb != null && S.FirmwareConfirmed;
+                demo.IsEnabled = Usb?.FirmwarePatched == true;
                 focusButtons.Children.Add(demo);
             }
             if (!wheel && d != null)

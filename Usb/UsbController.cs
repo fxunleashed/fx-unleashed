@@ -14,9 +14,10 @@ namespace User.FXProRpmSync
     {
         public bool Enabled = false;
         /// <summary>
-        /// The user flashed the FXProDashes wheel app (build 4). The patch can't be detected over USB (same version and
-        /// status as stock), so USB mode only runs once this is confirmed. On a stock wheel nothing breaks: LED writes land
-        /// in unused RAM, but the dash would flicker against the wheel's own.
+        /// The user flashed the FXProDashes wheel app (build 4-6). Those builds can't be detected over USB (same version and
+        /// status as stock), so USB mode only runs once this is confirmed; build 7+ reports itself (`FxUsb.QueryBuild`) and
+        /// needs no confirmation. On a stock wheel nothing breaks: LED writes land in unused RAM, but the dash would
+        /// flicker against the wheel's own.
         /// </summary>
         public bool FirmwareConfirmed = false;
         public bool DashEnabled = true;
@@ -342,7 +343,7 @@ namespace User.FXProRpmSync
                         continue;
                     }
                     Probe(force: false);
-                    bool allowed = path != null && status?.IsSupportedApp == true && (s.FirmwareConfirmed || testing);
+                    bool allowed = path != null && status?.IsSupportedApp == true && (Patched(s) || testing);
                     bool preview = PreviewActive;
                     if (!preview && previewDash != null) previewDash = null; // timed out
                     bool source = testing || demoOn || preview || LiveFresh;
@@ -382,7 +383,7 @@ namespace User.FXProRpmSync
             else if (status == null && DateTime.UtcNow - appearedAt < BootGrace) { State = "Wheel found"; Detail = "Letting it finish starting up."; }
             else if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
             else if (!status.IsSupportedApp) { State = "Unsupported wheel firmware"; Detail = $"The wheel runs app {status.VersionText}{(status.RunMode != 0 ? " (in its bootloader)" : "")}; USB mode needs the patched 1.3.11 app."; }
-            else if (!allowed) { State = "Firmware not confirmed"; Detail = "Confirm that the wheel runs the patched firmware below."; }
+            else if (!allowed) { State = "Firmware not confirmed"; Detail = build == 0 ? "The wheel doesn't report a patch build (stock, or builds 4-6). Confirm that it runs the patched firmware below." : "Confirm that the wheel runs the patched firmware below."; }
             else { State = "Ready"; Detail = "Takes over the dash and lights when a game runs."; }
         }
 
@@ -397,8 +398,24 @@ namespace User.FXProRpmSync
             // freeze its screen, so leave it alone for BootGrace first.
             if (p != path) { path = p; status = null; appearedAt = DateTime.UtcNow; nextProbe = appearedAt + BootGrace; return; }
             if (DateTime.UtcNow - appearedAt < BootGrace) return;
-            if (status == null) status = FxUsb.ReadStatus(p);
+            if (status == null)
+            {
+                status = FxUsb.ReadStatus(p);
+                build = (status?.IsSupportedApp == true ? FxUsb.QueryBuild(p) : null) ?? -1;
+                if (build > 0) SimHub.Logging.Current.Info($"[FXProRpmSync] USB mode: the wheel runs patch build {build}");
+            }
         }
+
+        private volatile int build = -1; // -1 = unknown (read by the UI thread)
+
+        /// <summary>The patch build the wheel reported (7+), 0 if it doesn't report one (stock or builds 4-6), null = unknown.</summary>
+        public int? FirmwareBuild => status == null || build < 0 ? (int?)null : build;
+
+        /// <summary>The wheel runs the patch: it said so (build 7+), or the user confirmed it.</summary>
+        private bool Patched(UsbSettings s) => s.FirmwareConfirmed || (status != null && build > 0);
+
+        /// <summary>The wheel runs the patch (reported by the wheel or confirmed by the user).</summary>
+        public bool FirmwarePatched => Patched(S);
 
         private static readonly TimeSpan BootGrace = TimeSpan.FromSeconds(6);
         private DateTime appearedAt;

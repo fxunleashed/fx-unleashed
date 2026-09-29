@@ -41,8 +41,8 @@ namespace User.FXProRpmSync
             var steps = new StackPanel();
             steps.Children.Add(Theme.Eyebrow("Set up", Theme.Red));
             steps.Children.Add(Theme.Title("Unlock your wheel", 20));
-            steps.Children.Add(Theme.Note("Unlocked mode needs the FXProDashes wheel firmware and the wheel's USB cable. The patched firmware reports " +
-                                          "the same version as stock, so confirm it once:", new Thickness(0, 6, 0, 12)));
+            steps.Children.Add(Theme.Note("Unlocked mode needs the FXProDashes wheel firmware and the wheel's USB cable. Build 7 and later tell the plugin " +
+                                          "themselves; builds 4-6 report the same as stock, so confirm them once:", new Thickness(0, 6, 0, 12)));
             steps.Children.Add(Step("1", "Flash the FXProDashes firmware (build 4) through SimPro."));
             steps.Children.Add(Step("2", "Plug the wheel's USB cable into this PC.", out step2));
             steps.Children.Add(Step("3", "Press Test: the demo dash stays steady for 8 seconds. On stock firmware the wheel's own dash flickers through it (harmless)."));
@@ -160,14 +160,16 @@ namespace User.FXProRpmSync
         private void Refresh()
         {
             var u = Usb;
-            setup.Visibility = S.FirmwareConfirmed ? Visibility.Collapsed : Visibility.Visible;
+            bool patched = u?.FirmwarePatched ?? S.FirmwareConfirmed;
+            setup.Visibility = patched ? Visibility.Collapsed : Visibility.Visible;
             step2.Text = u?.WheelFound == true ? "Plug the wheel's USB cable into this PC.  ✓ Found it." : "Plug the wheel's USB cable into this PC.";
             string st = u?.State ?? "Off";
             state.Text = st;
             stateDot.Fill = SettingsControl.StateBrush(st);
             detail.Text = u?.Detail ?? "";
             firmware.Text = u?.WheelFound == true
-                ? $"FX Pro wheel app {u.WheelVersion ?? "?"}" + (S.FirmwareConfirmed ? " · patched firmware confirmed" : " · not confirmed yet")
+                ? $"FX Pro wheel app {u.WheelVersion ?? "?"}" + (u.FirmwareBuild > 0 ? $" · patch build {u.FirmwareBuild}"
+                    : S.FirmwareConfirmed ? " · patched firmware confirmed" : " · not confirmed yet")
                 : "Wheel not found on USB";
             var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
             string dashName = wheelDash ? (id == null ? "the wheel's own dash" : DashCatalog.NameOf(id)) : DashCache.NameOf(id);
@@ -178,7 +180,7 @@ namespace User.FXProRpmSync
             lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom == LightsSource.AtsrHub ? "Lights from ATSR-Hub" + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             demoButton.Content = Label(u?.DemoOn == true ? "Stop the demo" : "Run the demo", u?.DemoOn == true ? "" : "");
             sleepButton.Content = Label(u?.Sleeping == true ? "Wake" : "Sleep now", u?.Sleeping == true ? "" : "");
-            demoButton.IsEnabled = sleepButton.IsEnabled = S.FirmwareConfirmed;
+            demoButton.IsEnabled = sleepButton.IsEnabled = patched;
 
             var rot = plugin.UsbRotation(plugin.DashCarKey, out _, out int cur);
             dashTile.Text = DashRef.Name(rot[((cur % rot.Count) + rot.Count) % rot.Count]) + (rot.Count > 1 ? $"  ·  1 of {rot.Count}" : "") +
