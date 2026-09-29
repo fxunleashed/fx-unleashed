@@ -43,6 +43,8 @@ namespace User.FXProRpmSync
         public Dictionary<string, CarDash> CarDashes = new Dictionary<string, CarDash>();
         /// <summary>preset_uuid -> original screens part (the dash rotation) as it was before this plugin touched it.</summary>
         public Dictionary<string, string> ScreensOriginals = new Dictionary<string, string>();
+        /// <summary>Base rotation and force per car/game (BaseSwitcher). Off by default.</summary>
+        public BaseSettings Base = new BaseSettings();
 
         /// <summary>Drive the wheel's dash values from SimHub instead of SimPro's own game telemetry.</summary>
         public FeedSettings Feed = new FeedSettings();
@@ -128,6 +130,10 @@ namespace User.FXProRpmSync
 
         // Worker state
         private SimProClient.Wheel wheel;
+        private BaseSwitcher baseSwitcher;
+        /// <summary>The base's current rotation and force as the plugin set them (settings page), or null.</summary>
+        internal string BaseNow => baseSwitcher?.Now;
+        internal string BaseName => baseSwitcher?.BaseName;
         private string modifiedPresetUuid;
         private Target appliedTarget;
         private double appliedScaleMax;
@@ -257,6 +263,12 @@ namespace User.FXProRpmSync
             if (Settings.Overrides == null) Settings.Overrides = new Dictionary<string, CarOverride>();
             if (Settings.CarDashes == null) Settings.CarDashes = new Dictionary<string, CarDash>();
             if (Settings.ScreensOriginals == null) Settings.ScreensOriginals = new Dictionary<string, string>();
+            if (Settings.Base == null) Settings.Base = new BaseSettings();
+            if (Settings.Base.Cars == null) Settings.Base.Cars = new Dictionary<string, BaseCarSetting>();
+            if (Settings.Base.Games == null) Settings.Base.Games = new Dictionary<string, BaseCarSetting>(StringComparer.OrdinalIgnoreCase);
+            else Settings.Base.Games = new Dictionary<string, BaseCarSetting>(Settings.Base.Games, StringComparer.OrdinalIgnoreCase);
+            if (Settings.Base.Originals == null) Settings.Base.Originals = new Dictionary<string, string>();
+            baseSwitcher = new BaseSwitcher(simPro, () => Settings.Base, SaveSettings);
             if (Settings.Feed == null) Settings.Feed = new FeedSettings();
             if (Settings.Feed.Overrides == null) Settings.Feed.Overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (Settings.Usb == null) Settings.Usb = new UsbSettings();
@@ -416,7 +428,7 @@ namespace User.FXProRpmSync
                 Interlocked.Exchange(ref lastGameTicks, DateTime.UtcNow.Ticks);
                 runningGameName = data.GameName;
             }
-            if (!(Settings.Enabled || Settings.DashSwitching || Unlocked) || !data.GameRunning || data.NewData == null) return;
+            if (!(Settings.Enabled || Settings.DashSwitching || Unlocked || Settings.Base.Enabled) || !data.GameRunning || data.NewData == null) return;
             var d = data.NewData;
 
             double max = d.CarSettings_MaxRPM > 0 ? d.CarSettings_MaxRPM : d.MaxRpm;
@@ -903,6 +915,7 @@ namespace User.FXProRpmSync
                     else
                     {
                         await ApplyDashAsync(t).ConfigureAwait(false);
+                        await ApplyBaseAsync(t).ConfigureAwait(false);
                         await ApplyAsync(t).ConfigureAwait(false);
                     }
                 }
@@ -930,6 +943,14 @@ namespace User.FXProRpmSync
                 await dashes.OnCarAsync(w, t.CarKey).ConfigureAwait(false);
             }
             catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] dash switch failed: " + ex.Message); }
+        }
+
+        /// <summary>The base's rotation and force for this car (BaseSwitcher); its own errors never stop the rev lights.</summary>
+        private async Task ApplyBaseAsync(Target t)
+        {
+            if (baseSwitcher == null || (!Settings.Base.Enabled && !baseSwitcher.HasChanges)) return;
+            try { await baseSwitcher.OnCarAsync(t.CarKey, t.GameName).ConfigureAwait(false); }
+            catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] base settings: " + ex.Message); }
         }
 
         private async Task PollDash()
@@ -1200,6 +1221,11 @@ namespace User.FXProRpmSync
 
         private async Task RestoreAsync()
         {
+            if (baseSwitcher != null && baseSwitcher.HasChanges)
+            {
+                try { await baseSwitcher.RestoreAsync().ConfigureAwait(false); }
+                catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] base restore failed: " + ex.Message); }
+            }
             if (dashes != null && dashes.HasChanges)
             {
                 try { await dashes.RestoreAsync(await GetWheel().ConfigureAwait(false)).ConfigureAwait(false); }

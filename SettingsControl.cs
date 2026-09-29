@@ -201,7 +201,7 @@ namespace User.FXProRpmSync
             {
                 yield return ("Rev lights", "", () => new StandardLightsTab(plugin));
                 yield return ("Dashes", "", () => Wrap(new DashSection(plugin)));
-                yield return ("Car tuning", "", () => Wrap(new OverridesSection(plugin)));
+                yield return ("Car tuning", "", () => CarTuning());
                 yield return ("Dash data", "", () => Wrap(new FeedSection(plugin)));
                 yield return ("About", "", () => new AboutTab(plugin));
             }
@@ -211,9 +211,18 @@ namespace User.FXProRpmSync
                 yield return ("Dashes", "", () => new UnlockedDashesTab(plugin));
                 yield return ("Lights", "", () => new UnlockedLightsTab(plugin));
                 yield return ("Idle & sleep", "", () => new UnlockedIdleTab(plugin));
-                yield return ("Car tuning", "", () => Wrap(new OverridesSection(plugin)));
+                yield return ("Car tuning", "", () => CarTuning());
                 yield return ("About", "", () => new AboutTab(plugin));
             }
+        }
+
+        /// <summary>Car tuning: the base per car (both modes), then the rev light overrides.</summary>
+        private FrameworkElement CarTuning()
+        {
+            var p = new StackPanel();
+            p.Children.Add(new BaseCard(plugin));
+            p.Children.Add(Wrap(new OverridesSection(plugin)));
+            return p;
         }
 
         private static FrameworkElement Wrap(FrameworkElement old)

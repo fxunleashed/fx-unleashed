@@ -29,8 +29,12 @@ namespace User.FXProRpmSync
             public bool OldDevice;
         }
 
+        /// <summary>Tests only: answers calls instead of SimPro (method, body as JSON).</summary>
+        internal Func<string, JObject, JToken> Fake;
+
         public async Task<JToken> Call(string method, object body)
         {
+            if (Fake != null) return Fake(method, JObject.FromObject(body ?? new object()));
             var json = JsonConvert.SerializeObject(body ?? new object());
             using (var content = new StringContent(json, Encoding.UTF8, "application/json"))
             using (var resp = await Http.PostAsync(BaseUrl + "/" + method, content).ConfigureAwait(false))
