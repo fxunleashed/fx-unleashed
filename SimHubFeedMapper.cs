@@ -232,7 +232,7 @@ namespace User.FXProRpmSync
                 if (s.Overrides != null)
                     foreach (var kv in s.Overrides)
                         if (!string.IsNullOrWhiteSpace(kv.Value) && SimProTelemetry.Fields.ContainsKey(kv.Key))
-                            SetFromProperty(t, pm, kv.Key, kv.Value.Trim());
+                            SetFromOverride(t, pm, kv.Key, kv.Value.Trim());
             });
         }
 
@@ -300,18 +300,42 @@ namespace User.FXProRpmSync
 
         private static KeyValuePair<string, string> Kv(string k, string v) => new KeyValuePair<string, string>(k, v);
 
+        // Formula overrides (ncalc: / js:), evaluated with SimHub's own engine; Fill only runs in DataUpdate.
+        private static readonly SimHubFormulas Formulas = new SimHubFormulas();
+
+        /// <summary>A user's override: a SimHub property path, or a formula ("ncalc:..." / "js:...").</summary>
+        private static void SetFromOverride(SimProTelemetry t, PluginManager pm, string field, string bind)
+        {
+            if (SimHubFormulas.IsFormula(bind)) Set(t, field, Formulas.Eval(bind));
+            else SetFromProperty(t, pm, field, bind);
+        }
+
         private static void SetFromProperty(SimProTelemetry t, PluginManager pm, string field, string path)
         {
             object v;
             try { v = pm.GetPropertyValue(path); }
             catch { return; }
+            Set(t, field, v);
+        }
+
+        private static void Set(SimProTelemetry t, string field, object v)
+        {
             if (v == null) return;
             if (SimProTelemetry.Fields[field].Kind == 's') { t.SetString(field, v.ToString()); return; }
-            double x = ToDouble(v);
+            // lap times go in ms; SimHub's lap time properties are TimeSpans (ToDouble would give seconds)
+            double x = v is TimeSpan ts && field.EndsWith("LapTime", StringComparison.OrdinalIgnoreCase) ? ts.TotalMilliseconds : ToDouble(v);
+            // overrides are in natural units (seconds, litres per lap); the struct carries these scaled
+            if (OverrideScale.TryGetValue(field, out var scale)) x = Math.Round(Math.Abs(x) * scale);
             if (field.Equals("ersMode", StringComparison.OrdinalIgnoreCase)) x = Clamp(x, 0, 15); // low nibble on the wire
             else if (ByteFields.Contains(field)) x = Clamp(x, 0, 255);
             t.Set(field, x);
         }
+
+        /// <summary>Fields the mapper stores scaled (see Fill): an override gives seconds / litres per lap.</summary>
+        private static readonly Dictionary<string, double> OverrideScale = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "gapAhead", 100 }, { "gapBehind", 100 }, { "fuelPerLap", 10 },
+        };
 
         /// <summary>Fields that go to the wheel as a single byte (91 04 / 91 05).</summary>
         private static readonly HashSet<string> ByteFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

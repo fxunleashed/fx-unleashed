@@ -165,6 +165,7 @@ namespace User.FXProRpmSync
             delta.SelectedItem = delta.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (DeltaSource)i.Tag == fs.Delta) ?? delta.Items[0];
             delta.SelectionChanged += (s, e) => { if (delta.SelectedItem is ComboBoxItem i) { fs.Delta = (DeltaSource)i.Tag; plugin.SaveSettings(); } };
             data.Children.Add(Theme.Field("Delta against", delta, 150));
+            data.Children.Add(new Expander { Header = "The wheel's own dashes: use another SimHub value", Content = new WheelValuesPanel(plugin), Margin = new Thickness(0, 8, 0, 0) });
             Children.Add(Theme.CardBox(data));
 
             // ----- Position -----

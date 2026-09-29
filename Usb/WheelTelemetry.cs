@@ -94,6 +94,50 @@ namespace User.FXProRpmSync
             return b;
         }
 
+        /// <summary>
+        /// Every value the wheel's own dashes draw, for the "Wheel dash values" overrides (NEXT.md G): SimPro struct
+        /// field, label (with the wheel's widget name), and the unit an override must give. Build clamps each to its range.
+        /// </summary>
+        public static readonly (string Group, string Field, string Label, string Unit)[] Fields = BuildFields();
+
+        private static (string, string, string, string)[] BuildFields()
+        {
+            var l = new System.Collections.Generic.List<(string, string, string, string)>
+            {
+                ("Driving", "speed", "Speed (spd)", "km/h"), ("Driving", "rpm", "RPM (rpm, rpmbar)", "rpm"),
+                ("Driving", "gear", "Gear", "-1 R, 0 N, 1..."), ("Driving", "throttle", "Throttle (th)", "%"),
+                ("Driving", "brake", "Brake (brk)", "%"), ("Driving", "clutch", "Clutch (cl)", "% pressed"),
+                ("Race", "position", "Position (pos)", ""), ("Race", "completedLaps", "Laps (lap)", ""),
+                ("Race", "gainLoss", "Delta (gl, gain, loss)", "s, + = slower"), ("Race", "gapAhead", "Gap ahead (gapa)", "s"),
+                ("Race", "gapBehind", "Gap behind (gapb)", "s"), ("Race", "currentLapTime", "Current lap (trun)", "ms"),
+                ("Race", "lastLapTime", "Last lap (tlast)", "ms"), ("Race", "bestLapTime", "Best lap (tbest)", "ms"),
+                ("Car settings", "absLevel", "ABS (abs)", "0-15"), ("Car settings", "tcLevel", "TC (tc)", ""),
+                ("Car settings", "tcCut", "TC2 / TC cut (tc2)", ""), ("Car settings", "engineMap", "Engine map (map)", "0 = NA"),
+                ("Car settings", "brakeBias", "Brake bias (bias)", "% front"), ("Car settings", "ersMode", "ERS mode (ersm)", "0-15"),
+                ("Car settings", "ersPercent", "Battery (soc, batt)", "%"), ("Car settings", "frontAntiRollBar", "Front ARB (farb)", ""),
+                ("Car settings", "rearAntiRollBar", "Rear ARB (rarb)", ""), ("Car settings", "pushToPass", "Push to pass (p2p)", ""),
+                ("Car settings", "diffAdjOnThrottle", "Diff (diff)", ""), ("Car settings", "diffEntry", "Diff entry (entr)", ""),
+                ("Car settings", "diffMiddle", "Diff mid (mid)", ""), ("Car settings", "diffExit", "Diff high speed (hspd)", ""),
+                ("Car settings", "engineBraking", "Engine braking (eb)", ""), ("Car settings", "throttleShape", "Throttle shape (tps)", ""),
+                ("Car settings", "isDrsEnabled", "DRS icon", "0/1"), ("Car settings", "isPitLimiterOn", "Pit limiter icon", "0/1"),
+                ("Engine and fuel", "turbo", "Turbo (tb)", ""), ("Engine and fuel", "oilTemperature", "Oil temp (ot)", "°C"),
+                ("Engine and fuel", "oilPressure", "Oil pressure (op)", "psi"), ("Engine and fuel", "waterTemperature", "Water temp (wt)", "°C"),
+                ("Engine and fuel", "fuel", "Fuel (fuel)", "litres"), ("Engine and fuel", "fuelPerLap", "Fuel per lap (fxl)", "litres/lap"),
+            };
+            string[] corner = { "FL", "FR", "RL", "RR" };
+            for (int c = 0; c < 4; c++)
+            {
+                l.Add(("Tyres and brakes", "tyreTemperature" + c, $"Tyre temp {corner[c]} (tt)", "°C"));
+                l.Add(("Tyres and brakes", "tyreTemperatureInner" + c, $"Tyre inner {corner[c]} (tti)", "°C"));
+                l.Add(("Tyres and brakes", "tyreTemperatureMiddle" + c, $"Tyre middle {corner[c]} (ttm)", "°C"));
+                l.Add(("Tyres and brakes", "tyreTemperatureOuter" + c, $"Tyre outer {corner[c]} (tto)", "°C"));
+                l.Add(("Tyres and brakes", "tyrePressure" + c, $"Tyre pressure {corner[c]} (tp)", "psi"));
+                l.Add(("Tyres and brakes", "tyreWear" + c, $"Tyre wear {corner[c]} (tw)", "% left"));
+                l.Add(("Tyres and brakes", "brakeTemperature" + c, $"Brake temp {corner[c]} (bt)", "°C"));
+            }
+            return l.ToArray();
+        }
+
         /// <summary>The wheel's flag number (the screen's `flag=` variable); the most urgent flag wins.</summary>
         public static int FlagCode(Func<string, double> g)
         {

@@ -81,10 +81,25 @@ static class UiTest
         return plugin;
     }
 
+    private static void ExpandAll(DependencyObject o)
+    {
+        if (o is System.Windows.Controls.Expander e) e.IsExpanded = true;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++) ExpandAll(VisualTreeHelper.GetChild(o, i));
+    }
+
     private static void Save(SettingsControl control, string file)
     {
         var page = (FrameworkElement)((ScrollViewer)control.Content).Content;
         const double width = 1240;
+        if (Environment.GetEnvironmentVariable("UI_EXPAND") == "1") // open every expander (to check what's inside)
+        {
+            page.Measure(new Size(width, double.PositiveInfinity)); page.Arrange(new Rect(0, 0, width, page.DesiredSize.Height)); page.UpdateLayout();
+            for (int pass = 0; pass < 4; pass++)
+            {
+                ExpandAll(page);
+                page.Measure(new Size(width, double.PositiveInfinity)); page.Arrange(new Rect(0, 0, width, page.DesiredSize.Height)); page.UpdateLayout();
+            }
+        }
         page.Measure(new Size(width, double.PositiveInfinity));
         page.Arrange(new Rect(0, 0, width, page.DesiredSize.Height));
         page.UpdateLayout();

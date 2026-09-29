@@ -24,6 +24,7 @@ static class FeatureTests
         FeedWatchChecks();
         Alerts();
         UpdaterTests.Run(dir);
+        WorkstreamTests.Run();
         foreach (var extra in Extra) extra();
         Console.WriteLine(failures == 0 ? "features: OK" : $"features: {failures} FAILED");
         return failures == 0 ? 0 : 1;

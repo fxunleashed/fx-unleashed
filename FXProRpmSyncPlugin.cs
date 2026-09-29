@@ -172,6 +172,10 @@ namespace User.FXProRpmSync
         internal WheelButtons Buttons { get; private set; }
         private long lastUsbPublishTicks, lastAtsrTicks, lastFormulaTicks, lastWheelTeleTicks;
         private readonly SimProTelemetry wheelTele = new SimProTelemetry();
+        private long wheelTeleTicks;
+
+        /// <summary>What the wheel's own dash is being fed (USB mode, last 2 s), for the settings page; null otherwise.</summary>
+        internal SimProTelemetry WheelTelemetryNow => DateTime.UtcNow.Ticks - Interlocked.Read(ref wheelTeleTicks) < TimeSpan.FromSeconds(2).Ticks ? wheelTele : null;
         private readonly SimHubFormulas formulas = new SimHubFormulas();
         private readonly Dictionary<string, object> formulaResults = new Dictionary<string, object>();
         private string atsrMapText;
@@ -375,6 +379,7 @@ namespace User.FXProRpmSync
                 {
                     SimHubFeedMapper.Fill(wheelTele, data, pluginManager, Settings.Feed, (section, ex) => SimHub.Logging.Current.Debug("[FXProRpmSync] wheel dash data " + section + ": " + ex.Message));
                     Usb.PublishWheelTelemetry(WheelTelemetry.Build(wheelTele));
+                    Interlocked.Exchange(ref wheelTeleTicks, DateTime.UtcNow.Ticks);
                 }
                 catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] wheel dash data: " + ex.Message); }
             }
