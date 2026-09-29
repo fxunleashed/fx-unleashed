@@ -148,6 +148,8 @@ namespace User.FXProRpmSync
     internal sealed class UsbController : IDisposable
     {
         private readonly FXProRpmSyncPlugin plugin;
+        /// <summary>Why the wheel isn't on USB (base, restarting, unknown device).</summary>
+        private readonly WheelSetup Setup = new WheelSetup();
         private readonly Thread thread;
         private volatile bool stop;
         private readonly AutoResetEvent wake = new AutoResetEvent(false);
@@ -379,7 +381,11 @@ namespace User.FXProRpmSync
 
         private void SetIdleState(UsbSettings s, bool allowed)
         {
-            if (path == null) { State = "Waiting for the wheel"; Detail = "Plug the FX Pro's USB cable into the PC."; }
+            if (path == null)
+            {
+                var (state, detail) = Setup.Describe();
+                State = state; Detail = detail;
+            }
             else if (status == null && DateTime.UtcNow - appearedAt < BootGrace) { State = "Wheel found"; Detail = "Letting it finish starting up."; }
             else if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
             else if (!status.IsSupportedApp) { State = "Unsupported wheel firmware"; Detail = $"The wheel runs app {status.VersionText}{(status.RunMode != 0 ? " (in its bootloader)" : "")}; USB mode needs the patched 1.3.11 app."; }
@@ -393,7 +399,8 @@ namespace User.FXProRpmSync
             if (conn != null) return; // an open session finds out by failing writes
             nextProbe = DateTime.UtcNow.AddSeconds(2);
             var p = FxUsb.FindPath();
-            if (p == null) { path = null; status = null; return; }
+            if (p == null) { path = null; status = null; Setup.Poll(); return; }
+            Setup.Reset();
             // A wheel that just appeared may still be booting: talking to it then (even reading its status) can
             // freeze its screen, so leave it alone for BootGrace first.
             if (p != path) { path = p; status = null; appearedAt = DateTime.UtcNow; nextProbe = appearedAt + BootGrace; return; }

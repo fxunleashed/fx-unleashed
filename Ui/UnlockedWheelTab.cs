@@ -43,7 +43,7 @@ namespace User.FXProRpmSync
             steps.Children.Add(Theme.Title("Unlock your wheel", 20));
             steps.Children.Add(Theme.Note("Unlocked mode needs the FXProDashes wheel firmware and the wheel's USB cable. Build 7 and later tell the plugin " +
                                           "themselves; builds 4-6 report the same as stock, so confirm them once:", new Thickness(0, 6, 0, 12)));
-            steps.Children.Add(Step("1", "Flash the FXProDashes firmware (build 4) through SimPro."));
+            steps.Children.Add(Step("1", "Flash the FXProDashes firmware (build 7, or 4-6) through SimPro."));
             steps.Children.Add(Step("2", "Plug the wheel's USB cable into this PC.", out step2));
             steps.Children.Add(Step("3", "Press Test: the demo dash stays steady for 8 seconds. On stock firmware the wheel's own dash flickers through it (harmless)."));
             var setupButtons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -94,6 +94,7 @@ namespace User.FXProRpmSync
             hero.Children.Add(statusCard);
             Children.Add(new Border { Margin = new Thickness(0, 0, 0, 14), Child = hero });
             Children.Add(new QuickControlsCard(plugin));
+            Children.Add(WiringCard.Build());
 
             frameTimer.Tick += (s, e) => RenderLights();
             dashTimer.Tick += (s, e) => RenderScreen();
