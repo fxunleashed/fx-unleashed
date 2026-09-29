@@ -13,6 +13,7 @@ static class WorkstreamTests
         BaseSettingsTests();
         LibraryTests();
         ServerOrigins();
+        RealLibrary();
     }
 
     static void LibraryTests()
@@ -69,6 +70,21 @@ static class WorkstreamTests
         {
             DashLibrary.Root = oldRoot;
             try { System.IO.Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    /// <summary>With FXU_LIBRARY = a checkout of the library repo: every item there downloads and passes the plugin's checks.</summary>
+    static void RealLibrary()
+    {
+        var path = System.Environment.GetEnvironmentVariable("FXU_LIBRARY");
+        if (string.IsNullOrEmpty(path)) return;
+        var client = new LibraryClient(path);
+        var index = client.GetIndex(allowCache: false);
+        foreach (var item in index.Items)
+        {
+            string why = null;
+            try { client.Download(item); client.GetPreview(item); } catch (System.Exception ex) { why = ex.Message; }
+            Check($"C: library item {item.Kind}/{item.Id} installs", why == null, why ?? $"{item.BytesPerSecond} B/s");
         }
     }
 
