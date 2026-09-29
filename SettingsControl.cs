@@ -154,10 +154,28 @@ namespace User.FXProRpmSync
             card.MouseLeftButtonUp += (s, e) =>
             {
                 if (Mode == mode) return;
+                if (mode == WheelMode.Unlocked && !UnleashedAccepted()) return;
                 plugin.SetMode(mode);
                 ShowMode();
             };
             return card;
+        }
+
+        /// <summary>
+        /// The first switch to Unleashed mode (NEXT.md O3): the short disclaimer, that it needs modified wheel firmware,
+        /// and the firmware warning, accepted once (asked again when either text changes).
+        /// </summary>
+        private bool UnleashedAccepted()
+        {
+            string hash = Legal.Hash(Legal.Disclaimer + Legal.FirmwareWarning);
+            if (plugin.Settings.UnleashedAccepted == hash) return true;
+            var text = Legal.Disclaimer + "\n\nUnleashed mode needs modified firmware on the wheel (the FXProDashes wheel app). The plugin " +
+                       "doesn't install it for you: you flash it yourself through SimPro.\n\n" + Legal.FirmwareWarning +
+                       "\n\nI understand the risks and want to use Unleashed mode on my own wheel.";
+            bool ok = MessageBox.Show(Window.GetWindow(this), text, "Before you switch to Unleashed mode", MessageBoxButton.YesNo,
+                                      MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+            if (ok) { plugin.Settings.UnleashedAccepted = hash; plugin.SaveSettings(); }
+            return ok;
         }
 
         private void ShowMode()

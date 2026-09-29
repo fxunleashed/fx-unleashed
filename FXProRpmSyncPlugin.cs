@@ -43,6 +43,8 @@ namespace User.FXProRpmSync
         public Dictionary<string, CarDash> CarDashes = new Dictionary<string, CarDash>();
         /// <summary>preset_uuid -> original screens part (the dash rotation) as it was before this plugin touched it.</summary>
         public Dictionary<string, string> ScreensOriginals = new Dictionary<string, string>();
+        /// <summary>Hash of the disclaimer + firmware warning the user accepted before first using Unleashed mode (null = not yet).</summary>
+        public string UnleashedAccepted;
         /// <summary>Base rotation and force per car/game (BaseSwitcher). Off by default.</summary>
         public BaseSettings Base = new BaseSettings();
 
