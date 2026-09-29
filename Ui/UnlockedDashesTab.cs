@@ -176,6 +176,19 @@ namespace User.FXProRpmSync
             pos.Children.Add(Theme.Field("From the top", Theme.SliderField(0, 38, S.PadTop, 1, v => $"{v:0} px", v => { S.PadTop = (int)v; Changed(); })));
             Children.Add(Theme.CardBox(pos));
 
+            // ----- Screen mirror (for OBS) -----
+            var mirror = new StackPanel();
+            mirror.Children.Add(Theme.Eyebrow("Stream the wheel's screen"));
+            string mirrorUrl = $"http://127.0.0.1:{S.DesignerPort}/mirror";
+            mirror.Children.Add(Theme.Note($"Add a Browser source in OBS with {mirrorUrl} (e.g. 1280x720): it shows what the plugin draws on the " +
+                                           "wheel and its lights, live. Add ?bg=transparent for a see-through background, ?leds=0 for the screen only, " +
+                                           "?all=1 for the button and encoder lights too. Needs the dash designer server (on by default)."));
+            var mirrorButtons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+            mirrorButtons.Children.Add(Theme.Btn("Open", () => { try { System.Diagnostics.Process.Start(mirrorUrl); } catch { } }, icon: ""));
+            mirrorButtons.Children.Add(Theme.Btn("Copy address", () => { try { Clipboard.SetText(mirrorUrl); } catch { } }, icon: ""));
+            mirror.Children.Add(mirrorButtons);
+            Children.Add(Theme.CardBox(mirror));
+
             dashTimer.Tick += (s, e) => { if (!DashRef.IsWheel(focus)) { preview.Show(DashCache.Find(DashRef.Id(focus)), S.PadLeft, S.PadTop); preview.Tick(); } };
             slowTimer.Tick += (s, e) => Refresh(false);
             saveTimer.Tick += (s, e) => { saveTimer.Stop(); plugin.SaveSettings(); };
