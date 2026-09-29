@@ -1,4 +1,4 @@
-// FX Pro Dash Studio (served by the FXPro Unlocked plugin or `fxdash serve`). Edits the dash JSON format
+// FX Pro Dash Studio (served by the FX Unleashed plugin or `fxdash serve`). Edits the dash JSON format
 // (docs/dash-format.md); checks, exact previews, SimHub import and the wheel go through the local API (GET /api).
 // Agents: window.fxdash = { dash, load(d), check() }.
 'use strict';

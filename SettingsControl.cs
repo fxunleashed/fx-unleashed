@@ -24,7 +24,8 @@ namespace User.FXProRpmSync
         private readonly ContentControl tabHost = new ContentControl();
         private readonly Dictionary<string, FrameworkElement> built = new Dictionary<string, FrameworkElement>();
         private readonly TextBlock wheelPill, carPill;
-        private readonly Border feedProblem;
+        private readonly Border feedProblem, updateBanner;
+        private readonly TextBlock updateText;
         private readonly TextBlock feedProblemTitle, feedProblemAction, feedProblemDetail;
         private readonly Ellipse wheelDot, carDot;
         private readonly DispatcherTimer statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -62,14 +63,13 @@ namespace User.FXProRpmSync
             var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var name = new TextBlock { FontFamily = Theme.Display, FontSize = 26, FontWeight = FontWeights.Bold };
             name.Inlines.Add(new System.Windows.Documents.Run("FX") { Foreground = Theme.Red });
-            name.Inlines.Add(new System.Windows.Documents.Run("PRO ") { Foreground = Theme.Text });
-            name.Inlines.Add(new System.Windows.Documents.Run("UNLOCKED") { Foreground = Theme.Text, FontWeight = FontWeights.Light });
+            name.Inlines.Add(new System.Windows.Documents.Run(" UNLEASHED") { Foreground = Theme.Text, FontWeight = FontWeights.Light });
             titles.Children.Add(name);
-            var version = typeof(SettingsControl).Assembly.GetName().Version;
-            titles.Children.Add(new TextBlock { Text = $"Simagic FX Pro companion  ·  v{version.Major}.{version.Minor}.{version.Build}", Foreground = Theme.Text3, FontSize = 12 });
+            titles.Children.Add(new TextBlock { Text = $"Custom dashes and lights for the Simagic FX Pro  ·  v{Updater.CurrentVersion}", Foreground = Theme.Text3, FontSize = 12 });
             header.Children.Add(titles);
             page.Children.Add(header);
             page.Children.Add(feedProblem = FeedProblemBanner(out feedProblemTitle, out feedProblemAction, out feedProblemDetail));
+            page.Children.Add(updateBanner = UpdateBanner(out updateText));
 
             // ----- Mode -----
             var modes = new Grid { Margin = new Thickness(0, 0, 0, 22) };
@@ -79,7 +79,7 @@ namespace User.FXProRpmSync
             standardCard = ModeCard("", "STANDARD", "Stock wheel · over RF",
                 "Nothing to flash. The rev lights follow each car and the wheel switches to each car's dash, through SimPro.",
                 new[] { "Rev lights per car", "Dash per car", "SimHub data on wheel dashes" }, WheelMode.Standard);
-            unlockedCard = ModeCard("", "UNLOCKED", "Flashed wheel · over USB",
+            unlockedCard = ModeCard("", "UNLEASHED", "Flashed wheel · over USB",
                 "The plugin drives the wheel itself: your own dashes per car, all 38 lights, screensavers and sleep.",
                 new[] { "Custom dashes", "Every light", "Screensavers", "Sleep" }, WheelMode.Unlocked);
             Grid.SetColumn(unlockedCard, 2);
@@ -203,6 +203,7 @@ namespace User.FXProRpmSync
                 yield return ("Dashes", "", () => Wrap(new DashSection(plugin)));
                 yield return ("Car tuning", "", () => Wrap(new OverridesSection(plugin)));
                 yield return ("Dash data", "", () => Wrap(new FeedSection(plugin)));
+                yield return ("About", "", () => new AboutTab(plugin));
             }
             else
             {
@@ -211,6 +212,7 @@ namespace User.FXProRpmSync
                 yield return ("Lights", "", () => new UnlockedLightsTab(plugin));
                 yield return ("Idle & sleep", "", () => new UnlockedIdleTab(plugin));
                 yield return ("Car tuning", "", () => Wrap(new OverridesSection(plugin)));
+                yield return ("About", "", () => new AboutTab(plugin));
             }
         }
 
@@ -263,8 +265,40 @@ namespace User.FXProRpmSync
             };
         }
 
+        /// <summary>A new version (or a start that didn't finish after an update): one line and a button to the About tab.</summary>
+        private Border UpdateBanner(out TextBlock text)
+        {
+            var row = new DockPanel();
+            var open = Theme.Btn("Updates", () => Open("About"), primary: true, icon: "");
+            open.Margin = new Thickness(12, 0, 0, 0);
+            DockPanel.SetDock(open, Dock.Right);
+            row.Children.Add(open);
+            text = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text };
+            row.Children.Add(text);
+            return new Border
+            {
+                Child = row, CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), BorderBrush = Theme.Blue,
+                Background = new SolidColorBrush(Color.FromArgb(0x22, 0x3B, 0x82, 0xF6)), Padding = new Thickness(16, 10, 12, 10),
+                Margin = new Thickness(0, 0, 0, 18), Visibility = Visibility.Collapsed,
+            };
+        }
+
+        private void RefreshUpdateBanner()
+        {
+            var u = plugin.Updates;
+            string msg = null;
+            if (u?.AutoRolledBackFrom != null) msg = $"v{u.AutoRolledBackFrom} failed to start three times, so the previous version was put back. Restart SimHub to use it.";
+            else if (u?.StartupFailedBefore == true && u.PreviousVersion != null) msg = $"The last start of v{Updater.CurrentVersion} didn't finish. If something's wrong, you can roll back to v{u.PreviousVersion}.";
+            else if (u?.UpdateAvailable == true && u.Latest.Version.ToString() != plugin.Settings.Updates.SkippedVersion)
+                msg = $"FX Unleashed v{u.Latest.Version} is available (you have v{Updater.CurrentVersion}). Provided as is, without warranty.";
+            else if (u?.State == Updater.UpdateState.Installed) msg = u.Message;
+            updateBanner.Visibility = msg != null ? Visibility.Visible : Visibility.Collapsed;
+            if (msg != null) updateText.Text = msg;
+        }
+
         private void RefreshStatus()
         {
+            RefreshUpdateBanner();
             feedProblem.Visibility = plugin.FeedProblem ? Visibility.Visible : Visibility.Collapsed;
             if (plugin.FeedProblem)
             {

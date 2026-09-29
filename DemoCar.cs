@@ -289,7 +289,7 @@ namespace User.FXProRpmSync
             t.Set("diffMiddle", 4);
             t.Set("diffExit", 7);
 
-            t.SetString("carModelString", "FXPro Unlocked demo");
+            t.SetString("carModelString", "FX Unleashed demo");
             t.SetString("trackNameString", "Demo loop");
             t.SetString("sessionTypeName", "Race");
         }

@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Version>0.2.1</Version>
-    <Product>FXPro RPM Sync</Product>
+    <Product>FX Unleashed</Product>
     <Authors>ziadkadry99</Authors>
     <Copyright>Copyright (c) 2026 ziadkadry99. GPL-3.0-or-later.</Copyright>
     <SimHubPath Condition="'$(SIMHUB_INSTALL_PATH)' != ''">$(SIMHUB_INSTALL_PATH)</SimHubPath>
@@ -36,6 +36,7 @@
     <EmbeddedResource Include="assets\fxpro-outline.svg" LogicalName="User.FXProRpmSync.fxpro-outline.svg" />
     <EmbeddedResource Include="assets\logo.png" LogicalName="User.FXProRpmSync.logo.png" />
     <EmbeddedResource Include="Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="docs\legal\*.md" LogicalName="User.FXProRpmSync.Legal.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- simgame.exe (SimGameStub/) is built first and embedded; the plugin extracts it at runtime (see SimGameFeed). -->

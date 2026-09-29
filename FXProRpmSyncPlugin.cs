@@ -49,11 +49,20 @@ namespace User.FXProRpmSync
 
         /// <summary>USB mode: custom dashes and every LED over the wheel's own USB (patched wheel firmware).</summary>
         public UsbSettings Usb = new UsbSettings();
+
+        /// <summary>In-plugin updates (Updater).</summary>
+        public UpdateSettings Updates = new UpdateSettings();
+
+        /// <summary>
+        /// The settings' format. Raised whenever a migration is added (MigrateSettings); a file written by a newer
+        /// plugin (after a roll back) is backed up before this one saves over it.
+        /// </summary>
+        public int SettingsVersion;
     }
 
-    [PluginDescription("Simagic FX Pro companion: rev lights and dashes per car through SimPro, or, on the flashed wheel, your own dashes and every light over USB")]
+    [PluginDescription("Custom dashes and lights for the Simagic FX Pro: rev lights and dashes per car through SimPro, or, on the flashed wheel, your own dashes and every light over USB. Independent project, not affiliated with Simagic.")]
     [PluginAuthor("ziadkadry99")]
-    [PluginName("FXPro Unlocked")]
+    [PluginName("FX Unleashed")]
     public partial class FXProRpmSyncPlugin : IPlugin, IDataPlugin, IWPFSettingsV2
     {
         private const string RpmPart = "rpm_lights";
@@ -63,7 +72,7 @@ namespace User.FXProRpmSync
         public PluginManager PluginManager { get; set; }
         public System.Windows.Media.ImageSource PictureIcon => icon ?? (icon = LoadIcon());
         private System.Windows.Media.ImageSource icon;
-        public string LeftMenuTitle => "FXPro Unlocked";
+        public string LeftMenuTitle => "FX Unleashed";
 
         private readonly SimProClient simPro = new SimProClient();
         private CarLedDatabase carDb;
@@ -208,10 +217,37 @@ namespace User.FXProRpmSync
                 Math.Abs(o.MaxRpm - MaxRpm) < 100 && Math.Abs(o.Redline - Redline) < 50;
         }
 
+        /// <summary>The settings format this version writes (see FXProRpmSyncSettings.SettingsVersion).</summary>
+        public const int CurrentSettingsVersion = 2;
+
+        /// <summary>Updates from GitHub releases, roll back, start-up marker.</summary>
+        internal Updater Updates { get; private set; }
+        /// <summary>Init failed: the settings page shows only this and Roll back.</summary>
+        internal Exception InitError { get; private set; }
+
         public void Init(PluginManager pluginManager)
         {
+            Updates = new Updater(this);
+            Updates.StartupBegin();
+            try
+            {
+                InitCore();
+                Updates.StartupSucceeded();
+                Updates.CheckInBackground();
+            }
+            catch (Exception ex)
+            {
+                // keep SimHub running and the settings page reachable, so the user can roll back an update
+                InitError = ex;
+                SimHub.Logging.Current.Error("[FXProRpmSync] start-up failed: " + ex);
+            }
+        }
+
+        private void InitCore()
+        {
             MigrateOldSettings();
-            Settings = this.ReadCommonSettings("GeneralSettings", () => new FXProRpmSyncSettings());
+            Settings = this.ReadCommonSettings("GeneralSettings", () => new FXProRpmSyncSettings { SettingsVersion = CurrentSettingsVersion });
+            MigrateSettings(Settings);
             if (Settings.Originals == null) Settings.Originals = new Dictionary<string, string>();
             if (Settings.Fallback == null) Settings.Fallback = new FallbackStyle();
             if (Settings.Overrides == null) Settings.Overrides = new Dictionary<string, CarOverride>();
@@ -311,6 +347,7 @@ namespace User.FXProRpmSync
 
         public void DataUpdate(PluginManager pluginManager, ref GameData data)
         {
+            if (InitError != null) return;
             if (feedOn) WriteFeed(pluginManager, data);
             if (Settings.Usb.Enabled && Usb != null && DateTime.UtcNow.Ticks - lastUsbPublishTicks >= TimeSpan.FromMilliseconds(30).Ticks)
             {
@@ -821,6 +858,7 @@ namespace User.FXProRpmSync
 
         public void End(PluginManager pluginManager)
         {
+            if (InitError != null) return; // nothing started
             cts?.Cancel();
             wake.Set();
             try { worker?.Wait(2000); } catch { }
@@ -834,7 +872,8 @@ namespace User.FXProRpmSync
             this.SaveCommonSettings("GeneralSettings", Settings);
         }
 
-        public System.Windows.Controls.Control GetWPFSettingsControl(PluginManager pluginManager) => new SettingsControl(this);
+        public System.Windows.Controls.Control GetWPFSettingsControl(PluginManager pluginManager) =>
+            InitError != null ? (System.Windows.Controls.Control)new StartupFailedControl(this) : new SettingsControl(this);
 
         private async Task WorkerLoop(CancellationToken ct)
         {

@@ -16,7 +16,7 @@ namespace User.FXProRpmSync
         {
             var u = Usb;
             var s = plugin.Settings.Usb;
-            string why = !s.Enabled ? "USB mode is off (SimHub > FXPro Unlocked > Unlocked mode)"
+            string why = !s.Enabled ? "USB mode is off (SimHub > FX Unleashed > Unleashed mode)"
                 : !s.FirmwareConfirmed ? "the wheel's firmware isn't confirmed in USB mode's settings"
                 : u == null || !u.WheelFound ? "the wheel isn't connected by USB"
                 : !u.SupportedApp ? "the wheel's firmware isn't supported"

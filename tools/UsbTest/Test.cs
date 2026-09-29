@@ -157,6 +157,14 @@ static class UsbTestMain
             return 0;
         }
         if (args.Length > 1 && args[1] == "features") return FeatureTests.Run(dir);
+        if (args.Length > 3 && args[1] == "release")
+        {
+            // a release made by release.ps1, checked exactly as the updater checks a download: UsbTest OUT release ZIP MANIFEST
+            var m = Newtonsoft.Json.JsonConvert.DeserializeObject<UpdateManifest>(File.ReadAllText(args[3]));
+            var dll = Updater.Verify(m, SemVer.Parse(m.version), File.ReadAllBytes(args[2]), null);
+            Console.WriteLine($"release v{m.version}: OK ({dll.Length} byte DLL, firmware min {m.firmware?.min})");
+            return 0;
+        }
         if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 2 && args[1] == "traffic")
         {

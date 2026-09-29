@@ -463,15 +463,15 @@ namespace User.FXProRpmSync
         private void OpenDesigner(string dashId)
         {
             var url = plugin.StartDesigner();
-            if (url == null) { MessageBox.Show("The designer couldn't start: port " + S.DesignerPort + " is in use. See SimHub's log.", "FXPro Unlocked"); return; }
+            if (url == null) { MessageBox.Show("The designer couldn't start: port " + S.DesignerPort + " is in use. See SimHub's log.", "FX Unleashed"); return; }
             try { Process.Start(url + (string.IsNullOrEmpty(dashId) ? "" : "?dash=" + Uri.EscapeDataString(dashId))); }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "FXPro Unlocked"); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "FX Unleashed"); }
         }
 
         private void OpenDashFolder()
         {
             try { System.IO.Directory.CreateDirectory(DashLibrary.Folder); Process.Start("explorer.exe", DashLibrary.Folder); }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "FXPro Unlocked"); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "FX Unleashed"); }
         }
 
         private void SaveCopy(DashDefinition d)
@@ -481,9 +481,9 @@ namespace User.FXProRpmSync
                 var path = DashLibrary.Export(d);
                 DashCache.All(force: true);
                 BuildLibrary();
-                MessageBox.Show(Window.GetWindow(this), "Saved as\n" + path + "\n\nEdit it in the designer or as JSON, then press Reload.", "FXPro Unlocked", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(Window.GetWindow(this), "Saved as\n" + path + "\n\nEdit it in the designer or as JSON, then press Reload.", "FX Unleashed", MessageBoxButton.OK, MessageBoxImage.Information);
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "FXPro Unlocked"); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "FX Unleashed"); }
         }
     }
 }

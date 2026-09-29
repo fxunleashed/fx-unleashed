@@ -53,7 +53,7 @@ namespace User.FXProRpmSync
             var fs = plugin.Settings.Feed;
             Children.Add(Muted("Sends SimHub's data to the wheel's own dashes through SimPro's \"SimGame\" source, so every value SimHub knows " +
                                "reaches them, in every game. SimPro picks its source when a game starts: turn this on before starting the game. " +
-                               "Force feedback is unaffected." + (plugin.Unlocked ? " In unlocked mode it matters for cars showing the wheel's own dash." : ""), new Thickness(0, 0, 0, 12)));
+                               "Force feedback is unaffected." + (plugin.Unlocked ? " In Unleashed mode it matters for cars showing the wheel's own dash." : ""), new Thickness(0, 0, 0, 12)));
 
             enabled = new CheckBox { Content = "Drive the wheel's dash from SimHub", IsChecked = fs.Enabled, Margin = new Thickness(0, 0, 0, 6) };
             var demo = new CheckBox
@@ -157,7 +157,7 @@ namespace User.FXProRpmSync
                 $"If you turn this off now, SimPro switches to reading {game} directly and keeps it until the game closes. " +
                 "Turning this back on won't do anything until you restart the game.\n\n" +
                 "Turn it off anyway?",
-                "FXPro Unlocked", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+                "FX Unleashed", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
         }
 
         private void SetBanner(Color tone, string icon, string title, string detail)

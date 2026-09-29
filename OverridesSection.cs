@@ -463,7 +463,7 @@ namespace User.FXProRpmSync
 
         private void Delete(string carKey, string name)
         {
-            if (MessageBox.Show($"Delete the override for {name}? Its lights go back to the car's default.", "FXPro Unlocked",
+            if (MessageBox.Show($"Delete the override for {name}? Its lights go back to the car's default.", "FX Unleashed",
                                 MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
             plugin.DeleteOverride(carKey);
             if (editing?.CarKey == carKey) CloseEditor();

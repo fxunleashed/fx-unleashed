@@ -219,7 +219,7 @@ namespace User.FXProRpmSync
                 Changed();
                 BuildGallery();
             }
-            catch (Exception ex) { MessageBox.Show("Couldn't use that picture: " + ex.Message, "FXPro Unlocked"); }
+            catch (Exception ex) { MessageBox.Show("Couldn't use that picture: " + ex.Message, "FX Unleashed"); }
             finally { Cursor = null; }
         }
     }

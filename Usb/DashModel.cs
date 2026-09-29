@@ -212,6 +212,9 @@ namespace User.FXProRpmSync
                     {
                         var d = JsonConvert.DeserializeObject<DashDefinition>(File.ReadAllText(file));
                         if (d?.Elements == null) throw new Exception("no elements");
+                        // never half-load a newer format: its new fields would be dropped or misread
+                        if (d.FormatVersion > DashDefinition.CurrentFormat)
+                            throw new Exception($"made for a newer version of the plugin (dash format {d.FormatVersion}, this plugin reads up to {DashDefinition.CurrentFormat}): update the plugin");
                         d.FilePath = file;
                         if (string.IsNullOrWhiteSpace(d.Id)) d.Id = "file:" + Path.GetFileNameWithoutExtension(file);
                         if (string.IsNullOrWhiteSpace(d.Name)) d.Name = Path.GetFileNameWithoutExtension(file);

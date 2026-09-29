@@ -1,0 +1,16 @@
+FX Unleashed
+Copyright (c) 2026 ziadkadry99. Licensed under the GNU General Public License v3.0 or later (see LICENSE).
+
+FX Unleashed is an independent community project. It is not affiliated with, endorsed by or supported by Simagic.
+Simagic and FX Pro are trademarks of their owner, used only to say which hardware this works with. The software is
+provided "as is", without warranty of any kind. Use it at your own risk.
+
+This project contains no Simagic software. Firmware changes are distributed only as patches of our own code, applied
+by the user to their own copy of Simagic's firmware; Simagic's firmware and its encryption key are never distributed.
+
+Credits
+- Car rev light data: Lovely Car Data by Lovely Sim Racing and contributors
+  (https://github.com/Lovely-Sim-Racing/lovely-car-data), CC BY-NC-SA 4.0. Downloaded at runtime, not bundled.
+- assets/Simagic_FX-Pro.atsrdevice (a layout for ATSR-Hub EVO by ATSR-Alex) is generated from ATSR-Hub's
+  GSI FPE-V2 device preset by tools/atsr.
+- SimHub by Wotever hosts the plugin; its DLLs are referenced at build time and not redistributed.

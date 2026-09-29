@@ -58,7 +58,7 @@ namespace User.FXProRpmSync
             srcText.Children.Add(Theme.Eyebrow("Lights come from"));
             srcHead.Children.Add(srcText);
             src.Children.Add(srcHead);
-            var seg = Theme.Segmented(new[] { "FXPro Unlocked", "ATSR-Hub" }, S.LightsFrom == LightsSource.AtsrHub ? 1 : 0, i =>
+            var seg = Theme.Segmented(new[] { "FX Unleashed", "ATSR-Hub" }, S.LightsFrom == LightsSource.AtsrHub ? 1 : 0, i =>
             {
                 S.LightsFrom = i == 1 ? LightsSource.AtsrHub : LightsSource.BuiltIn;
                 Changed(); ShowSource();
@@ -270,7 +270,7 @@ namespace User.FXProRpmSync
         {
             var mine = Mine;
             if (mine == null) return;
-            if (MessageBox.Show(Window.GetWindow(this), $"Delete \"{mine.Name}\"?", "FXPro Unlocked", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (MessageBox.Show(Window.GetWindow(this), $"Delete \"{mine.Name}\"?", "FX Unleashed", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             int at = S.UserLights.IndexOf(mine);
             S.UserLights.Remove(mine);
             S.LightPreset = at > 0 ? S.UserLights[at - 1].Id : LightPresets.All[0].Id;

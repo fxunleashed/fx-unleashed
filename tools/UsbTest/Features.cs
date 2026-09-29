@@ -10,7 +10,7 @@ static class FeatureTests
 {
     static int failures;
 
-    static void Check(string name, bool ok, string detail = "")
+    public static void Check(string name, bool ok, string detail = "")
     {
         Console.WriteLine((ok ? "ok    " : "FAIL  ") + name + (detail.Length > 0 ? "  (" + detail + ")" : ""));
         if (!ok) failures++;
@@ -22,6 +22,7 @@ static class FeatureTests
         QuickControls();
         LightsPerCar();
         FeedWatchChecks();
+        UpdaterTests.Run(dir);
         foreach (var extra in Extra) extra();
         Console.WriteLine(failures == 0 ? "features: OK" : $"features: {failures} FAILED");
         return failures == 0 ? 0 : 1;

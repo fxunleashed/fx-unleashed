@@ -190,7 +190,7 @@ namespace User.FXProRpmSync
         /// <summary>A big clock over the date, with a red rule between (fonts 1 = 150 px and 3 = 48 px, monospaced digits).</summary>
         public static DashDefinition ClockDash() => new DashDefinition
         {
-            Id = "saver:clock", Name = "Clock", Author = "FXPro Unlocked",
+            Id = "saver:clock", Name = "Clock", Author = "FX Unleashed",
             Elements = new List<DashElement>
             {
                 Val("clock", "clock", 1, 40, 110, 710, 150, "#FFFFFF", "center", "88:88"),
@@ -202,7 +202,7 @@ namespace User.FXProRpmSync
         /// <summary>A shift light bar sweeping through the gears, with the gear and the revs.</summary>
         private static DashDefinition RevSweepDash()
         {
-            var d = new DashDefinition { Id = "saver:rev-sweep", Name = "Rev sweep", Author = "FXPro Unlocked", Elements = new List<DashElement>() };
+            var d = new DashDefinition { Id = "saver:rev-sweep", Name = "Rev sweep", Author = "FX Unleashed", Elements = new List<DashElement>() };
             for (int i = 0; i < 15; i++)
                 d.Elements.Add(new DashElement { Type = "rect", Name = "seg" + (i + 1), X = 40 + i * 48, Y = 60, W = 38, H = 38, Color = SegOff, ColorBind = "saver.s" + (i + 1) });
             d.Elements.Add(Val("gear", "saver.gear", 1, 295, 140, 200, 150, "#FFFFFF", "center", "8"));
@@ -215,7 +215,7 @@ namespace User.FXProRpmSync
         /// <summary>A pit board: position and laps of your last session in big letters, the best lap and the car under.</summary>
         private static DashDefinition PitBoardDash() => new DashDefinition
         {
-            Id = "saver:pit-board", Name = "Pit board", Author = "FXPro Unlocked",
+            Id = "saver:pit-board", Name = "Pit board", Author = "FX Unleashed",
             Elements = new List<DashElement>
             {
                 new DashElement { Type = "box", Name = "board", X = 150, Y = 20, W = 490, H = 420, Color = "#8A8F98", Fill = "#050505", Border = 6, Radius = 6 },
@@ -230,7 +230,7 @@ namespace User.FXProRpmSync
         /// <summary>A chequered flag behind a black panel with the time.</summary>
         private static DashDefinition ChequeredDash()
         {
-            var d = new DashDefinition { Id = "saver:chequered", Name = "Chequered", Author = "FXPro Unlocked", Elements = new List<DashElement>() };
+            var d = new DashDefinition { Id = "saver:chequered", Name = "Chequered", Author = "FX Unleashed", Elements = new List<DashElement>() };
             const int cols = 10, rows = 6, cw = 79, ch = 77;
             for (int r = 0; r < rows; r++)
                 for (int c = 0; c < cols; c++)
@@ -303,7 +303,7 @@ namespace User.FXProRpmSync
                 using (var ms = new MemoryStream()) { full.Save(ms, ImageFormat.Png); png = Convert.ToBase64String(ms.ToArray()); }
                 return new DashDefinition
                 {
-                    Name = name, Author = "FXPro Unlocked",
+                    Name = name, Author = "FX Unleashed",
                     Images = new Dictionary<string, string> { ["picture"] = png },
                     Elements = new List<DashElement>
                     {
