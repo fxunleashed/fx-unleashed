@@ -85,16 +85,6 @@ namespace User.FXProRpmSync
             sleepButton = Theme.Btn("Sleep now", () => { if (Usb?.Sleeping == true) Usb.Wake(); else Usb?.SleepNow(); }, icon: "");
             actions.Children.Add(sleepButton);
             status.Children.Add(actions);
-            var bright = Theme.SliderField(5, 100, S.ScreenBrightness, 5, v => $"{v:0}%", v =>
-            {
-                if ((int)v == S.ScreenBrightness) return;
-                S.ScreenBrightness = (int)v;
-                Usb?.SettingsChanged();
-                plugin.SaveSettings();
-            }, 200);
-            var brightRow = Theme.Field("Screen brightness", bright, 140);
-            brightRow.Margin = new Thickness(0, 6, 0, 0);
-            status.Children.Add(brightRow);
             status.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 10, 0, 14) });
             status.Children.Add(Shortcut("", "Dashes", out dashTile, () => openTab("Dashes")));
             status.Children.Add(Shortcut("", "Lights", out lightsTile, () => openTab("Lights")));
@@ -103,6 +93,7 @@ namespace User.FXProRpmSync
             Grid.SetColumn(statusCard, 1);
             hero.Children.Add(statusCard);
             Children.Add(new Border { Margin = new Thickness(0, 0, 0, 14), Child = hero });
+            Children.Add(new QuickControlsCard(plugin));
 
             frameTimer.Tick += (s, e) => RenderLights();
             dashTimer.Tick += (s, e) => RenderScreen();
@@ -184,7 +175,7 @@ namespace User.FXProRpmSync
                 : u?.DashActive == true ? "Showing " + u.ActiveDashName
                 : u?.SaverActive == true ? "Screensaver: " + IdleScreens.Find(S, u.SaverShown ?? S.SaverId).Name
                 : (plugin.DashCarKey != null ? "This car: " : "Races show ") + dashName;
-            lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom == LightsSource.AtsrHub ? "Lights from ATSR-Hub" + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + S.ActiveLights.Name;
+            lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom == LightsSource.AtsrHub ? "Lights from ATSR-Hub" + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             demoButton.Content = Label(u?.DemoOn == true ? "Stop the demo" : "Run the demo", u?.DemoOn == true ? "" : "");
             sleepButton.Content = Label(u?.Sleeping == true ? "Wake" : "Sleep now", u?.Sleeping == true ? "" : "");
             demoButton.IsEnabled = sleepButton.IsEnabled = S.FirmwareConfirmed;
@@ -192,7 +183,7 @@ namespace User.FXProRpmSync
             var rot = plugin.UsbRotation(plugin.DashCarKey, out _, out int cur);
             dashTile.Text = DashRef.Name(rot[((cur % rot.Count) + rot.Count) % rot.Count]) + (rot.Count > 1 ? $"  ·  1 of {rot.Count}" : "") +
                             (S.CarDashes.Count > 0 ? $"  ·  {S.CarDashes.Count} car" + (S.CarDashes.Count == 1 ? "" : "s") : "");
-            lightsTile.Text = !S.LightsEnabled ? "SimPro's lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : S.ActiveLights.Name;
+            lightsTile.Text = !S.LightsEnabled ? "SimPro's lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             idleTile.Text = (S.ScreenSaver ? IdleScreens.Find(S, S.SaverId).Name : "No screensaver") + "  ·  " +
                             (S.SleepEnabled ? $"sleep after {S.SleepMinutes} min" : "no sleep");
         }
@@ -212,7 +203,7 @@ namespace User.FXProRpmSync
             if (u?.Sleeping == true) { wheel.Show(null); return; }
             var live = u?.Active == true ? u.LastFrame : null;
             double t = clock.Elapsed.TotalSeconds;
-            wheel.Show(live ?? engine.Render(S.ActiveLights, SimLap.Values(t), null, t, false));
+            wheel.Show(live ?? engine.Render(plugin.ActiveLightsFor(plugin.DashCarKey), SimLap.Values(t), null, t, false));
         }
 
         private void RenderScreen()

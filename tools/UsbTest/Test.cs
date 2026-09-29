@@ -156,6 +156,7 @@ static class UsbTestMain
             }
             return 0;
         }
+        if (args.Length > 1 && args[1] == "features") return FeatureTests.Run(dir);
         if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 2 && args[1] == "traffic")
         {
@@ -401,6 +402,6 @@ static class UsbTestMain
         var back = Newtonsoft.Json.JsonConvert.DeserializeObject<DashDefinition>(json);
         var scr2 = new Counter(); var r2 = new DashRenderer(scr2, back, 10, 20); r2.DrawAll();
         Console.WriteLine("json round trip: " + (Newtonsoft.Json.JsonConvert.SerializeObject(back) == Newtonsoft.Json.JsonConvert.SerializeObject(def) ? "same" : "DIFFERENT") + $", {json.Length / 1024} KB");
-        return 0;
+        return FeatureTests.Run(dir);
     }
 }

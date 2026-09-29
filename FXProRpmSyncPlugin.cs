@@ -54,7 +54,7 @@ namespace User.FXProRpmSync
     [PluginDescription("Simagic FX Pro companion: rev lights and dashes per car through SimPro, or, on the flashed wheel, your own dashes and every light over USB")]
     [PluginAuthor("ziadkadry99")]
     [PluginName("FXPro Unlocked")]
-    public class FXProRpmSyncPlugin : IPlugin, IDataPlugin, IWPFSettingsV2
+    public partial class FXProRpmSyncPlugin : IPlugin, IDataPlugin, IWPFSettingsV2
     {
         private const string RpmPart = "rpm_lights";
         private const int RpmPartId = 1;
@@ -224,6 +224,7 @@ namespace User.FXProRpmSync
             if (Settings.Usb.Savers == null) Settings.Usb.Savers = new List<SaverItem>();
             if (Settings.Usb.SaverRotation == null) Settings.Usb.SaverRotation = new List<string>();
             MigrateUsb(Settings.Usb);
+            EnsureQuickSettings(Settings.Usb);
             SaveSettings(); // keeps what the migration did (ids of moved lights) stable
             // Before modes, USB mode was a tick box: carry it over (the two are kept in step from here on).
             if (Settings.Usb.Enabled) Settings.Mode = WheelMode.Unlocked;
@@ -261,6 +262,7 @@ namespace User.FXProRpmSync
             this.AddAction("UsbSleepNow", (a, b) => Usb?.SleepNow());
             this.AddAction("UsbWake", (a, b) => Usb?.Wake());
             this.AttachDelegate("UsbDash", () => Usb?.ActiveDashName ?? "");
+            RegisterQuickControls();
             Usb = new UsbController(this);
             if (Settings.Usb.WheelButtons == null) Settings.Usb.WheelButtons = new Dictionary<string, int>();
             // The dash button (build 5) steps through the dashes unless the user bound it or "next" elsewhere
@@ -339,6 +341,7 @@ namespace User.FXProRpmSync
                 catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] wheel dash data: " + ex.Message); }
             }
             var usb = Settings.Usb;
+            if (usb.Enabled) ReadAtsrNight(pluginManager);
             if (usb.Enabled && Usb != null && usb.LightsFrom == User.FXProRpmSync.LightsSource.AtsrHub && DateTime.UtcNow.Ticks - lastAtsrTicks >= TimeSpan.FromMilliseconds(30).Ticks)
             {
                 lastAtsrTicks = DateTime.UtcNow.Ticks;
@@ -413,7 +416,8 @@ namespace User.FXProRpmSync
             lock (sync) { lastRequested = null; }
         }
 
-        public void SaveSettings() => this.SaveCommonSettings("GeneralSettings", Settings);
+        /// <summary>Saves the settings (skipped outside SimHub, i.e. in the offline tests, where there's no PluginManager).</summary>
+        public void SaveSettings() { if (PluginManager != null) this.SaveCommonSettings("GeneralSettings", Settings); }
 
         /// <summary>Older USB settings to the current ones: one dash per car -> dash lists, "Your own" lights -> a list.</summary>
         private void MigrateUsb(UsbSettings u)
@@ -1029,9 +1033,10 @@ namespace User.FXProRpmSync
                 if (unlocked)
                 {
                     // the light preset's own pattern and colours (set in the Lights tab)
-                    var rev = Settings.Usb.ActiveLights.Rev;
+                    var lights = ActiveLightsFor(t.CarKey);
+                    var rev = lights.Rev;
                     layout = rev.ForShift(t.Redline);
-                    source = $"not in car database: {Settings.Usb.ActiveLights.Name}'s rev lights ({LedPatterns.Catalog.First(c => c.Kind == rev.Pattern).Title}), shift point = SimHub redline";
+                    source = $"not in car database: {lights.Name}'s rev lights ({LedPatterns.Catalog.First(c => c.Kind == rev.Pattern).Title}), shift point = SimHub redline";
                 }
                 else
                 {

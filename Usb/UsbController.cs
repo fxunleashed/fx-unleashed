@@ -85,9 +85,52 @@ namespace User.FXProRpmSync
         public bool SleepEnabled = false;
         public int SleepMinutes = 10;
 
-        public LightProfile ActiveLights =>
-            UserLights?.FirstOrDefault(p => p.Id == LightPreset) ?? (LightPreset == LightPresets.CustomId ? CustomLights : null) ??
-            LightPresets.Find(LightPreset) ?? LightPresets.All[0];
+        /// <summary>The screen dark (backlight off) while the lights keep running. Takes the screen even for wheel dashes:
+        /// just sending dim=0 isn't enough, the wheel's page task can send its own dim=.</summary>
+        public bool ScreenOff = false;
+        /// <summary>No LED brighter than this, 1-90 (90 = the firmware's cap). A clamp on every frame the plugin sends,
+        /// on top of each light profile's own brightness; SimPro's lights (plugin not driving the LEDs) aren't affected.</summary>
+        public int LedCeiling = 90;
+
+        /// <summary>Night mode switched on by hand (the schedule and ATSR-Hub can turn it on too; see FXProRpmSyncPlugin.NightActive).</summary>
+        public bool NightMode = false;
+        public int NightScreenBrightness = 25;
+        public int NightLedCeiling = 20;
+        /// <summary>Night mode between NightFrom and NightTo (local time, "HH:mm"; may run past midnight).</summary>
+        public bool NightSchedule = false;
+        public string NightFrom = "22:00", NightTo = "07:00";
+        /// <summary>Night mode while ATSR-Hub's night mode is on (its NM_Brightness below 100).</summary>
+        public bool NightFollowAtsr = false;
+
+        /// <summary>The screen's backlight now (night or day), 5-100.</summary>
+        public int ScreenBrightnessNow(bool night) => Math.Max(5, Math.Min(100, night ? NightScreenBrightness : ScreenBrightness));
+
+        /// <summary>The LED ceiling now (night or day), 1-90. Night never makes it brighter than the day ceiling.</summary>
+        public byte LedCeilingNow(bool night) => (byte)Math.Max(1, Math.Min(90, night ? Math.Min(LedCeiling, NightLedCeiling) : LedCeiling));
+
+        /// <summary>`now` falls between from and to ("HH:mm"); a window like 22:00-07:00 runs past midnight. Unparsable = never.</summary>
+        public static bool InWindow(string from, string to, TimeSpan now)
+        {
+            if (!TimeSpan.TryParse(from, System.Globalization.CultureInfo.InvariantCulture, out var a) ||
+                !TimeSpan.TryParse(to, System.Globalization.CultureInfo.InvariantCulture, out var b) || a == b) return false;
+            return a < b ? now >= a && now < b : now >= a || now < b;
+        }
+
+        /// <summary>Light presets per car ("Game | CarId" -> preset id) and per game (SimHub's GameName -> preset id).
+        /// Resolution: car, then game, then LightPreset (FXProRpmSyncPlugin.ActiveLightsFor).</summary>
+        public Dictionary<string, string> CarLights = new Dictionary<string, string>();
+        public Dictionary<string, string> GameLights = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The global preset (what cars and games without their own use).</summary>
+        public LightProfile ActiveLights => FindLights(LightPreset) ?? LightPresets.All[0];
+
+        /// <summary>A preset or the user's own lights by id; null if there's none.</summary>
+        public LightProfile FindLights(string id) =>
+            id == null ? null :
+            UserLights?.FirstOrDefault(p => p.Id == id) ?? (id == LightPresets.CustomId ? CustomLights : null) ?? LightPresets.Find(id);
+
+        /// <summary>Every preset the user can pick, built-in first (ids).</summary>
+        public List<string> AllLightIds() => LightPresets.All.Select(p => p.Id).Concat((UserLights ?? new List<LightProfile>()).Select(p => p.Id)).ToList();
     }
 
     /// <summary>
@@ -298,7 +341,7 @@ namespace User.FXProRpmSync
                     bool sleeping = !source && (sleepNow || (s.SleepEnabled && now - lastActive >= Math.Max(1, s.SleepMinutes) * 60));
                     SleepIn = s.SleepEnabled && !source && !sleeping ? Math.Max(1, s.SleepMinutes) * 60 - (now - lastActive) : (double?)null;
                     Sleeping = sleeping && allowed;
-                    bool idle = (s.LightsEnabled && s.IdleLights) || s.ScreenSaver || sleeping;
+                    bool idle = (s.LightsEnabled && s.IdleLights) || s.ScreenSaver || s.ScreenOff || sleeping;
                     if (!allowed || (!source && !idle))
                     {
                         Deactivate();
@@ -372,14 +415,18 @@ namespace User.FXProRpmSync
         private void ApplySettings(UsbSettings s, bool source, bool testing, bool sleeping)
         {
             int version = Volatile.Read(ref settingsVersion);
-            if (version != appliedVersion)
+            string car = plugin.DashCarKey;
+            if (version != appliedVersion || car != lightsCar) // lights can be set per car and per game
             {
                 appliedVersion = version;
-                try { lights = s.ActiveLights.Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
-                if (!sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
+                lightsCar = car;
+                try { lights = plugin.ActiveLightsFor(plugin.DashCarKey).Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
                 reverseRev = false; // the LED order is mapped (WheelView); the old "fill from the right" is gone
             }
-            bool wantLeds = s.LightsEnabled || sleeping;
+            // checked every frame: night mode can start or end on its schedule without a settings change
+            if (!sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
+            // Idle with "keep the lights on between sessions" off: SimPro's lights, even while a screensaver holds the screen
+            bool wantLeds = sleeping || (s.LightsEnabled && (source || s.IdleLights));
             if (wantLeds && leds == null) { leds = new FxLedWriter(conn); leds.Enable(); }
             else if (!wantLeds && leds != null) { leds.Disable(); leds = null; LastFrame = null; }
 
@@ -391,12 +438,24 @@ namespace User.FXProRpmSync
             int reloads = Volatile.Read(ref dashReloads);
             if (source || sleeping || !s.ScreenSaver) saverSince = -1;
             if (sleeping) key = "sleep";
+            else if (s.ScreenOff && !testing && pd == null) key = "screenoff";
             else if (source)
             {
                 if (pd != null) key = "preview|" + previewKey;
                 else
                 {
                     var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
+                    if (SwapDash && !demoOn && !testing)
+                    {
+                        // the quick toggle: a custom dash <-> the wheel's own
+                        if (!wheelDash) { wheelDash = true; id = null; }
+                        else
+                        {
+                            wheelDash = false;
+                            id = plugin.UsbRotation(plugin.DashCarKey, out _, out _).Concat(s.DefaultDashes ?? new List<string>())
+                                       .Where(r => !DashRef.IsWheel(r)).Select(DashRef.Id).FirstOrDefault() ?? BuiltInDashes.MustangId;
+                        }
+                    }
                     if (demoOn && demoDashId != null)
                     {
                         // the demo of one dash from the dashes page: one of the plugin's, or a wheel dash ("w:N")
@@ -438,12 +497,12 @@ namespace User.FXProRpmSync
                 shownPage = null;
             }
 
-            if (key == "sleep")
+            if (key == "sleep" || key == "screenoff")
             {
                 foreach (var c in new[] { "page 0", "vis 255,0", "cls 0", "dim=0" }) screen.Cmd(c);
                 screen.Flush();
                 dimmed = true;
-                SimHub.Logging.Current.Info("[FXProRpmSync] USB mode asleep");
+                SimHub.Logging.Current.Info(key == "sleep" ? "[FXProRpmSync] USB mode asleep" : "[FXProRpmSync] USB mode screen off");
                 return;
             }
             Undim();
@@ -502,7 +561,13 @@ namespace User.FXProRpmSync
         /// <summary>The screensaver whose turn it is (id), while one shows.</summary>
         public string SaverShown { get; private set; }
 
-        private static int Brightness(UsbSettings s) => Math.Max(5, Math.Min(100, s.ScreenBrightness));
+        private int Brightness(UsbSettings s) => s.ScreenBrightnessNow(plugin.NightActive);
+
+        /// <summary>The quick toggle (UsbWheelDashToggle): show the wheel's own dash instead of the car's custom one, or the
+        /// other way round, until toggled back. Not saved.</summary>
+        public bool SwapDash { get => swapDash; set { swapDash = value; wake.Set(); } }
+        private volatile bool swapDash;
+        private string lightsCar;
 
         /// <summary>The backlight setting straight to the screen (works whether the plugin owns the screen or not).</summary>
         private void SendBrightness(UsbSettings s)
@@ -639,6 +704,7 @@ namespace User.FXProRpmSync
                          ". The dash takes over the screen when a game runs.";
             }
             if (source && screen == null) Detail += " This car uses the wheel's own dash.";
+            if (s.ScreenOff && !sleeping) Detail += " Screen off (the lights keep running).";
 
             frameS = s; frameV = v; frameSource = source; frameTesting = testing; frameSleeping = sleeping;
             FeedWheelDash(now, demoOn || testing);
@@ -674,7 +740,9 @@ namespace User.FXProRpmSync
                 }
                 else LightsState = testing && s.LightsFrom == LightsSource.AtsrHub ? "built-in (test)" : "built-in";
                 if (frame == null) frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
-                for (int i = 0; i < frame.Length; i++) leds.Set(i, frame[i].R, frame[i].G, frame[i].B, Math.Max((byte)1, frame[i].Brightness));
+                // every frame passes here (presets, ATSR-Hub, alerts, idle, tests, the API), so the ceiling holds for all
+                byte ceiling = s.LedCeilingNow(plugin.NightActive);
+                for (int i = 0; i < frame.Length; i++) leds.Set(i, frame[i].R, frame[i].G, frame[i].B, Math.Min(ceiling, Math.Max((byte)1, frame[i].Brightness)));
                 leds.Send();
                 LastFrame = frame;
             }

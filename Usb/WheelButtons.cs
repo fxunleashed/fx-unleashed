@@ -28,6 +28,10 @@ namespace User.FXProRpmSync
         public static readonly (string Id, string Name)[] Actions =
         {
             ("next", "Next dash"), ("prev", "Previous dash"), ("sleep", "Sleep / wake"),
+            ("screen", "Screen on / off"), ("wheeldash", "Custom / wheel's own dash"),
+            ("ledup", "Lights brighter"), ("leddown", "Lights dimmer"),
+            ("screenup", "Screen brighter"), ("screendown", "Screen dimmer"),
+            ("night", "Night mode on / off"), ("lightnext", "Next light preset"), ("lightprev", "Previous light preset"),
         };
 
         public WheelButtons(FXProRpmSyncPlugin plugin)
@@ -106,6 +110,15 @@ namespace User.FXProRpmSync
                 case "next": plugin.CycleUsbDash(+1); break;
                 case "prev": plugin.CycleUsbDash(-1); break;
                 case "sleep": if (plugin.Usb?.Sleeping == true) plugin.Usb.Wake(); else plugin.Usb?.SleepNow(); break;
+                case "screen": plugin.ToggleScreen(); break;
+                case "wheeldash": plugin.ToggleWheelDash(); break;
+                case "ledup": plugin.StepLedCeiling(+FXProRpmSyncPlugin.LedCeilingStep); break;
+                case "leddown": plugin.StepLedCeiling(-FXProRpmSyncPlugin.LedCeilingStep); break;
+                case "screenup": plugin.StepScreenBrightness(+FXProRpmSyncPlugin.ScreenBrightnessStep); break;
+                case "screendown": plugin.StepScreenBrightness(-FXProRpmSyncPlugin.ScreenBrightnessStep); break;
+                case "night": plugin.ToggleNightMode(); break;
+                case "lightnext": plugin.CycleLightPreset(+1); break;
+                case "lightprev": plugin.CycleLightPreset(-1); break;
             }
         }
 

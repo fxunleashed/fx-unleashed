@@ -35,6 +35,7 @@ namespace User.FXProRpmSync
         private TextBox nameBox;
         private StackPanel nameRow;
         private bool loading;
+        private readonly LightsForCarPanel perCar;
 
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private readonly DispatcherTimer frameTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
@@ -148,6 +149,8 @@ namespace User.FXProRpmSync
             builtIn.Children.Add(Theme.Eyebrow("Presets"));
             gallery = new WrapPanel();
             builtIn.Children.Add(new ScrollViewer { Content = gallery, MaxHeight = 410, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+            builtIn.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 14, 0, 16) });
+            builtIn.Children.Add(perCar = new LightsForCarPanel(plugin));
             Children.Add(Theme.CardBox(builtIn));
 
             // ----- Editor (your own) -----
@@ -298,6 +301,7 @@ namespace User.FXProRpmSync
             duplicate.Content = mine != null ? "Duplicate" : "Duplicate to edit";
             ((Border)editor.Tag).Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
             if (mine != null) ShowEditor(); else big.Highlight(null);
+            perCar?.Refresh(force: true);
         }
 
         private void RenderFrame()
