@@ -65,6 +65,12 @@ namespace User.FXProRpmSync
     {
         public const string DefaultBaseUrl = "https://raw.githubusercontent.com/fxunleashed/fx-unleashed-library/main/";
         public const int MaxDashBytes = 1024 * 1024, MaxPreviewBytes = 512 * 1024;
+        /// <summary>The first plugin version with the library: the default minPlugin of a packaged item.</summary>
+        public const string FirstLibraryVersion = "0.3.0-beta.1";
+
+        /// <summary>The item needs a newer plugin than this one (its minPlugin).</summary>
+        public static bool NeedsNewerPlugin(LibraryItem item) =>
+            SemVer.TryParse(item.MinPlugin, out var min) && SemVer.TryParse(Updater.CurrentVersion, out var cur) && min.CompareTo(cur) > 0;
 
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         private readonly string baseUrl;
@@ -114,6 +120,7 @@ namespace User.FXProRpmSync
             if (!string.Equals(Sha256(data), item.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw new Exception("the download doesn't match the library's checksum");
             var d = JsonConvert.DeserializeObject<DashDefinition>(Encoding.UTF8.GetString(data));
+            if (NeedsNewerPlugin(item)) throw new Exception($"needs plugin v{item.MinPlugin} or newer: update the plugin");
             var problems = Check(d, data.Length);
             if (problems.Count > 0) throw new Exception(string.Join("; ", problems));
             return d;
@@ -236,14 +243,15 @@ namespace User.FXProRpmSync
             var dir = Path.Combine(outRoot, meta.Kind == "saver" ? "savers" : "dashes", meta.Id);
             Directory.CreateDirectory(dir);
             File.WriteAllBytes(Path.Combine(dir, "dash.json"), json);
-            File.WriteAllBytes(Path.Combine(dir, "preview.png"), DashTools.Render(d, "demo", 20, 0, 0));
+            // dashes: a moment of the demo lap; screensavers show their preview texts (the demo lap has no clock)
+            File.WriteAllBytes(Path.Combine(dir, "preview.png"), DashTools.Render(d, meta.Kind == "saver" ? "preview" : "demo", 20, 0, 0));
             var check = DashTools.Check(d);
             var verify = DashVerify.Run(d, 0, 0, 60);
             meta.FormatVersion = d.FormatVersion;
             meta.Sha256 = LibraryClient.Sha256(json);
             meta.BytesStatic = check.Cost?.StaticBytes ?? 0;
             meta.BytesPerSecond = verify.AvgBytesPerSecond;
-            meta.MinPlugin = meta.MinPlugin ?? Updater.CurrentVersion;
+            meta.MinPlugin = meta.MinPlugin ?? LibraryClient.FirstLibraryVersion;
             if (meta.Created == default) meta.Created = DateTime.UtcNow.Date;
             meta.Updated = DateTime.UtcNow.Date;
             meta.DashUrl = meta.PreviewUrl = null;

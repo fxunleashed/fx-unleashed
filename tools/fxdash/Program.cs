@@ -33,6 +33,10 @@ internal static class FxDash
                                              (--fit: scale into W x H, e.g. 790,460 to leave the wheel's padding)
                                              convert a SimHub dash (report on stdout)
   fxdash serve [--port 8899]                 run the designer in the browser (no wheel; SimHub formulas not evaluated)
+  fxdash package DASH.json LIBRARY_DIR --id ID --author NAME --license SPDX [--kind dash|saver] [--name N]
+                 [--description D] [--games a,b] [--cars a,b] [--tags a,b] [--version 1.0.0] [--source S]
+                                             a library item: <dir>/dashes/<id>/{dash.json, meta.json, preview.png}
+                                             (as the plugin's Package for the library; refuses js:/scripts)
 
   Options: --simhub DIR (SimHub's folder, default: SIMHUB_INSTALL_PATH or C:\Program Files (x86)\SimHub)";
 
@@ -134,6 +138,22 @@ internal static class FxDash
                         System.Threading.Thread.Sleep(System.Threading.Timeout.Infinite);
                     }
                     return 0;
+                }
+                case "package":
+                {
+                    Need(pos, 3);
+                    string O(string k) => opts.TryGetValue(k, out var v) ? v : null;
+                    List<string> L(string k) => (O(k) ?? "").Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+                    var dash = Load(pos[1]);
+                    var meta = new LibraryItem
+                    {
+                        Id = O("id") ?? throw new Exception("--id needed"), Kind = O("kind") ?? "dash",
+                        Name = O("name") ?? dash.Name, Author = O("author") ?? dash.Author ?? throw new Exception("--author needed"),
+                        Description = O("description") ?? dash.Description, License = O("license") ?? throw new Exception("--license needed"),
+                        Games = L("games"), Cars = L("cars"), Tags = L("tags"), Version = O("version") ?? "1.0.0", Source = O("source"),
+                    };
+                    var dir = LibraryInstaller.Package(dash, meta, pos[2]);
+                    return Out(new { written = Path.GetFullPath(dir), meta = JsonConvert.DeserializeObject(File.ReadAllText(Path.Combine(dir, "meta.json"))) });
                 }
                 default:
                     Console.WriteLine(Usage);

@@ -119,7 +119,9 @@ namespace User.FXProRpmSync
             var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             var rec = LibraryInstaller.Installed(S, item);
             bool update = LibraryInstaller.UpdateAvailable(S, item);
-            if (rec == null) buttons.Children.Add(Theme.Btn("Install", () => Install(item), primary: true, icon: ""));
+            if (LibraryClient.NeedsNewerPlugin(item))
+                buttons.Children.Add(new TextBlock { Text = $"Needs plugin v{item.MinPlugin}: update the plugin (About tab)", Foreground = Theme.Amber, TextWrapping = TextWrapping.Wrap });
+            else if (rec == null) buttons.Children.Add(Theme.Btn("Install", () => Install(item), primary: true, icon: ""));
             else
             {
                 if (update) buttons.Children.Add(Theme.Btn("Update to v" + item.Version, () => Install(item), primary: true, icon: ""));
