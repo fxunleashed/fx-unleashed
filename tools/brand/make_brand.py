@@ -8,7 +8,6 @@ Letters are polygons: a squared, chamfered, italic "racing" alphabet built here,
   assets/logo-nobg.png (500)                the badge on transparent (settings header, logo screensaver)
   assets/logo.png (600)                     the badge on black (README on light backgrounds)
   Resources/menu-icon.png (32)              SimHub menu icon: the monogram alone, readable at 32 px
-  assets/wheel-outline.svg                  the wheel drawing for the settings page (WheelView, 663x396), our own shape
 The badge keeps 13 rev dots in a row at x = 169.5 + 13.33 i, y = 103 (500 px), where Usb/ScreenSaver.cs animates them.
 """
 import math
@@ -241,11 +240,7 @@ def main():
     lpng.save(os.path.join(brand, "lockup.png"))
     menu_icon(32).save(os.path.join(ROOT, "Resources", "menu-icon.png"))
     menu_icon(256).save(os.path.join(brand, "icon-256.png"))
-    wheel = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 663 396">\n'
-             '  <!-- FX Unleashed wheel drawing: our own shape (tools/brand/make_brand.py), not traced from any photo -->\n'
-             f'  <path fill="none" stroke="currentColor" stroke-width="8" stroke-linejoin="round" d="{wheel_path()}"/>\n</svg>\n')
-    open(os.path.join(ROOT, "assets", "wheel-outline.svg"), "w", encoding="utf-8").write(wheel)
-    print("written:", brand, "logo-nobg.png, logo.png, menu-icon.png, wheel-outline.svg")
+    print("written:", brand, "logo-nobg.png, logo.png, menu-icon.png")
 
 
 if __name__ == "__main__":

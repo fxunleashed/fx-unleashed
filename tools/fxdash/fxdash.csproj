@@ -20,7 +20,7 @@
     <Compile Include="..\..\*.cs" />
     <Compile Include="..\..\Usb\*.cs" />
     <Compile Include="..\..\Ui\*.cs" />
-    <EmbeddedResource Include="..\..\assets\wheel-outline.svg" LogicalName="User.FXProRpmSync.wheel-outline.svg" />
+    <EmbeddedResource Include="..\..\assets\fxpro-outline.svg" LogicalName="User.FXProRpmSync.fxpro-outline.svg" />
     <EmbeddedResource Include="..\..\assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
     <EmbeddedResource Include="..\..\Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
     <Reference Include="GameReaderCommon"><HintPath>$(SimHubPath)GameReaderCommon.dll</HintPath></Reference>
