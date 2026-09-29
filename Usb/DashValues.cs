@@ -32,6 +32,7 @@ namespace User.FXProRpmSync
             ("waterTemp", "Water temperature"), ("oilTemp", "Oil temperature"),
             ("gearText", "Gear as text (R, N, 1...)"), ("rpmPercent", "RPM as % of max"), ("gameRunning", "A game is running"),
             ("absActive", "ABS working now"), ("tcActive", "TC working now"), ("pitLimiter", "Pit limiter on"),
+            ("spotterLeft", "A car on your left"), ("spotterRight", "A car on your right"), ("lapInvalid", "This lap is invalidated"),
             ("clock", "Time of day, HH:mm (screensavers)"), ("date", "Date, e.g. SAT 27 SEP (screensavers)"),
         };
 
@@ -41,7 +42,8 @@ namespace User.FXProRpmSync
         public double Rpm, MaxRpm, Redline;
         public string GearKey = "N";
         public bool AbsActive, TcActive, PitLimiter, Drs, InPitLane;
-        public bool BlueFlag, YellowFlag, GreenFlag, WhiteFlag, CheckeredFlag, BlackFlag;
+        public bool BlueFlag, YellowFlag, GreenFlag, WhiteFlag, CheckeredFlag, BlackFlag, OrangeFlag;
+        public bool SpotterLeft, SpotterRight, LapInvalid, Stalled;
         public double FuelPercent = 100;
         public bool Running;
 
@@ -222,7 +224,16 @@ namespace User.FXProRpmSync
                 r.Drs = d.DRSEnabled != 0;
                 r.BlueFlag = d.Flag_Blue != 0; r.YellowFlag = d.Flag_Yellow != 0; r.GreenFlag = d.Flag_Green != 0;
                 r.WhiteFlag = d.Flag_White != 0; r.CheckeredFlag = d.Flag_Checkered != 0; r.BlackFlag = d.Flag_Black != 0;
+                r.OrangeFlag = d.Flag_Orange != 0;
             });
+            Try(() =>
+            {
+                r.SpotterLeft = d.SpotterCarLeft != 0; r.SpotterRight = d.SpotterCarRight != 0;
+                r.Set("spotterLeft", r.SpotterLeft); r.Set("spotterRight", r.SpotterRight);
+            });
+            Try(() => { r.LapInvalid = d.LapInvalidated; r.Set("lapInvalid", r.LapInvalid); });
+            // ignition on but the engine not running (games that don't report either leave both 0: never "stalled")
+            Try(() => r.Stalled = d.EngineIgnitionOn != 0 && d.EngineStarted == 0 && d.SpeedKmh < 5);
             if (binds != null)
                 foreach (var p in binds)
                     if (p.StartsWith("prop:", StringComparison.OrdinalIgnoreCase))
@@ -298,6 +309,7 @@ namespace User.FXProRpmSync
             r.PitLimiter = t.Get("isPitLimiterOn") > 0;
             r.Set("absActive", r.AbsActive); r.Set("tcActive", r.TcActive); r.Set("pitLimiter", r.PitLimiter);
             r.BlueFlag = t.Get("blueFlag") > 0; r.YellowFlag = t.Get("yellowFlag") > 0;
+            r.Set("spotterLeft", false); r.Set("spotterRight", false); r.Set("lapInvalid", false);
             return r;
         }
     }

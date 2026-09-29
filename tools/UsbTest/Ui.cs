@@ -72,6 +72,9 @@ static class UiTest
             u.SleepEnabled = true;
             u.SaverSwitchMinutes = 5; u.SaverRotation.Add("lights-out"); u.SaverRotation.Add("pit-board"); u.SaverId = "clock";
             mine.Rev.Pattern = PatternKind.EdgesToCenter;
+            mine.Groups[LedGroup.Encoders] = new GroupLighting { Effect = LightEffect.Levels, Colors = new System.Collections.Generic.List<string> { "#00FF40", "#FFB000", "#FF0020" } };
+            mine.Alerts.Insert(2, new AlertRule { Trigger = AlertTrigger.Custom, Name = "Damage", Condition = "[CarDamagesMax] > 5", Color = "#FF00C0", Groups = { LedGroup.Buttons } });
+            u.PressLights = true; u.ButtonLeds[1] = 0; u.ButtonLeds[2] = 6;
         }
         if (Environment.GetEnvironmentVariable("UI_FEEDPROBLEM") == "1")
             for (int i = 0; i < 2; i++) plugin.FeedWatchState.Update(true, true, true, true, true, "Le Mans Ultimate");

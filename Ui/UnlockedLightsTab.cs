@@ -165,6 +165,9 @@ namespace User.FXProRpmSync
             Children.Add(editorCard);
             editor.Tag = editorCard;
 
+            // ----- Buttons light while pressed (any lights source) -----
+            Children.Add(Theme.CardBox(new ButtonLightsCard(plugin, Changed)));
+
             frameTimer.Tick += (s, e) => RenderFrame();
             slowTimer.Tick += (s, e) => RefreshState();
             saveTimer.Tick += (s, e) => { saveTimer.Stop(); plugin.SaveSettings(); };
@@ -365,8 +368,9 @@ namespace User.FXProRpmSync
             patternStrips.Clear();
             var l = p.Group(group);
             var effect = new ComboBox { Width = 240 };
-            var effects = group == LedGroup.Rev ? Enum.GetValues(typeof(LightEffect)).Cast<LightEffect>()
-                                                : Enum.GetValues(typeof(LightEffect)).Cast<LightEffect>().Where(x => x != LightEffect.Rpm);
+            // shift lights only on the rev bar, setting levels only on the encoders
+            var effects = Enum.GetValues(typeof(LightEffect)).Cast<LightEffect>()
+                .Where(x => (x != LightEffect.Rpm || group == LedGroup.Rev) && (x != LightEffect.Levels || group == LedGroup.Encoders));
             foreach (var x in effects) effect.Items.Add(new ComboBoxItem { Content = EffectName(x), Tag = x });
             effect.SelectedItem = effect.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (LightEffect)i.Tag == l.Effect) ?? effect.Items[0];
             var details = new StackPanel();
@@ -374,6 +378,7 @@ namespace User.FXProRpmSync
             {
                 details.Children.Clear();
                 if (l.Effect == LightEffect.Rpm) { BuildRevEditor(details, p.Rev); return; }
+                if (l.Effect == LightEffect.Levels) { BuildLevelsEditor(details, l); return; }
                 if (l.Effect == LightEffect.Off) return;
                 if (l.Effect != LightEffect.Rainbow && l.Effect != LightEffect.RainbowBreathe)
                     details.Children.Add(Theme.Field("Colours", ColourList(l.Colors, 1, 4)));
@@ -392,16 +397,56 @@ namespace User.FXProRpmSync
             groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 10, 0, 16) });
             groupEditor.Children.Add(Theme.Field("All lights", Theme.SliderField(1, 90, p.MaxBrightness, 1, v => $"{v:0} / 90", v => { if (!loading) { p.MaxBrightness = (int)v; Changed(); } })));
             groupEditor.Children.Add(Theme.Eyebrow("Alerts"));
-            groupEditor.Children.Add(Theme.Note("While one is on, its lights blink in its colour over everything else (the first in the list wins)."));
-            foreach (var a in p.Alerts) groupEditor.Children.Add(AlertRow(a));
+            groupEditor.Children.Add(Theme.Note("While one is on, its lights show it over everything else. Higher in the list wins a light: use the arrows to reorder."));
+            if (p.AddMissingAlerts()) { saveTimer.Stop(); saveTimer.Start(); } // alerts added since these lights were saved
+            alertList = new StackPanel();
+            groupEditor.Children.Add(alertList);
+            BuildAlerts(p);
+            var add = Theme.Btn("Add a custom alert", () =>
+            {
+                p.Alerts.Add(new AlertRule { Trigger = AlertTrigger.Custom, Name = "Custom alert", Color = "#FF00C0", BlinkHz = 2, Groups = { LedGroup.Encoders } });
+                Changed(); BuildAlerts(p);
+            }, icon: "");
+            add.Margin = new Thickness(0, 6, 0, 0);
+            add.HorizontalAlignment = HorizontalAlignment.Left;
+            groupEditor.Children.Add(add);
             loading = false;
         }
 
-        private FrameworkElement AlertRow(AlertRule a)
+        private StackPanel alertList;
+
+        private void BuildAlerts(LightProfile p)
         {
-            var row = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-            var on = Theme.Switch(LightPresets.AlertName(a.Trigger), a.Enabled, v => { a.Enabled = v; Changed(); });
-            on.Width = 200; on.Margin = new Thickness(0, 4, 0, 0);
+            bool was = loading;
+            loading = true;
+            alertList.Children.Clear();
+            for (int i = 0; i < p.Alerts.Count; i++) alertList.Children.Add(AlertRow(p, i));
+            loading = was;
+        }
+
+        private FrameworkElement AlertRow(LightProfile p, int index)
+        {
+            var a = p.Alerts[index];
+            var outer = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var row = new WrapPanel();
+            outer.Children.Add(row);
+
+            // priority: up / down
+            Action<int> move = d =>
+            {
+                int to = index + d;
+                if (to < 0 || to >= p.Alerts.Count) return;
+                p.Alerts.RemoveAt(index);
+                p.Alerts.Insert(to, a);
+                Changed(); BuildAlerts(p);
+            };
+            var up = Small("", () => move(-1), "Higher priority");
+            var down = Small("", () => move(+1), "Lower priority");
+            up.IsEnabled = index > 0; down.IsEnabled = index < p.Alerts.Count - 1;
+            row.Children.Add(up); row.Children.Add(down);
+
+            var on = Theme.Switch(LightPresets.AlertName(a), a.Enabled, v => { a.Enabled = v; Changed(); });
+            on.Width = 190; on.Margin = new Thickness(4, 4, 0, 0);
             row.Children.Add(on);
             row.Children.Add(new ColourField(a.Color, hex => { a.Color = hex; Changed(); }) { Margin = new Thickness(0, 0, 14, 0) });
             foreach (LedGroup g in Enum.GetValues(typeof(LedGroup)))
@@ -425,7 +470,72 @@ namespace User.FXProRpmSync
             hz.SelectedItem = hz.Items.Cast<ComboBoxItem>().OrderBy(i => Math.Abs((double)i.Tag - a.BlinkHz)).First();
             hz.SelectionChanged += (s, e) => { if (hz.SelectedItem is ComboBoxItem i) { a.BlinkHz = (double)i.Tag; Changed(); } };
             row.Children.Add(hz);
-            return row;
+            var style = new ComboBox { Width = 110, Margin = new Thickness(6, 0, 0, 0), ToolTip = "How it shows: all lights blinking, fading in and out, a band running along them, or every other light (chequered)" };
+            foreach (AlertStyle st in Enum.GetValues(typeof(AlertStyle))) style.Items.Add(new ComboBoxItem { Content = LightPresets.StyleName(st), Tag = st });
+            style.SelectedItem = style.Items.Cast<ComboBoxItem>().First(i => (AlertStyle)i.Tag == a.Style);
+            style.SelectionChanged += (s, e) => { if (style.SelectedItem is ComboBoxItem i) { a.Style = (AlertStyle)i.Tag; Changed(); } };
+            row.Children.Add(style);
+
+            if (a.Trigger == AlertTrigger.Custom)
+            {
+                var del = Small("", () => { p.Alerts.Remove(a); Changed(); BuildAlerts(p); }, "Delete this alert");
+                del.Margin = new Thickness(6, 0, 0, 0);
+                row.Children.Add(del);
+
+                var custom = new WrapPanel { Margin = new Thickness(62, 6, 0, 0) };
+                var name = new TextBox { Width = 180, Text = a.Name ?? "", ToolTip = "Its name in this list" };
+                name.LostFocus += (s, e) => { var n = name.Text.Trim(); if (n != (a.Name ?? "")) { a.Name = n; Changed(); on.Content = LightPresets.AlertName(a); } };
+                custom.Children.Add(new TextBlock { Text = "Name", Foreground = Theme.Text2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+                custom.Children.Add(name);
+                var cond = new TextBox { Width = 380, Text = a.Condition ?? "", Margin = new Thickness(0, 0, 0, 0),
+                    ToolTip = "On while this is true (or a number other than 0).\nA SimHub property: DataCorePlugin.GameData.NewData.CarDamagesMax\nA formula: [CarDamagesMax] > 5\nJavaScript: js:return $prop('...') > 5\nOr a dash value: absActive, spotterLeft, lapInvalid" };
+                var hint = new TextBlock { Foreground = Theme.Text3, FontSize = 11, Margin = new Thickness(62, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
+                Action showHint = () =>
+                {
+                    var b = a.ConditionBind;
+                    hint.Text = b == null ? "Type a SimHub property or formula; the alert is on while it's true."
+                              : b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) ? "Read as a SimHub property."
+                              : b.StartsWith("ncalc:", StringComparison.OrdinalIgnoreCase) ? "Read as an NCalc formula (as in SimHub's dash studio)."
+                              : b.StartsWith("js:", StringComparison.OrdinalIgnoreCase) ? "Read as JavaScript (as in SimHub's dash studio)."
+                              : "Read as the dash value \"" + b + "\".";
+                    hint.Text += " Only live with SimHub's data: the preview and the demo don't show it.";
+                };
+                cond.LostFocus += (s, e) => { var c = cond.Text.Trim(); if (c != (a.Condition ?? "")) { a.Condition = c; Changed(); showHint(); } };
+                custom.Children.Add(new TextBlock { Text = "On while", Foreground = Theme.Text2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 8, 0) });
+                custom.Children.Add(cond);
+                outer.Children.Add(custom);
+                showHint();
+                outer.Children.Add(hint);
+            }
+            return outer;
+        }
+
+        private static Button Small(string glyph, Action click, string tip)
+        {
+            var b = Theme.Btn("", click);
+            b.Content = new TextBlock { Text = glyph, FontFamily = Theme.Icons, FontSize = 11 };
+            b.Width = 26; b.Height = 26; b.Padding = new Thickness(0); b.Margin = new Thickness(0, 0, 2, 0);
+            b.ToolTip = tip;
+            b.VerticalAlignment = VerticalAlignment.Center;
+            return b;
+        }
+
+        private void BuildLevelsEditor(StackPanel details, GroupLighting l)
+        {
+            details.Children.Add(Theme.Note("Each encoder's light shows its own setting: ABS, TC, brake bias, DIFF and engine map, " +
+                "coloured from the first colour (low) to the last (high). A setting the game doesn't give stays dim."));
+            if (l.Colors == null || l.Colors.Count < 2) l.Colors = new List<string> { "#00FF40", "#FFB000", "#FF0020" };
+            details.Children.Add(Theme.Field("Colours, low to high", ColourList(l.Colors, 1, 4)));
+            details.Children.Add(Theme.Field("Brightness", Theme.SliderField(5, 100, l.Brightness, 1, v => $"{v:0}%", v => { if (!loading) { l.Brightness = (int)v; Changed(); } })));
+            var flash = Theme.Switch("Blink for a second when a setting changes", l.FlashOnChange, v => { l.FlashOnChange = v; Changed(); });
+            flash.Margin = new Thickness(170, 0, 0, 10);
+            details.Children.Add(flash);
+            var diff = new TextBox { Width = 380, Text = l.DiffSource ?? "",
+                ToolTip = "No game gives a standard DIFF value. A SimHub property (e.g. an iRacing dc... value) or a formula; empty = the DIFF light stays dim." };
+            diff.LostFocus += (s, e) => { var d = diff.Text.Trim(); if (d != (l.DiffSource ?? "")) { l.DiffSource = d; Changed(); } };
+            details.Children.Add(Theme.Field("DIFF shows", diff));
+            var ranges = string.Join(" · ", LightEngine.EncoderLevels.Where(x => x.Name != "DIFF").Select(x => $"{x.Name} {x.Low:0}-{x.High:0}")) + " · DIFF 1-10";
+            details.Children.Add(Theme.Note("Colour ranges: " + ranges + " (brake bias in %).", new Thickness(170, 0, 0, 8)));
         }
 
         private static ControlTemplate chipTemplate;
@@ -525,6 +635,7 @@ namespace User.FXProRpmSync
                 case LightEffect.RainbowBreathe: return "Breathing rainbow";
                 case LightEffect.Scanner: return "Scanner";
                 case LightEffect.Sparkle: return "Sparkle";
+                case LightEffect.Levels: return "Setting levels";
                 default: return "Shift lights (RPM)";
             }
         }

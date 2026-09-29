@@ -236,11 +236,16 @@ namespace User.FXProRpmSync
         {
             double cycle = t % 6;
             double rpm = cycle < 4.5 ? 3000 + 5200 * Math.Pow(cycle / 4.5, 1.4) : 8200 - 5200 * (cycle - 4.5) / 1.5;
-            return new DashValues
+            var v = new DashValues
             {
                 Running = true, Rpm = rpm, MaxRpm = 8400, Redline = 8000, GearKey = "3",
                 AbsActive = t % 11 > 9.5, TcActive = t % 13 > 11.8, FuelPercent = 50,
+                SpotterLeft = t % 17 > 15.5, SpotterRight = t % 19 > 17.2,
             };
+            // settings changing now and then (the encoders' Levels effect)
+            v.Set("absLevel", 2.0 + (int)(t / 5) % 7); v.Set("tcLevel", 9.0 - (int)((t + 2) / 7) % 6);
+            v.Set("brakeBias", 52 + (int)((t + 4) / 9) % 8 * 1.5); v.Set("engineMap", 1.0 + (int)((t + 1) / 11) % 9);
+            return v;
         }
     }
 

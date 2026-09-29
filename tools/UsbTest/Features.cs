@@ -22,6 +22,7 @@ static class FeatureTests
         QuickControls();
         LightsPerCar();
         FeedWatchChecks();
+        Alerts();
         UpdaterTests.Run(dir);
         foreach (var extra in Extra) extra();
         Console.WriteLine(failures == 0 ? "features: OK" : $"features: {failures} FAILED");
@@ -119,6 +120,86 @@ static class FeatureTests
         for (int i = 0; i < 2; i++) n.Update(true, true, false, false, true, "LMU");
         Check("feed: stub down raises with its own advice", n.Problem && n.StubDown && n.Action.Contains("off and on"));
     }
+
+    /// <summary>F: alerts (new triggers, custom conditions, priority, styles), encoder levels, profile upgrades.</summary>
+    static void Alerts()
+    {
+        // condition text -> binding
+        Check("alert bind: property path", AlertRule.Bind("DataCorePlugin.GameData.NewData.CarDamagesMax") == "prop:DataCorePlugin.GameData.NewData.CarDamagesMax");
+        Check("alert bind: formula", AlertRule.Bind("[CarDamagesMax] > 5") == "ncalc:[CarDamagesMax] > 5");
+        Check("alert bind: kept as typed", AlertRule.Bind("js:return 1") == "js:return 1" && AlertRule.Bind("prop:A.B") == "prop:A.B" && AlertRule.Bind(" absActive ") == "absActive");
+        Check("alert bind: empty", AlertRule.Bind("  ") == null && AlertRule.Bind(null) == null);
+
+        var engine = new LightEngine();
+        var p = LightPresets.Find("stealth").Clone();
+        var v = new DashValues { Running = true, MaxRpm = 8000, Rpm = 3000, FuelPercent = 50 };
+        Func<int, LedColor> at = led => engine.Render(p, v, null, 0.01, false)[led];
+        // spotter beats ABS on the left side lights (higher in the default list)
+        v.AbsActive = true; v.SpotterLeft = true;
+        var spot = LightEngine.Rgb(p.Alerts.Find(a => a.Trigger == AlertTrigger.SpotterLeft).Color);
+        Check("spotter over ABS", at(17).R == spot.R && at(17).G == spot.G);
+        // reorder: ABS first now wins
+        var abs = p.Alerts.Find(a => a.Trigger == AlertTrigger.Abs);
+        p.Alerts.Remove(abs); p.Alerts.Insert(0, abs);
+        var absC = LightEngine.Rgb(abs.Color);
+        Check("priority follows the list", at(17).R == absC.R && at(17).G == absC.G);
+        v.AbsActive = false; v.SpotterLeft = false;
+
+        // custom alert on a dash value and on an evaluated binding
+        var custom = new AlertRule { Trigger = AlertTrigger.Custom, Condition = "[CarDamagesMax] > 5", Color = "#FF00C0", BlinkHz = 0, Groups = { LedGroup.Buttons } };
+        p.Alerts.Insert(0, custom);
+        Check("custom: off without a value", at(0).R != 0xFF || at(0).B != 0xC0);
+        Check("custom: in the lights' bindings", new List<string>(p.Bindings()).Contains("ncalc:[CarDamagesMax] > 5"));
+        v.Set("ncalc:[CarDamagesMax] > 5", true);
+        Check("custom: on when true", at(0).R == 0xFF && at(0).B == 0xC0);
+        v.Set("ncalc:[CarDamagesMax] > 5", 0.0);
+        Check("custom: 0 is off", at(0).B != 0xC0);
+        custom.Enabled = false;
+        Check("custom: disabled isn't read", !new List<string>(p.Bindings()).Contains("ncalc:[CarDamagesMax] > 5"));
+
+        // new triggers
+        v.Rpm = 7950;
+        Check("rev limiter", LightEngine.Active(AlertTrigger.RevLimiter, v) && !LightEngine.Active(AlertTrigger.RevLimiter, new DashValues { Running = true, MaxRpm = 8000, Rpm = 7700 }));
+        v.OrangeFlag = true; v.Stalled = true; v.LapInvalid = true;
+        Check("orange / stalled / invalid", LightEngine.Active(AlertTrigger.OrangeFlag, v) && LightEngine.Active(AlertTrigger.Stalled, v) && LightEngine.Active(AlertTrigger.InvalidLap, v));
+        Check("nothing while no game", !LightEngine.Active(AlertTrigger.OrangeFlag, new DashValues { OrangeFlag = true }));
+
+        // styles
+        var chk = new AlertRule { Style = AlertStyle.Checker, BlinkHz = 2 };
+        Check("checker alternates", AlertLevel(chk, 0, 0.0) == 1 && AlertLevel(chk, 1, 0.0) == 0 && AlertLevel(chk, 0, 0.3) == 0 && AlertLevel(chk, 1, 0.3) == 1);
+        var flash = new AlertRule { Style = AlertStyle.Flash, BlinkHz = 0 };
+        Check("steady flash always on", AlertLevel(flash, 3, 0.37) == 1);
+        var sweep = new AlertRule { Style = AlertStyle.Sweep, BlinkHz = 1 };
+        double lit = 0; for (int i = 0; i < 15; i++) lit += LightEngine.AlertLevel(sweep, i, 15, 0.5);
+        Check("sweep lights a band, not all", lit > 0.5 && lit < 8, lit.ToString("0.00"));
+
+        // an old saved profile gets the new alerts, switched off; none twice
+        var old = new LightProfile { Alerts = new List<AlertRule> { new AlertRule { Trigger = AlertTrigger.Abs } } };
+        Check("old profile upgraded", old.AddMissingAlerts() && old.Alerts.Count == LightPresets.DefaultAlerts().Count
+                                      && old.Alerts.Find(a => a.Trigger == AlertTrigger.SpotterLeft).Enabled == false && old.Alerts[0].Enabled);
+        Check("upgrade only once", !old.AddMissingAlerts());
+
+        // encoder levels: TC 11 = last colour, a change blinks, no value = dim
+        var lv = LightPresets.Find("stealth").Clone();
+        lv.Groups[LedGroup.Encoders] = new GroupLighting { Effect = LightEffect.Levels, Colors = new List<string> { "#00FF00", "#FF0000" } };
+        lv.Alerts.Clear();
+        var e2 = new LightEngine();
+        var d = new DashValues { Running = true };
+        d.Set("tcLevel", 11.0); d.Set("absLevel", 1.0);
+        var f = e2.Render(lv, d, null, 10, false);
+        Check("levels: high = last colour", f[13].R > 200 && f[13].G < 40, $"{f[13].R},{f[13].G}");
+        Check("levels: low = first colour", f[12].G > 200 && f[12].R < 40, $"{f[12].R},{f[12].G}");
+        Check("levels: missing = dim", f[16].G < 40);
+        var d2 = new DashValues { Running = true }; d2.Set("tcLevel", 5.0); d2.Set("absLevel", 1.0);
+        bool blinked = false;
+        for (double t = 10.02; t < 10.5; t += 0.02) { var g = e2.Render(lv, d2, null, t, false)[13]; if (g.R < 40 && g.G < 40) blinked = true; }
+        var later = e2.Render(lv, d2, null, 12, false)[13];
+        Check("levels: a change blinks, then steady", blinked && later.R + later.G > 150);
+        lv.Groups[LedGroup.Encoders].DiffSource = "DataCorePlugin.GameRawData.Telemetry.dcDiffEntry";
+        Check("levels: DIFF source read", new List<string>(lv.Bindings()).Contains("prop:DataCorePlugin.GameRawData.Telemetry.dcDiffEntry"));
+    }
+
+    static double AlertLevel(AlertRule a, int i, double t) => LightEngine.AlertLevel(a, i, 15, t);
 
     /// <summary>A plugin with default settings and no SimHub (SaveSettings is guarded in tests by a null PluginManager).</summary>
     public static FXProRpmSyncPlugin NewPlugin()

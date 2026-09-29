@@ -121,6 +121,12 @@ namespace User.FXProRpmSync
         public Dictionary<string, string> CarLights = new Dictionary<string, string>();
         public Dictionary<string, string> GameLights = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Light a button's LED while it's held (any lights source; needs ButtonLeds).</summary>
+        public bool PressLights = false;
+        public string PressColor = "#FFFFFF";
+        /// <summary>Which LED (0-11) sits under each wheel button (1-40), from the guided "press each button" step.</summary>
+        public Dictionary<int, int> ButtonLeds = new Dictionary<int, int>();
+
         /// <summary>The global preset (what cars and games without their own use).</summary>
         public LightProfile ActiveLights => FindLights(LightPreset) ?? LightPresets.All[0];
 
@@ -175,6 +181,10 @@ namespace User.FXProRpmSync
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private double lastDash, lastDemo, lastLed;
         private volatile string[] props = new string[0];
+        private string[] dashProps = new string[0], lightProps = new string[0];
+
+        /// <summary>What DataUpdate reads for us: the dash's bindings and the lights' (custom alerts, DIFF encoder).</summary>
+        private void UpdateProps() => props = dashProps.Concat(lightProps).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
         public string State { get; private set; } = "Off";
         public string Detail { get; private set; } = "";
@@ -201,7 +211,7 @@ namespace User.FXProRpmSync
         /// <summary>The last LED frame sent (for the settings page's preview).</summary>
         public LedColor[] LastFrame { get; private set; }
         public List<string> DashProblems { get; private set; } = new List<string>();
-        /// <summary>SimHub properties the active dash binds to ("prop:" bindings), read in DataUpdate.</summary>
+        /// <summary>SimHub properties / formulas the active dash and lights bind to, read in DataUpdate.</summary>
         public string[] Props => props;
         /// <summary>The active dash's JavascriptExtensions folder (imported SimHub dashes), for js: bindings.</summary>
         public string ScriptsFolder { get; private set; }
@@ -422,6 +432,8 @@ namespace User.FXProRpmSync
                 lightsCar = car;
                 try { lights = plugin.ActiveLightsFor(plugin.DashCarKey).Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
                 reverseRev = false; // the LED order is mapped (WheelView); the old "fill from the right" is gone
+                lightProps = lights.Bindings().Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
+                UpdateProps();
             }
             // checked every frame: night mode can start or end on its schedule without a settings change
             if (!sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
@@ -528,7 +540,8 @@ namespace User.FXProRpmSync
             var room = DashRenderer.Room(dash);
             int padL = pd != null ? previewLeft : s.PadLeft, padT = pd != null ? previewTop : s.PadTop;
             renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, padL), room.Right), Math.Min(Math.Max(0, padT), room.Down));
-            props = dash.Bindings.Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
+            dashProps = dash.Bindings.Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
+            UpdateProps();
             ScriptsFolder = dash.ScriptsFolder;
             DashProblems = renderer.Check();
             renderer.DrawAll();
@@ -740,12 +753,27 @@ namespace User.FXProRpmSync
                 }
                 else LightsState = testing && s.LightsFrom == LightsSource.AtsrHub ? "built-in (test)" : "built-in";
                 if (frame == null) frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
+                if (s.PressLights && !frameSleeping && !TestingLeds) frame = PressOverlay(frame, s);
                 // every frame passes here (presets, ATSR-Hub, alerts, idle, tests, the API), so the ceiling holds for all
                 byte ceiling = s.LedCeilingNow(plugin.NightActive);
                 for (int i = 0; i < frame.Length; i++) leds.Set(i, frame[i].R, frame[i].G, frame[i].B, Math.Min(ceiling, Math.Max((byte)1, frame[i].Brightness)));
                 leds.Send();
                 LastFrame = frame;
             }
+        }
+
+        /// <summary>The buttons held now lit in the press colour, over whatever the frame shows (a copy).</summary>
+        private LedColor[] PressOverlay(LedColor[] frame, UsbSettings s)
+        {
+            ulong down = plugin.Buttons?.Down ?? 0;
+            var map = s.ButtonLeds;
+            if (down == 0 || map == null || map.Count == 0) return frame;
+            var (r, g, b) = LightEngine.Rgb(s.PressColor);
+            var copy = (LedColor[])frame.Clone();
+            foreach (var kv in map)
+                if (kv.Key >= 1 && kv.Key <= 64 && (down >> (kv.Key - 1) & 1) != 0 && kv.Value >= 0 && kv.Value < copy.Length)
+                    copy[kv.Value] = new LedColor(r, g, b, 90);
+            return copy;
         }
 
         /// <summary>Gives the screen back (stock dash) and the LEDs (SimPro's colours).</summary>
