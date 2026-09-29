@@ -14,8 +14,8 @@ using System.Windows.Shapes;
 namespace User.FXProRpmSync
 {
     /// <summary>
-    /// The FX Pro drawn from the front, with all 38 LEDs where they are on the wheel: the outline is traced from
-    /// Simagic's front photo (assets/fxpro-outline.svg, 663x396), the LED positions measured on the same photo.
+    /// The FX Pro drawn from the front, with all 38 LEDs where they are on the wheel: the outline is our own drawing
+    /// (assets/wheel-outline.svg, 663x396, from tools/brand/make_brand.py), the LED positions measured on the wheel.
     /// Shows an LED frame (colour x brightness, with a glow), optionally a picture in the screen (the dash preview).
     /// LED numbers as the firmware counts them (mapped with a camera): buttons 0-5 left / 6-11 right (see LeftButtons),
     /// encoders 12-16 (ABS, TC, BB, DIFF, MAP), the lights beside the rev bar 17-19 left / 20-22 right (top to bottom),
@@ -238,7 +238,7 @@ namespace User.FXProRpmSync
             if (outline != null) return outline;
             try
             {
-                using (var s = typeof(WheelView).Assembly.GetManifestResourceStream("User.FXProRpmSync.fxpro-outline.svg"))
+                using (var s = typeof(WheelView).Assembly.GetManifestResourceStream("User.FXProRpmSync.wheel-outline.svg"))
                 using (var r = new StreamReader(s))
                 {
                     var m = Regex.Match(r.ReadToEnd(), "\\sd=\"([^\"]+)\"");

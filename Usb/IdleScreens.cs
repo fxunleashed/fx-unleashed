@@ -84,7 +84,7 @@ namespace User.FXProRpmSync
     {
         public static string Folder => Path.Combine(DashLibrary.SimHubFolder, "PluginsData", "Common", "FXProRpmSync", "Savers");
 
-        public static readonly SaverItem Logo = new SaverItem { Id = SaverItem.LogoId, Name = "FX Pro logo", Kind = SaverKind.Logo, Blurb = "The plugin's logo" };
+        public static readonly SaverItem Logo = new SaverItem { Id = SaverItem.LogoId, Name = "FX Unleashed logo", Kind = SaverKind.Logo, Blurb = "The plugin's logo" };
         public static readonly SaverItem Clock = new SaverItem { Id = SaverItem.ClockId, Name = "Clock", Kind = SaverKind.Clock, Blurb = "Time and date" };
 
         /// <summary>The built-in screensavers made of dash elements, animated by IdleValues.</summary>
