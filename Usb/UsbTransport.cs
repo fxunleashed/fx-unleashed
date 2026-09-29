@@ -168,12 +168,6 @@ namespace User.FXProRpmSync
         public long Bytes;
         private bool onPage0, skipVis;
 
-        /// <summary>
-        /// Take the screen without loading page 0: the next drawing's "page 0" is dropped and it draws on the page
-        /// that's up (its widgets hidden and the screen cleared by the drawing's own "vis 255,0" / "cls 0"). Used when
-        /// leaving one of the wheel's own dashes: loading page 0 would show the wheel's Check1 dash for a moment.
-        /// </summary>
-        public bool KeepPage;
         private const double Rate = 25000, Burst = 1200;   // bytes/s, bytes
         private readonly System.Diagnostics.Stopwatch pace = System.Diagnostics.Stopwatch.StartNew();
         private double credit = Burst, creditAt;
@@ -225,7 +219,6 @@ namespace User.FXProRpmSync
             // which showed as a flash between two of the plugin's dashes.
             if (cmd == "page 0")
             {
-                if (KeepPage) { KeepPage = false; onPage0 = true; return; } // draw on the page it's on (vis + cls still go)
                 if (onPage0) { skipVis = true; return; }
                 onPage0 = true;
             }

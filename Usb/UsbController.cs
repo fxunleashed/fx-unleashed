@@ -431,8 +431,9 @@ namespace User.FXProRpmSync
             renderer = null; dash = null; saver = null;
             if (screen == null)
             {
-                // coming from one of the wheel's own dashes: draw on its page rather than load page 0 (see KeepPage)
-                screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds), KeepPage = shownPage != null };
+                // always onto page 0, even from one of the wheel's own dashes: drawing on that dash's page kept its
+                // screen timers, which brought its widgets back over the plugin's dash
+                screen = new FxHostScreen(conn) { Waiting = () => SendLeds(clock.Elapsed.TotalSeconds) };
                 screen.Take();
                 shownPage = null;
             }
