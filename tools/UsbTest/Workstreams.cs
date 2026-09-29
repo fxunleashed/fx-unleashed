@@ -9,7 +9,33 @@ static class WorkstreamTests
     {
         WheelValues();
         Mirror();
+        LedDevice();
     }
+
+    static void LedDevice()
+    {
+        var reg = new FXProLedDeviceRegistry().GetDevices().ToList();
+        Check("D: one device, instances > 0", reg.Count == 1 && reg[0].MaximumInstances > 0 && reg[0].DeviceTypeID == FXProLedDeviceRegistry.DeviceTypeId);
+        var red = System.Drawing.Color.Red; var none = System.Drawing.Color.Transparent;
+        var strip = new System.Drawing.Color[21]; strip[0] = red; strip[3] = red; strip[20] = red;
+        var f = SimHubLedDevice.ToFrame(strip, new[] { System.Drawing.Color.Blue }, new System.Drawing.Color[5], new System.Drawing.Color[0], new System.Drawing.Color[0], 1, 1, 1);
+        Check("D: strip 0 = left side top (17), 3 = first rev LED (23), 20 = right side bottom (22)", f[17].R == 255 && f[23].R == 255 && f[22].R == 255 && f[37].Brightness == 0);
+        Check("D: button 0 = LED 0, full brightness = 90", f[0].B == 255 && f[0].Brightness == 90);
+        var half = SimHubLedDevice.ToFrame(strip, new System.Drawing.Color[0], new System.Drawing.Color[0], new System.Drawing.Color[0], new System.Drawing.Color[0], 0.5, 1, 1);
+        Check("D: rpm brightness scales", half[23].Brightness == 45);
+        var raw = new System.Drawing.Color[38]; raw[23] = System.Drawing.Color.Lime; raw[5] = none;
+        var r = SimHubLedDevice.ToFrame(strip, new System.Drawing.Color[0], new System.Drawing.Color[0], raw, new System.Drawing.Color[0], 1, 1, 1);
+        Check("D: individual LEDs override the groups", r[23].G == 255 && r[23].R == 0 && r[17].R == 255);
+        if (System.Environment.GetEnvironmentVariable("UI_DEVICE") == "1")
+        {
+            try { var inst = reg[0].Factory(); System.Console.WriteLine("D: created " + (inst?.GetType().FullName ?? "null")); }
+            catch (System.Exception ex) { System.Console.WriteLine("D: create threw " + ex); }
+        }
+        Check("D: device id not used by SimHub itself", !System.IO.File.ReadAllText(System.IO.Path.Combine(SimHubDir(), "SimHub.Plugins.dll"), System.Text.Encoding.Unicode)
+                                                         .Contains(FXProLedDeviceRegistry.DeviceTypeId));
+    }
+
+    static string SimHubDir() => System.Environment.GetEnvironmentVariable("SIMHUB_INSTALL_PATH") ?? @"C:\Program Files (x86)\SimHub";
 
     /// <summary>Feeds ScreenMirror the way FxHostScreen does and checks what the mirror page would get.</summary>
     sealed class MirrorSink : IScreenSink

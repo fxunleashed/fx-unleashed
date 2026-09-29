@@ -305,6 +305,9 @@ namespace User.FXProRpmSync
             RegisterQuickControls();
             RegisterFeedProblem();
             Usb = new UsbController(this);
+            // the FX Pro as a SimHub LED device (Usb/SimHubLedDevice.cs): its frames come in here
+            SimHubLedDevice.Sink = f => { if (Settings.Usb.LightsFrom == User.FXProRpmSync.LightsSource.SimHubDevice) Usb?.PublishDevice(f); };
+            SimHubLedDevice.IsConnected = () => Settings.Usb.Enabled && Usb?.WheelFound == true;
             if (Settings.Usb.WheelButtons == null) Settings.Usb.WheelButtons = new Dictionary<string, int>();
             // The dash button (build 5) steps through the dashes unless the user bound it or "next" elsewhere
             if (!Settings.Usb.WheelButtons.ContainsKey("next") && !Settings.Usb.WheelButtons.ContainsValue(WheelButtons.DashButton))
@@ -869,6 +872,7 @@ namespace User.FXProRpmSync
             try { worker?.Wait(2000); } catch { }
             try { Designer?.Dispose(); } catch { }
             try { Buttons?.Dispose(); } catch { }
+            SimHubLedDevice.Sink = null; SimHubLedDevice.IsConnected = null;
             try { Usb?.Dispose(); } catch { } // gives the screen and LEDs back to the wheel
 
             // Leave SimPro as we found it.

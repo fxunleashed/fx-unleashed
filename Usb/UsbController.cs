@@ -7,7 +7,7 @@ using System.Threading;
 namespace User.FXProRpmSync
 {
     [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-    public enum LightsSource { BuiltIn, AtsrHub }
+    public enum LightsSource { BuiltIn, AtsrHub, SimHubDevice }
 
     /// <summary>USB mode settings (part of the plugin's settings).</summary>
     public class UsbSettings
@@ -272,6 +272,19 @@ namespace User.FXProRpmSync
             Volatile.Write(ref external, frame);
             Interlocked.Exchange(ref externalTicks, DateTime.UtcNow.Ticks);
         }
+
+        private LedColor[] device;
+        private long deviceTicks;
+
+        /// <summary>A frame from SimHub's LED pipeline (the FX Pro as a SimHub device, SimHubLedDevice).</summary>
+        public void PublishDevice(LedColor[] frame)
+        {
+            Volatile.Write(ref device, frame);
+            Interlocked.Exchange(ref deviceTicks, DateTime.UtcNow.Ticks);
+        }
+
+        /// <summary>SimHub's device sent a frame in the last second.</summary>
+        public bool DeviceFresh => Volatile.Read(ref device) != null && DateTime.UtcNow.Ticks - Interlocked.Read(ref deviceTicks) < TimeSpan.FromSeconds(1).Ticks;
 
         /// <summary>ATSR-Hub sent a frame in the last second.</summary>
         public bool ExternalFresh => Volatile.Read(ref external) != null && DateTime.UtcNow.Ticks - Interlocked.Read(ref externalTicks) < TimeSpan.FromSeconds(1).Ticks;
@@ -776,7 +789,12 @@ namespace User.FXProRpmSync
                     if (ExternalFresh) { frame = Volatile.Read(ref external); LightsState = "ATSR-Hub"; }
                     else LightsState = "no data from ATSR-Hub" + (string.IsNullOrEmpty(s.AtsrDevice) ? " (no device picked)" : " for \"" + s.AtsrDevice + "\"") + ", showing the built-in lights";
                 }
-                else LightsState = testing && s.LightsFrom == LightsSource.AtsrHub ? "built-in (test)" : "built-in";
+                else if (s.LightsFrom == LightsSource.SimHubDevice && !testing)
+                {
+                    if (DeviceFresh) { frame = Volatile.Read(ref device); LightsState = "SimHub device"; }
+                    else LightsState = "no data from SimHub's device \"FX Pro wheel (USB mode)\" (add it in SimHub > Devices), showing the built-in lights";
+                }
+                else LightsState = testing && s.LightsFrom != LightsSource.BuiltIn ? "built-in (test)" : "built-in";
                 if (frame == null) frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
                 if (s.PressLights && !frameSleeping && !TestingLeds) frame = PressOverlay(frame, s);
                 // every frame passes here (presets, ATSR-Hub, alerts, idle, tests, the API), so the ceiling holds for all

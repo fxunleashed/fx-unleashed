@@ -178,7 +178,7 @@ namespace User.FXProRpmSync
                 : u?.DashActive == true ? "Showing " + u.ActiveDashName
                 : u?.SaverActive == true ? "Screensaver: " + IdleScreens.Find(S, u.SaverShown ?? S.SaverId).Name
                 : (plugin.DashCarKey != null ? "This car: " : "Races show ") + dashName;
-            lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom == LightsSource.AtsrHub ? "Lights from ATSR-Hub" + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + plugin.ActiveLightsFor(plugin.DashCarKey).Name;
+            lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom != LightsSource.BuiltIn ? "Lights from " + (S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : "SimHub's device") + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             demoButton.Content = Label(u?.DemoOn == true ? "Stop the demo" : "Run the demo", u?.DemoOn == true ? "" : "");
             sleepButton.Content = Label(u?.Sleeping == true ? "Wake" : "Sleep now", u?.Sleeping == true ? "" : "");
             demoButton.IsEnabled = sleepButton.IsEnabled = patched;
@@ -186,7 +186,7 @@ namespace User.FXProRpmSync
             var rot = plugin.UsbRotation(plugin.DashCarKey, out _, out int cur);
             dashTile.Text = DashRef.Name(rot[((cur % rot.Count) + rot.Count) % rot.Count]) + (rot.Count > 1 ? $"  ·  1 of {rot.Count}" : "") +
                             (S.CarDashes.Count > 0 ? $"  ·  {S.CarDashes.Count} car" + (S.CarDashes.Count == 1 ? "" : "s") : "");
-            lightsTile.Text = !S.LightsEnabled ? "SimPro's lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : plugin.ActiveLightsFor(plugin.DashCarKey).Name;
+            lightsTile.Text = !S.LightsEnabled ? "SimPro's lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : S.LightsFrom == LightsSource.SimHubDevice ? "SimHub device" : plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             idleTile.Text = (S.ScreenSaver ? IdleScreens.Find(S, S.SaverId).Name : "No screensaver") + "  ·  " +
                             (S.SleepEnabled ? $"sleep after {S.SleepMinutes} min" : "no sleep");
         }

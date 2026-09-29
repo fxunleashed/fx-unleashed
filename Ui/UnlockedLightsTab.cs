@@ -58,9 +58,9 @@ namespace User.FXProRpmSync
             srcText.Children.Add(Theme.Eyebrow("Lights come from"));
             srcHead.Children.Add(srcText);
             src.Children.Add(srcHead);
-            var seg = Theme.Segmented(new[] { "FX Unleashed", "ATSR-Hub" }, S.LightsFrom == LightsSource.AtsrHub ? 1 : 0, i =>
+            var seg = Theme.Segmented(new[] { "FX Unleashed", "ATSR-Hub", "SimHub device" }, (int)S.LightsFrom, i =>
             {
-                S.LightsFrom = i == 1 ? LightsSource.AtsrHub : LightsSource.BuiltIn;
+                S.LightsFrom = (LightsSource)i;
                 Changed(); ShowSource();
                 if (i == 1) RefreshAtsrDevices();
             }, out _);
@@ -206,7 +206,9 @@ namespace User.FXProRpmSync
             var u = Usb;
             liveNote.Text = !S.LightsEnabled ? "The wheel shows SimPro's lights."
                           : u?.Active == true ? "On the wheel now: " + u.LightsState + "."
-                          : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub's lights show while the plugin drives the wheel; the preset below fills in while it sends nothing." : "";
+                          : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub's lights show while the plugin drives the wheel; the preset below fills in while it sends nothing."
+                          : S.LightsFrom == LightsSource.SimHubDevice ? "SimHub's LED profile shows while the plugin drives the wheel: add \"FX Pro wheel (USB mode)\" (brand FX Unleashed) in SimHub > Devices " +
+                                                                        "and set up its lights there (21 side + rev lights, 12 buttons, 5 encoders, or 38 individual LEDs). The preset below fills in while it sends nothing." : "";
             if (S.LightsFrom == LightsSource.AtsrHub)
                 atsrState.Text = u?.Active != true ? "Not sending: the plugin isn't driving the wheel now." : "Lights now: " + u.LightsState + ".";
         }
