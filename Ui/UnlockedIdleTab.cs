@@ -73,6 +73,12 @@ namespace User.FXProRpmSync
             saver.Children.Add(add);
             Children.Add(Theme.CardBox(saver));
 
+            var online = new StackPanel();
+            online.Children.Add(Theme.Eyebrow("Library"));
+            online.Children.Add(Theme.Note("Screensavers made by the community: install one and pick it above."));
+            online.Children.Add(new Expander { Header = "Browse the library", Content = new LibraryPanel(plugin, "saver", BuildGallery), Margin = new Thickness(0, 8, 0, 0) });
+            Children.Add(Theme.CardBox(online));
+
             // ----- Sleep -----
             var sleep = new StackPanel();
             var sleepHead = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };

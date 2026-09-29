@@ -37,6 +37,11 @@ namespace User.FXProRpmSync
 
         /// <summary>Run the dash designer's local web server (and API for agents) while SimHub runs.</summary>
         public bool DesignerServer = true;
+        /// <summary>The online library (LibraryClient): base URL (empty = the public one), what's installed from it, and
+        /// the library terms' hash the user accepted (asked again when the text changes).</summary>
+        public string LibraryUrl = "";
+        public List<LibraryInstall> LibraryInstalled = new List<LibraryInstall>();
+        public string LibraryTermsAccepted;
         public int DesignerPort = User.FXProRpmSync.DesignerServer.DefaultPort;
 
         /// <summary>Where the lights come from: the built-in effects, or ATSR-Hub (see AtsrBridge).</summary>

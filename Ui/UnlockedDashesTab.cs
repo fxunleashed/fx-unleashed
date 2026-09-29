@@ -141,6 +141,13 @@ namespace User.FXProRpmSync
             lib.Children.Add(designerInfo);
             Children.Add(Theme.CardBox(lib));
 
+            // ----- Online library -----
+            var online = new StackPanel();
+            online.Children.Add(Theme.Eyebrow("Library"));
+            online.Children.Add(Theme.Note("Dashes made by the community: preview, install in a click (no restart), use for the current car."));
+            online.Children.Add(new Expander { Header = "Browse the library", Content = new LibraryPanel(plugin, "dash", BuildLibrary), Margin = new Thickness(0, 8, 0, 0) });
+            Children.Add(Theme.CardBox(online));
+
             // ----- Saved cars -----
             var cars = new StackPanel();
             cars.Children.Add(Theme.Eyebrow("Cars with their own dashes"));
@@ -431,6 +438,7 @@ namespace User.FXProRpmSync
             {
                 focusButtons.Children.Add(Theme.Btn("Edit in the designer", () => OpenDesigner(d.Id), icon: ""));
                 if (d.BuiltIn) focusButtons.Children.Add(Theme.Btn("Save a copy", () => SaveCopy(d), icon: ""));
+                else if (!d.Id.StartsWith("lib-")) focusButtons.Children.Add(Theme.Btn("Package for the library", () => PackageDialog.Show(Window.GetWindow(this), d, "dash"), icon: ""));
             }
             demoChip.Visibility = wheel ? Visibility.Collapsed : Visibility.Visible;
             if (wheel)

@@ -26,6 +26,10 @@ namespace User.FXProRpmSync
         /// <summary>Current SimHub values (null when no game), for rendering with live data.</summary>
         DashValues LiveValues();
         void DashesChanged();
+        /// <summary>Library items installed (id, kind, version).</summary>
+        object LibraryInstalled();
+        /// <summary>Installs a library item by id after asking the user in the plugin; the item comes from the library itself.</summary>
+        object LibraryInstall(string kind, string id);
     }
 
     /// <summary>
@@ -88,6 +92,8 @@ namespace User.FXProRpmSync
             public string Method, Path;
             public Dictionary<string, string> Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             public string Body = "";
+            public Dictionary<string, string> Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            public string Origin => Headers.TryGetValue("Origin", out var o) ? o : null;
             public string Q(string k, string d = null) => Query.TryGetValue(k, out var v) ? v : d;
             public int QI(string k, int d) => int.TryParse(Q(k), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : d;
             public double QD(string k, double d) => double.TryParse(Q(k), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : d;
@@ -98,7 +104,22 @@ namespace User.FXProRpmSync
             public int Status = 200;
             public string Type = "application/json; charset=utf-8";
             public byte[] Body = new byte[0];
+            /// <summary>The page allowed to read this answer (CORS), or null.</summary>
+            public string AllowOrigin;
+            public bool PrivateNetwork;
         }
+
+        /// <summary>
+        /// Sites allowed to call the library routes from a browser (the website's "Install" button). Everything else that
+        /// comes with an Origin header must come from this server's own pages: a page on another site can't make the
+        /// plugin do anything (a plain form POST needs no CORS preflight, so the Origin check is what stops it).
+        /// </summary>
+        public static readonly List<string> LibraryOrigins = new List<string> { "https://fxunleashed.com", "https://www.fxunleashed.com" };
+
+        private bool LocalOrigin(string origin) =>
+            origin == $"http://127.0.0.1:{port}" || origin == $"http://localhost:{port}";
+
+        private static bool LibraryRoute(string path) => path.StartsWith("/api/library/", StringComparison.Ordinal);
 
         private void Serve(TcpClient client)
         {
@@ -111,8 +132,18 @@ namespace User.FXProRpmSync
                     var req = Read(stream);
                     if (req == null) return;
                     Response res;
-                    try { res = Route(req); }
-                    catch (Exception ex) { res = Json(new { error = ex.Message }, 400); }
+                    string origin = req.Origin;
+                    bool siteAllowed = origin != null && LibraryRoute(req.Path) && LibraryOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
+                    if (origin != null && !LocalOrigin(origin) && !siteAllowed)
+                        res = Json(new { error = "requests from other websites aren't accepted" }, 403);
+                    else if (req.Method == "OPTIONS") res = new Response { Status = 204 };
+                    else
+                    {
+                        try { res = Route(req); }
+                        catch (Exception ex) { res = Json(new { error = ex.Message }, 400); }
+                    }
+                    if (origin != null && res.Status != 403) res.AllowOrigin = origin;
+                    res.PrivateNetwork = siteAllowed && req.Headers.ContainsKey("Access-Control-Request-Private-Network");
                     Write(stream, res);
                 }
                 catch { }
@@ -148,8 +179,12 @@ namespace User.FXProRpmSync
                     req.Query[Uri.UnescapeDataString(e < 0 ? kv : kv.Substring(0, e))] = e < 0 ? "" : Uri.UnescapeDataString(kv.Substring(e + 1).Replace('+', ' '));
                 }
             int length = 0;
-            foreach (var l in lines)
-                if (l.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) int.TryParse(l.Substring(15).Trim(), out length);
+            foreach (var l in lines.Skip(1))
+            {
+                int c = l.IndexOf(':');
+                if (c > 0) req.Headers[l.Substring(0, c).Trim()] = l.Substring(c + 1).Trim();
+            }
+            if (req.Headers.TryGetValue("Content-Length", out var cl)) int.TryParse(cl, out length);
             if (length > 0)
             {
                 if (length > 64 * 1024 * 1024) return null;
@@ -168,10 +203,13 @@ namespace User.FXProRpmSync
 
         private static void Write(NetworkStream s, Response r)
         {
-            string reason = r.Status == 200 ? "OK" : r.Status == 404 ? "Not Found" : r.Status == 204 ? "No Content" : "Error";
+            string reason = r.Status == 200 ? "OK" : r.Status == 404 ? "Not Found" : r.Status == 204 ? "No Content" : r.Status == 403 ? "Forbidden" : "Error";
             var head = $"HTTP/1.1 {r.Status} {reason}\r\nContent-Type: {r.Type}\r\nContent-Length: {r.Body.Length}\r\n" +
-                       "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n" +
-                       "Access-Control-Allow-Headers: Content-Type\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+                       (r.AllowOrigin == null ? "" :
+                           $"Access-Control-Allow-Origin: {r.AllowOrigin}\r\nVary: Origin\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n" +
+                           "Access-Control-Allow-Headers: Content-Type\r\n") +
+                       (r.PrivateNetwork ? "Access-Control-Allow-Private-Network: true\r\n" : "") +
+                       "Cache-Control: no-store\r\nConnection: close\r\n\r\n";
             var h = Encoding.ASCII.GetBytes(head);
             s.Write(h, 0, h.Length);
             s.Write(r.Body, 0, r.Body.Length);
@@ -204,6 +242,9 @@ namespace User.FXProRpmSync
             ("POST", "/api/verify[?seconds=N&left=L&top=T]", "body = dash: demo lap on a simulated wheel: traffic, flashes, drawing errors"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
             ("POST", "/api/wheel/demo?dash=c:ID|w:PAGE|off", "the demo lap on the wheel with that dash, e.g. w:12 for the wheel's own dash page 12 (plugin only)"),
+            ("GET", "/api/library/status", "plugin version (for the website's Install button)"),
+            ("GET", "/api/library/installed", "library items installed: [{id, kind, version}]"),
+            ("POST", "/api/library/install?kind=dash|saver&id=ID", "install a library item by id (asks the user in the plugin first; the plugin downloads it from the library itself)"),
             ("GET", "/mirror[?bg=transparent&leds=0&all=1&fps=N&label=0]", "screen mirror page for OBS: the wheel's screen and lights (plugin only)"),
             ("GET", "/api/wheel/frame.png", "what the plugin last drew on the wheel's screen (204 while the wheel shows its own screen)"),
             ("GET", "/api/wheel/mirror", "mirror state: held, dark, wheelDash, version, 38 LEDs {c, b}"),
@@ -216,6 +257,14 @@ namespace User.FXProRpmSync
             var path = r.Path.TrimEnd('/');
             if (path == "" || path == "/index.html") return Asset("index.html");
             if (path == "/mirror") return Asset("mirror.html");
+            if (path == "/api/library/status") return Json(new { plugin = "FX Unleashed", version = Updater.CurrentVersion, available = host != null });
+            if (path == "/api/library/installed") return Json(host?.LibraryInstalled() ?? new object[0]);
+            if (path == "/api/library/install")
+            {
+                if (r.Method != "POST") return Json(new { error = "POST it" }, 400);
+                if (host == null) return Json(new { error = "installing needs the plugin (SimHub)" }, 400);
+                return Json(host.LibraryInstall(r.Q("kind", "dash"), r.Q("id", "")));
+            }
             if (path == "/api/wheel/mirror") return Json(ScreenMirror.State());
             if (path == "/api/wheel/frame.png")
             {

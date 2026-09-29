@@ -11,6 +11,98 @@ static class WorkstreamTests
         Mirror();
         LedDevice();
         BaseSettingsTests();
+        LibraryTests();
+        ServerOrigins();
+    }
+
+    static void LibraryTests()
+    {
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fxu-libtest-" + System.Guid.NewGuid().ToString("N"));
+        string lib = System.IO.Path.Combine(root, "library"), simhub = System.IO.Path.Combine(root, "simhub");
+        var oldRoot = DashLibrary.Root;
+        try
+        {
+            DashLibrary.Root = simhub;
+            var dash = BuiltInDashes.MustangGt3();
+            var meta = new LibraryItem { Id = "test-dash", Name = "Test dash", Author = "tester", License = "CC-BY-4.0", Games = { "LMU" }, Version = "1.0.0" };
+            var dir = LibraryInstaller.Package(dash, meta, lib);
+            Check("C: package writes dash.json, meta.json, preview.png", new[] { "dash.json", "meta.json", "preview.png" }.All(f => System.IO.File.Exists(System.IO.Path.Combine(dir, f))));
+            var m = Newtonsoft.Json.JsonConvert.DeserializeObject<LibraryItem>(System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "meta.json")));
+            Check("C: meta has sha256 and measured budget", m.Sha256?.Length == 64 && m.BytesPerSecond > 0 && m.BytesStatic > 0, $"{m.BytesPerSecond} B/s, {m.BytesStatic} B");
+            var index = new LibraryIndex { Items = { m } };
+            System.IO.File.WriteAllText(System.IO.Path.Combine(lib, "index.json"), Newtonsoft.Json.JsonConvert.SerializeObject(index));
+            var client = new LibraryClient(lib);
+            var got = client.GetIndex(allowCache: false);
+            Check("C: index from a local folder", got.Items.Count == 1 && got.Items[0].Id == "test-dash");
+            var d = client.Download(got.Items[0]);
+            var s = new UsbSettings();
+            var rec = LibraryInstaller.Install(s, got.Items[0], d);
+            Check("C: installed into the dashes folder as lib-<id>", System.IO.File.Exists(rec.File) && DashLibrary.Load(null).Any(x => x.Id == "lib-test-dash"));
+            Check("C: no update for the same version", !LibraryInstaller.UpdateAvailable(s, got.Items[0]));
+            got.Items[0].Version = "1.1.0";
+            Check("C: newer version = update available", LibraryInstaller.UpdateAvailable(s, got.Items[0]));
+            // tampered download
+            System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "dash.json"), " ");
+            bool refused = false; try { client.Download(got.Items[0]); } catch { refused = true; }
+            Check("C: a download that doesn't match its sha256 is refused", refused);
+            // scripts refused
+            var js = dash.Clone(); js.Elements[0].Bind = "js:return 1";
+            Check("C: js: bindings refused", LibraryClient.Check(js, 100).Any(x => x.Contains("js:")));
+            var sf = dash.Clone(); sf.ScriptsFolder = "x";
+            Check("C: scripts folder refused", LibraryClient.Check(sf, 100).Count > 0);
+            var nf = dash.Clone(); nf.FormatVersion = DashDefinition.CurrentFormat + 1;
+            Check("C: newer dash format refused", LibraryClient.Check(nf, 100).Count > 0);
+            Check("C: ids are safe file names", LibraryClient.ValidId("gt3-minimal") && !LibraryClient.ValidId("../x") && !LibraryClient.ValidId("A") && !LibraryClient.ValidId("a b"));
+            bool pkgJs = false; try { LibraryInstaller.Package(js, new LibraryItem { Id = "js-dash", Name = "x", Author = "x", License = "MIT" }, lib); } catch { pkgJs = true; }
+            Check("C: packaging a js: dash is refused", pkgJs);
+            // savers
+            var saverMeta = new LibraryItem { Id = "test-saver", Kind = "saver", Name = "Test saver", Author = "t", License = "CC0-1.0", Version = "1.0.0", Sha256 = m.Sha256 };
+            var srec = LibraryInstaller.Install(s, saverMeta, dash.Clone());
+            Check("C: saver installed as a picture-kind saver", System.IO.File.Exists(srec.File) && s.Savers.Any(x => x.Id == "lib-test-saver" && x.Kind == SaverKind.Image));
+            s.SaverId = "lib-test-saver";
+            LibraryInstaller.Remove(s, "saver", "test-saver");
+            Check("C: removing the shown saver falls back to the logo", !System.IO.File.Exists(srec.File) && s.SaverId == SaverItem.LogoId && s.Savers.All(x => x.Id != "lib-test-saver"));
+            LibraryInstaller.Remove(s, "dash", "test-dash");
+            Check("C: removed", !System.IO.File.Exists(rec.File) && s.LibraryInstalled.Count == 0);
+        }
+        finally
+        {
+            DashLibrary.Root = oldRoot;
+            try { System.IO.Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    static (int Status, string Headers) Http(int port, string method, string path, string origin, string extra = "")
+    {
+        using (var c = new System.Net.Sockets.TcpClient("127.0.0.1", port))
+        {
+            var s = c.GetStream();
+            var req = $"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n" + (origin != null ? $"Origin: {origin}\r\n" : "") + extra + "Content-Length: 0\r\n\r\n";
+            var b = System.Text.Encoding.ASCII.GetBytes(req); s.Write(b, 0, b.Length);
+            var r = new System.IO.StreamReader(s).ReadToEnd();
+            int status = int.Parse(r.Split(' ')[1]);
+            return (status, r.Substring(0, r.IndexOf("\r\n\r\n")));
+        }
+    }
+
+    static void ServerOrigins()
+    {
+        int port = 8897;
+        var server = new DesignerServer(port, null); server.Start();
+        try
+        {
+            System.Threading.Thread.Sleep(200);
+            Check("C: no Origin (curl, fxdash, agents) works", Http(port, "GET", "/api/schema", null).Status == 200);
+            Check("C: the server's own page works", Http(port, "POST", "/api/check", $"http://127.0.0.1:{port}").Status != 403);
+            var evil = Http(port, "POST", "/api/wheel/leds", "https://evil.example");
+            Check("C: another website is refused (403, no CORS)", evil.Status == 403 && !evil.Headers.Contains("Access-Control-Allow-Origin"));
+            Check("C: the website can't reach other routes", Http(port, "DELETE", "/api/dashes/x", "https://fxunleashed.com").Status == 403);
+            var site = Http(port, "OPTIONS", "/api/library/status", "https://fxunleashed.com", "Access-Control-Request-Method: GET\r\nAccess-Control-Request-Private-Network: true\r\n");
+            Check("C: the website's preflight for library routes (CORS + private network)", site.Status == 204 && site.Headers.Contains("Access-Control-Allow-Origin: https://fxunleashed.com")
+                                                                                              && site.Headers.Contains("Access-Control-Allow-Private-Network: true"));
+            Check("C: the website reads the plugin status", Http(port, "GET", "/api/library/status", "https://fxunleashed.com").Status == 200);
+        }
+        finally { server.Dispose(); }
     }
 
     static void BaseSettingsTests()
