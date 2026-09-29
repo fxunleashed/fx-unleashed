@@ -21,6 +21,7 @@ static class FeatureTests
         failures = 0;
         QuickControls();
         LightsPerCar();
+        FeedWatchChecks();
         foreach (var extra in Extra) extra();
         Console.WriteLine(failures == 0 ? "features: OK" : $"features: {failures} FAILED");
         return failures == 0 ? 0 : 1;
@@ -86,6 +87,36 @@ static class FeatureTests
         var ids = s.AllLightIds();
         s.LightPreset = ids[0]; plugin.CycleLightPreset(-1);
         Check("cycle wraps", s.LightPreset == ids[ids.Count - 1], s.LightPreset);
+    }
+
+    static void FeedWatchChecks()
+    {
+        var w = new FeedWatch();
+        // SimPro on the game: raised on the second check, not the first
+        Check("feed: first check doesn't raise", w.Update(true, true, true, true, true, "iRacing") == FeedWatch.Change.None && !w.Problem);
+        Check("feed: second check raises", w.Update(true, true, true, true, true, "iRacing") == FeedWatch.Change.Raised && w.Problem);
+        Check("feed: message names the game", w.Action == "Close iRacing and start it again." && !w.Detail.Contains("Still showing"), w.Action);
+        Check("feed: in-between frames don't clear", w.Update(true, true, true, true, false, "iRacing") == FeedWatch.Change.None && w.Problem);
+        // the user closes the game (stub running): cleared at once
+        Check("feed: game closed clears", w.Update(true, false, true, true, false, null) == FeedWatch.Change.Cleared && !w.Problem);
+        // it comes back after the restart: the SimPro restart advice is added
+        w.Update(true, true, true, true, true, "iRacing");
+        w.Update(true, true, true, true, true, "iRacing");
+        Check("feed: still after restart", w.Problem && w.Detail.Contains("Still showing"));
+        // SimPro back on SimGame: cleared, and a good game resets the 'still' memory
+        Check("feed: SimGame clears", w.Update(true, true, true, false, true, "iRacing") == FeedWatch.Change.Cleared);
+        w.Update(true, true, true, true, true, "ACC"); w.Update(true, true, true, true, true, "ACC");
+        Check("feed: fresh occurrence after a good game", w.Problem && !w.Detail.Contains("Still showing") && w.Action.Contains("ACC"));
+        // feed off / unlocked mode / no game / SimPro unknown: never
+        var n = new FeedWatch();
+        for (int i = 0; i < 3; i++) n.Update(false, true, false, true, true, "iRacing");
+        Check("feed: not wanted never raises", !n.Problem);
+        for (int i = 0; i < 3; i++) n.Update(true, false, true, true, true, null);
+        Check("feed: no game never raises", !n.Problem);
+        for (int i = 0; i < 3; i++) n.Update(true, true, true, null, true, "iRacing");
+        Check("feed: SimPro unknown never raises", !n.Problem);
+        for (int i = 0; i < 2; i++) n.Update(true, true, false, false, true, "LMU");
+        Check("feed: stub down raises with its own advice", n.Problem && n.StubDown && n.Action.Contains("off and on"));
     }
 
     /// <summary>A plugin with default settings and no SimHub (SaveSettings is guarded in tests by a null PluginManager).</summary>

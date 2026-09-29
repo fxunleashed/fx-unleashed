@@ -263,6 +263,7 @@ namespace User.FXProRpmSync
             this.AddAction("UsbWake", (a, b) => Usb?.Wake());
             this.AttachDelegate("UsbDash", () => Usb?.ActiveDashName ?? "");
             RegisterQuickControls();
+            RegisterFeedProblem();
             Usb = new UsbController(this);
             if (Settings.Usb.WheelButtons == null) Settings.Usb.WheelButtons = new Dictionary<string, int>();
             // The dash button (build 5) steps through the dashes unless the user bound it or "next" elsewhere
@@ -721,7 +722,7 @@ namespace User.FXProRpmSync
         /// <summary>Which game SimPro reads (SimGame, or a real game that was already running), every 5 s.</summary>
         private async Task CheckFeedSource()
         {
-            if (!feedOn || DateTime.UtcNow < nextSourceCheckUtc) return;
+            if (!feedOn || DateTime.UtcNow < nextSourceCheckUtc) { EvaluateFeedProblem(fromSourceCheck: false); return; }
             nextSourceCheckUtc = DateTime.UtcNow.AddSeconds(5);
             try
             {
@@ -734,6 +735,7 @@ namespace User.FXProRpmSync
                 SimProReachable = false;
             }
             SimProSourceKnown = true;
+            EvaluateFeedProblem(fromSourceCheck: true);
         }
 
         // ---------- Dash per car ----------

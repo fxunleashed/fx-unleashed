@@ -24,6 +24,8 @@ namespace User.FXProRpmSync
         private readonly ContentControl tabHost = new ContentControl();
         private readonly Dictionary<string, FrameworkElement> built = new Dictionary<string, FrameworkElement>();
         private readonly TextBlock wheelPill, carPill;
+        private readonly Border feedProblem;
+        private readonly TextBlock feedProblemTitle, feedProblemAction, feedProblemDetail;
         private readonly Ellipse wheelDot, carDot;
         private readonly DispatcherTimer statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
 
@@ -67,6 +69,7 @@ namespace User.FXProRpmSync
             titles.Children.Add(new TextBlock { Text = $"Simagic FX Pro companion  ·  v{version.Major}.{version.Minor}.{version.Build}", Foreground = Theme.Text3, FontSize = 12 });
             header.Children.Add(titles);
             page.Children.Add(header);
+            page.Children.Add(feedProblem = FeedProblemBanner(out feedProblemTitle, out feedProblemAction, out feedProblemDetail));
 
             // ----- Mode -----
             var modes = new Grid { Margin = new Thickness(0, 0, 0, 22) };
@@ -233,8 +236,42 @@ namespace User.FXProRpmSync
             }
         }
 
+        /// <summary>
+        /// Red, big, on every tab: SimPro is reading the game instead of SimHub's data (FXProRpmSyncPlugin.FeedProblem),
+        /// with the one thing that fixes it.
+        /// </summary>
+        private static Border FeedProblemBanner(out TextBlock title, out TextBlock action, out TextBlock detail)
+        {
+            var body = new DockPanel();
+            var icon = new TextBlock { Text = "", FontFamily = Theme.Icons, FontSize = 30, Foreground = Theme.Red, Margin = new Thickness(0, 2, 18, 0), VerticalAlignment = VerticalAlignment.Top };
+            DockPanel.SetDock(icon, Dock.Left);
+            body.Children.Add(icon);
+            var text = new StackPanel();
+            title = new TextBlock { FontFamily = Theme.Display, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Theme.Text, TextWrapping = TextWrapping.Wrap };
+            action = new TextBlock { FontFamily = Theme.Display, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Theme.Red, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            detail = new TextBlock { Foreground = Theme.Text3, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+            text.Children.Add(title);
+            text.Children.Add(action);
+            text.Children.Add(detail);
+            body.Children.Add(text);
+            return new Border
+            {
+                Child = body, CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(2), BorderBrush = Theme.Red,
+                Background = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0x1F, 0x2D)), Padding = new Thickness(22, 18, 22, 18),
+                Margin = new Thickness(0, 0, 0, 22), Visibility = Visibility.Collapsed,
+                Effect = new DropShadowEffect { Color = Theme.RedC, BlurRadius = 24, ShadowDepth = 0, Opacity = 0.45 },
+            };
+        }
+
         private void RefreshStatus()
         {
+            feedProblem.Visibility = plugin.FeedProblem ? Visibility.Visible : Visibility.Collapsed;
+            if (plugin.FeedProblem)
+            {
+                feedProblemTitle.Text = plugin.FeedProblemTitle;
+                feedProblemAction.Text = plugin.FeedProblemAction;
+                feedProblemDetail.Text = plugin.FeedProblemDetail;
+            }
             if (Mode == WheelMode.Unlocked)
             {
                 var u = plugin.Usb;

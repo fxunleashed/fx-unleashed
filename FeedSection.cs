@@ -192,7 +192,8 @@ namespace User.FXProRpmSync
                 SetBanner(Bad, IconError, "Couldn't start sending SimHub's data", status);
             else if (!on)
                 SetBanner(Idle, IconOff, "Off: SimPro reads the game directly",
-                    "The dash shows SimPro's own game telemetry. Turn this on before starting a game to send SimHub's data instead.");
+                    "The dash shows SimPro's own game telemetry. To send SimHub's data instead, turn this on, then start the game " +
+                    "(SimHub before the game; when SimPro starts doesn't matter).");
             else if (!plugin.FeedRunning)
                 SetBanner(Bad, IconError, "SimGame helper isn't running",
                     "simgame.exe stopped, so SimPro can't read SimHub's data. Turn this off and on again." + (error ? "\n" + status : ""));
@@ -201,12 +202,12 @@ namespace User.FXProRpmSync
             else if (!plugin.SimProReachable)
                 SetBanner(Warn, IconWarn, "Can't reach SimPro Manager",
                     "SimPro Manager must be running for anything to reach the wheel. Start it and this updates by itself.");
+            else if (src != null && plugin.FeedProblem)
+                SetBanner(Bad, IconError, plugin.FeedProblemTitle + " " + plugin.FeedProblemAction, plugin.FeedProblemDetail);
             else if (src != null)
                 SetBanner(Warn, IconWarn, $"SimPro is reading {src}, not SimHub",
-                    $"The dash shows SimPro's own {src} telemetry: SimPro picked the game before SimHub's data was available, " +
-                    "and it keeps that choice until the game closes.\n" +
-                    "To fix: close the game and start it again (leave this on). If that doesn't help, restart SimPro Manager " +
-                    "(tray icon > Exit, then start it) and, if needed, the wheelbase.");
+                    game != null ? $"Checking again in a few seconds. If it stays, close {game} and start it again (leave this on)."
+                                 : $"SimPro still has {src} selected. It moves to SimHub's data once {src} has closed.");
             else if (plugin.DemoOn)
                 SetBanner(Info, IconInfo, "Demo running on the dash", "The dash is animating a simulated lap. Untick Demo to stop it.");
             else if (game != null)
@@ -214,7 +215,8 @@ namespace User.FXProRpmSync
                     $"SimPro is reading SimHub's {game} data. Turning this off hands the dash to SimPro until you restart the game.");
             else
                 SetBanner(Good, IconOk, "Ready: the dash will show SimHub's data",
-                    "Start a game (with SimHub already running) and the dash follows SimHub's data.");
+                    "Start the game now: SimHub is running, so the dash follows SimHub's data. (SimHub before the game; " +
+                    "when SimPro starts doesn't matter.)");
         }
 
         private void Refresh()

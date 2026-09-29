@@ -73,6 +73,8 @@ static class UiTest
             u.SaverSwitchMinutes = 5; u.SaverRotation.Add("lights-out"); u.SaverRotation.Add("pit-board"); u.SaverId = "clock";
             mine.Rev.Pattern = PatternKind.EdgesToCenter;
         }
+        if (Environment.GetEnvironmentVariable("UI_FEEDPROBLEM") == "1")
+            for (int i = 0; i < 2; i++) plugin.FeedWatchState.Update(true, true, true, true, true, "Le Mans Ultimate");
         return plugin;
     }
 
