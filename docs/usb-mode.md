@@ -122,9 +122,24 @@ How it works (from ATSR-Hub EVO's code, decompiled with ilspycmd 9.1):
   button-press effects don't fire.
 - **LED map** (optional): 38 ATSR-Hub indexes, one per FX Pro LED in FX Pro order, `-1` = off; for layouts numbered
   differently, or to swap sides.
-- Another route that exists: SimHub discovers `IDeviceDescriptorsRegistry` implementations in any DLL in its folder
-  (`PluginFinder`), so a plugin could register the FX Pro as a native SimHub LED device (`ILedDeviceManager.Display`
-  gets every frame). Not used: ATSR-Hub's properties are simpler and don't depend on SimHub internals.
+
+## SimHub LED device
+
+The FX Pro also shows up in SimHub's own **Devices** (brand "FX Unleashed", "FX Pro wheel (USB mode)"), so SimHub's LED
+editor, any SimHub LED profile, and ATSR-Hub through SimHub drive its lights (`Usb/SimHubLedDevice.cs`).
+
+- Registered like SimHub's built-in devices (decompiled SimHub 9.11 `DeltaDevicesRegistry`): a public
+  `IDeviceDescriptorsRegistry` in the plugin DLL (found by SimHub's `PluginFinder`, which scans per type and catches
+  load errors) returns one `DeviceDescriptor` whose factory builds a `LedModuleDevice` with
+  `LedModuleSettings<FXProLedDriver>`. SimHub calls `GetDevices` without a try/catch (an exception there breaks its whole
+  device list), so it can't throw; the driver is created in its own method, so a SimHub with another
+  `ILedDeviceManager` loses only this device.
+- Layout: telemetry LEDs 21 split 3 + 15 + 3 (left side lights 17-19, rev bar 23-37, right side lights 20-22), 12 button
+  LEDs (0-11), 5 encoders (12-16), 38 individual LEDs in the firmware's order (these override the groups).
+- Every frame SimHub computes goes through `FXProLedDriver.Display` to `UsbController.PublishDevice`, used when the Lights
+  tab says "Lights come from: SimHub device" (the LED ceiling and press lights still apply). Connected = USB mode on and
+  the wheel found.
+- **Not yet tried inside SimHub on the wheel.** When it is, the ATSR-Hub bridge below can go (NEXT.md D).
 
 ## How it talks to the wheel
 
@@ -158,6 +173,34 @@ Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, 
 - If SimHub dies: the screen returns to the wheel within a second (keepalive gate) but stays on page 0 until the next
   page change; the LEDs stay in all-LEDs mode until a power cycle.
 
+## Library, screen mirror, wheel dash values, base per car
+
+- **Library** (`Usb/Library.cs`, `Ui/LibraryPanel.cs`, `Ui/PackageDialog.cs`): the community library repo
+  (fx-unleashed-library: `dashes/<id>/{dash.json, meta.json, preview.png}`, `savers/...`, `index.json`). Browse on the
+  Dashes and Idle tabs; install writes the dash into the dashes folder (or a screensaver into the savers folder) and
+  reloads: no restart. Every download is checked against the index's sha256 and the library rules (no `js:` or
+  scripts folder, no newer dash format, size caps, `MinPlugin`). "Package for the library" (Dashes tab, or
+  `fxdash package`) writes an item folder with the measured cost and a rendered preview. The base URL can be a local
+  folder (`UsbSettings.LibraryUrl`), used by `UsbTest` (`FXU_LIBRARY=<checkout>`).
+- **Website install**: `POST /api/library/install?kind=&id=` on the designer server; the item is looked up by id in the
+  library's own index (never a URL from the request) and the user confirms in a dialog. **Designer server security:**
+  requests carrying an `Origin` must come from the server's own pages; only `/api/library/*` answers
+  `https://fxunleashed.com` (CORS + Private Network Access preflight). Before this, the server answered every request
+  with `Access-Control-Allow-Origin: *` and no Origin check, so any web page could send it simple POSTs.
+- **Screen mirror** (`Usb/ScreenMirror.cs`): every command `FxHostScreen` sends is replayed on a simulated screen;
+  `GET /mirror` (OBS browser source: `?bg=transparent`, `?leds=0`, `?all=1`, `?fps=N`), `/api/wheel/frame.png`,
+  `/api/wheel/mirror`. While the wheel shows one of its own dashes: SimPro's picture of it (not live values).
+  `UsbTest <dir> mirror [port] [seconds]` serves it with the demo lap.
+- **Wheel dash values** (`Ui/WheelValuesPanel.cs`): any value the wheel's own dashes draw can come from another SimHub
+  property or a formula (`ncalc:`/`js:`), in natural units (gaps in seconds, fuel per lap in litres); stored in
+  `Settings.Feed.Overrides`, shared with standard mode's SimGame feed. Dashes tab > Values.
+- **Base per car** (`BaseSwitcher.cs`, Car tuning tab): rotation (`max_wheel_angle` + `wheel_angle_limit`) and overall
+  force (`total_force`) of the base per car or game, through SimPro's `servos` part (live, never saved into the preset),
+  restored on exit / off / Restore; a user edit in SimPro is re-captured without our car values. Off by default;
+  **not yet tried on a base**.
+- **Setup status** (`Usb/WheelSetup.cs`): while the wheel isn't on USB, "Wheel on the base" (SimPro lists a wheel),
+  "Restarting into USB mode" (it just left the base), "Unknown USB device" (Windows' VID_0000/PID_0002).
+
 ## Checking without the wheel
 
 - `tools/UsbTest`: compiles all plugin sources against SimHub's DLLs; `UsbTest.exe OUTDIR` runs the Mustang through the
@@ -183,7 +226,8 @@ Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, 
 
 - Firmware: build 4 has to reach users (FXProDashes `firmware-rebuild.md`); decide how, and document the stock
   round trip.
-- Patch detection: a marker in the `F1` status block in a future firmware build would replace the confirmation box.
+- Patch detection: build 7 reports its build number in `F1` status byte 0x20 (`FxUsb.QueryBuild`); builds 4-6 still
+  need the confirmation box.
 - Verify on the wheel: ATSR-Hub button input IDs.
 - Dash editor (next step): see FXProDashes `docs/custom-dash.md`.
 - README: user-facing section for USB mode; keep the ATSR-Hub preset file in releases.
