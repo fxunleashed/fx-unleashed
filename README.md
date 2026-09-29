@@ -1,55 +1,72 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-nobg.png">
-    <img src="assets/logo.png" alt="FXPro RPM Sync" width="260">
-  </picture>
+  <img src="assets/brand/lockup.png" alt="FX Unleashed" width="460">
 </p>
 
-# FXPro RPM Sync
+> **FX Unleashed is an independent community project.** It is not affiliated with, endorsed by or supported by
+> Simagic. Simagic and FX Pro are trademarks of their owner, used only to say which hardware this works with. The
+> software is provided "as is", without warranty of any kind. Use it at your own risk.
 
-A [SimHub](https://www.simhubdash.com/) plugin that keeps the **Simagic FX Pro**'s rev lights and dash matched to
-the car you're driving, automatically, in every game.
+# FX Unleashed
 
-Out of the box, SimPro Manager uses one set of RPM light thresholds per preset. That means the shift lights are
-early in some cars and late in others. FXPro RPM Sync detects each car change in SimHub and pushes that car's real
-shift-light pattern, colors and shift point to the wheel through SimPro Manager. It can also switch the wheel's
-screen to each car's dash, and feed the dash with SimHub's data.
+A free [SimHub](https://www.simhubdash.com/) plugin for the **Simagic FX Pro**: your own dashes on its 800x480 screen,
+all 38 lights in any colour, screensavers, a community library and the dash button, all driven from SimHub.
+Website, guide and library: **[fxunleashed.com](https://fxunleashed.com)**.
 
-- **Real per-car shift lights** from the community [Lovely Car Data](https://github.com/Lovely-Sim-Racing/lovely-car-data)
-  database, including cars whose lights change per gear (e.g. iRacing's Porsche 911 Cup): the wheel switches to
-  each gear's lights as you shift.
-- **Sensible fallback** for cars that aren't in the database: pick a pattern and colors, with animated previews.
-- **Per-car overrides** when a car's lights don't match the game, including a nudge from a wheel button while driving.
-- **Dash per car:** the wheel's screen switches to each car's dash when you get in it. Pick a dash with the dash
-  button while driving and it's remembered for that car, or choose one from the gallery.
-- **Dash values from SimHub** (optional): gaps ahead/behind, fuel per lap, tyres and more on the wheel's dash, from
-  SimHub's data instead of SimPro's, in every game SimHub supports.
-- **Non-destructive:** your SimPro preset is never saved over. The original lights are restored when SimHub exits.
+It has two modes:
 
-![FXPro RPM Sync settings page in SimHub](assets/settings.png)
+| | Standard mode | Unleashed mode |
+|---|---|---|
+| Wheel firmware | stock, nothing flashed | the FXProDashes wheel app ([firmware](#the-firmware)) |
+| Talks to the wheel | through SimPro Manager (over the base) | directly, over the wheel's own USB cable |
+| Rev lights | each car's real shift lights | every one of the 38 LEDs, any colour, 30 frames a second |
+| Dash | the wheel's own dashes, per car, fed with SimHub's data | your own dashes (designer, SimHub import, library), per car; or the wheel's own, fed over USB |
+| Also | | screensavers and sleep, alerts and flags, encoder levels, button press lights, night mode, the dash button as button 40, ATSR-Hub or SimHub LED profiles, a screen mirror for streaming, base rotation/force per car |
+
+## Unleashed mode
+
+- **Your own dashes:** design them in the browser with the built-in designer (it shows them on the wheel while you
+  edit and checks they can't flicker or lag), convert SimHub dashes, or install them from the
+  [library](https://fxunleashed.com/library/) in a click. Pick one or more per car; the dash button steps through them.
+- **Every light:** presets and an editor per group (rev lights, side lights, buttons, encoders), each car's real shift
+  lights, alerts (flags, spotter, pit limiter, ABS/TC, low fuel, invalid lap, custom alerts from any SimHub value) in
+  your order, encoder rings that show their setting, buttons that light while pressed. Or let ATSR-Hub or any SimHub
+  LED profile drive them (the wheel shows up in SimHub's Devices).
+- **Between sessions:** screensavers (the logo, a clock, start lights, your last session, a picture, a library item)
+  and sleep.
+- **Streaming:** an OBS browser source with the wheel's screen and lights, live (`http://127.0.0.1:8899/mirror`).
+- **Quick controls:** screen on/off, brightness, a ceiling for every light, night mode, next dash / preset, from a key,
+  a wheel button or a Stream Deck.
+- **Updates itself:** a banner offers new versions, one click installs, one click rolls back.
+
+The full setup, step by step: [docs/setup.md](docs/setup.md) (also at [fxunleashed.com/start](https://fxunleashed.com/start/)).
+
+### The firmware
+
+Unleashed mode needs a modified version of the wheel's own app (the FXProDashes wheel app, built 4-7). **Read the
+[firmware warning](docs/legal/firmware-warning.md) first.** It changes only the wheel's app (lights, screen, buttons,
+USB), never the base or force feedback; every change is emulated against the stock firmware before it's tried on a
+wheel; going back to stock is SimPro's own reinstall. How it's handed out is still being decided: this repository
+never contains Simagic's firmware or its key.
 
 ## Requirements
 
 | | |
 |---|---|
-| Wheel | Simagic **FX Pro** (tested on an Alpha EVO base). The **GT Neo**'s rev lights work too (no dash features: it has no screen). Other Simagic wheels with RPM lights may work but are untested. You can swap wheels while SimHub runs. |
-| SimPro Manager | **SimPro Manager 3** (tested with V3.2.2), running while you drive. The plugin talks to its local API on `127.0.0.1:4010`. |
+| Wheel | Simagic **FX Pro**, wheel app 1.3.11 (tested on an Alpha EVO base). In standard mode the **GT Neo**'s rev lights work too. |
+| SimPro Manager | **SimPro Manager 3** (tested with V3.2.2), running while you drive. |
 | SimHub | Tested with 9.11. The free version is fine. |
-| Game | Must be supported by **both** SimHub (car detection) and SimPro Manager (which drives the LEDs and dash from its own telemetry). With **Dash values from SimHub** on, SimHub support is enough. |
-| Internet | Needed the first time a car is looked up. Car data is cached locally afterwards. |
-
-Why SimPro? The FX Pro has no native SimHub LED support, so the plugin configures the lights through SimPro, and SimPro sends them to the wheel.
+| Unleashed mode | the modified wheel app, and the wheel's USB cable to the PC (best: data only, the base powers the wheel). |
 
 ## Install
 
-1. Download `FXProRpmSync-vX.Y.zip` from [Releases](https://github.com/ziadkadry99/FXPro-RPM-Sync/releases).
+1. Download the latest release from [Releases](https://github.com/fxunleashed/fx-unleashed/releases).
 2. **Close SimHub**, then copy `User.FXProRpmSync.dll` from the zip into your SimHub folder
    (default `C:\Program Files (x86)\SimHub\`).
-3. Start SimHub. In the **New plugins have been detected** window, turn on the **FXPro RPM Sync** toggle and
+3. Start SimHub. In the **New plugins have been detected** window, turn on **FX Unleashed** and
    **Show in left main menu**, then click **Ok**.
-4. Open **FXPro RPM Sync** in SimHub's left menu.
+4. Open **FX Unleashed** in SimHub's left menu. Later versions install from the plugin itself (About tab).
 
-## Usage
+## Standard mode: the stock wheel, through SimPro
 
 Start SimPro Manager and SimHub, select your usual preset in SimPro, and drive. That's it: on every car change the
 settings page shows the car, where its lights came from, and the shift point / max RPM that were applied.
@@ -176,35 +193,36 @@ measured on the wheel.
 
 ## Building from source
 
-Requires the .NET SDK and a SimHub install (the project references SimHub's DLLs).
+Requires the .NET SDK and a SimHub install (the project references SimHub's DLLs, which can't be redistributed, so CI
+can't build it).
 
 ```
 dotnet build -c Release                             # builds and copies the DLL into SimHub (close SimHub first)
 dotnet build -c Release -p:DeployToSimHub=false     # build only
+tools/UsbTest/bin/Release/net48/UsbTest.exe OUT     # offline checks (build tools/UsbTest first)
+.\release.ps1 X.Y.Z [-Beta N] [-Publish]            # a release: version, build, tests, zip, manifest, notes
+python tools/publish-check.py . --history           # nothing secret or Simagic's in the tree or its history
 ```
 
-Set `SIMHUB_INSTALL_PATH` if SimHub isn't in `C:\Program Files (x86)\SimHub\`.
+Set `SIMHUB_INSTALL_PATH` if SimHub isn't in `C:\Program Files (x86)\SimHub\`. Developer reference:
+[CLAUDE.md](CLAUDE.md) and [docs/usb-mode.md](docs/usb-mode.md).
 
 ## Contributing
 
-Bug reports and pull requests are welcome.
+- **Issues:** [open one](https://github.com/fxunleashed/fx-unleashed/issues) with the game, the car, what happened
+  versus what you expected, and the `[FXProRpmSync]` lines from `SimHub\Logs\SimHub.txt`.
+- **Dashes and screensavers:** submit them to the [library](https://github.com/fxunleashed/fx-unleashed-library).
+- **Wrong shift point for a car?** The data comes from Lovely Car Data: a fix
+  [there](https://github.com/Lovely-Sim-Racing/lovely-car-data) helps everyone. Until then, use a per-car override.
+- **Pull requests:** keep them focused, and describe how you tested them on a wheel.
 
-- **Issues:** [open one](https://github.com/ziadkadry99/FXPro-RPM-Sync/issues) with the game, the car, what the lights
-  did versus what you expected, and the `[FXProRpmSync]` log lines.
-- **Wrong shift point for a car in the database?** The data comes from Lovely Car Data, so a fix there helps everyone:
-  contribute it to [lovely-car-data](https://github.com/Lovely-Sim-Racing/lovely-car-data). Until then, use a per-car
-  override.
-- **Pull requests:** keep them focused, and describe how you tested them on a wheel. Reports from other Simagic wheels
-  are especially welcome.
+## License and credits
 
-## License
-
-- **Plugin code:** [GPL-3.0](LICENSE). You can use, modify, and share it; modified versions you distribute must stay
-  open source under the same license.
+- **Plugin code:** [GPL-3.0](LICENSE): no warranty, no liability (sections 15 and 16). See [NOTICE](NOTICE).
 - **Car rev light data:** [Lovely Car Data](https://github.com/Lovely-Sim-Racing/lovely-car-data) by Lovely Sim Racing
-  and contributors, licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). The data isn't
-  bundled with this plugin; it's downloaded from the Lovely Car Data repository at runtime. Its non-commercial terms
-  apply to the data.
+  and contributors, [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), downloaded at runtime,
+  not bundled.
+- **Logo and drawings:** our own (`tools/brand/make_brand.py`).
 
-This is an independent community project, not affiliated with or endorsed by Simagic. Simagic, FX Pro, and SimPro
-Manager are trademarks of their respective owners.
+FX Unleashed is an independent community project, not affiliated with or endorsed by Simagic. Simagic, FX Pro and
+SimPro Manager are trademarks of their owners.
