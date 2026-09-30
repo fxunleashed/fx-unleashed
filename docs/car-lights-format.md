@@ -50,7 +50,8 @@ A plugin that reads format 1 ignores a file or index with a higher `schema` (and
      {"pos": 0.4506, "stages": [[6840, "#FF0000"]]}
    ],
    "colourGuessed": true,                // optional: some colours couldn't be read and follow green, yellow, red
-   "layout": "step-order"                // optional: not a straight bar (a grid, two columns); pos = step order
+   "layout": "step-order",               // optional: not a straight bar (a grid, two columns); pos = step order
+   "withTacho": true                     // optional: shift lights hung on a sweep tacho (range starts at 0)
  },
  "limiter": {                            // null: the dash shows nothing special
    "onBar": true,                        // the rev bar's lights change pattern
@@ -86,6 +87,9 @@ A plugin that reads format 1 ignores a file or index with a higher `schema` (and
 
 - **Step RPMs** are evenly spaced over `range`: step 1 at the start, the last step at the end. Checked in the game on
   the BMW M4 GT3 (2026-09-29).
-- `dash: "tacho"`: the range starts at 0 (a sweep tacho, not shift lights): no rev lights for the wheel.
+- `dash: "tacho"`: the range starts at 0 (a sweep tacho) and no shift lights hang on it: no rev lights for the wheel.
+  Many sweeps carry real shift lights as lamps on some of their steps (the Formula Vee Gen2: 13 lamps over a 71-step
+  0-7100 bar); those are the car's shift lights (`withTacho`), timed by the whole bar, when there are at most 24 and
+  the first comes on above a quarter of the range.
 - `dash: "no-range"`: the cockpit file has no RPM bar range (its other layout: GT4s, CART cars and others).
 - Blinking isn't in the data: the flash and the limiter are shown steady.
