@@ -28,6 +28,7 @@ static class FeatureTests
         GtNeoTests.Run();
         LightStateTests.Run();
         CalibrationTests.Run();
+        CarLightsTests.Run();
         foreach (var extra in Extra) extra();
         Console.WriteLine(failures == 0 ? "features: OK" : $"features: {failures} FAILED");
         return failures == 0 ? 0 : 1;

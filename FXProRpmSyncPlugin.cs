@@ -80,6 +80,9 @@ namespace User.FXProRpmSync
 
         private readonly SimProClient simPro = new SimProClient();
         private CarLedDatabase carDb;
+        private CarLightsDatabase carLights;
+        /// <summary>The pit limiter lights from the game's data, per car key (CarLimiterFor).</summary>
+        private readonly Dictionary<string, LimiterLook> gameLimiters = new Dictionary<string, LimiterLook>();
         private DashSwitcher dashes;
         private readonly Dictionary<string, CarLedProfile> profileCache = new Dictionary<string, CarLedProfile>();
         private readonly object sync = new object();
@@ -164,6 +167,8 @@ namespace User.FXProRpmSync
         public string CurrentCarName { get; private set; }
         /// <summary>The current car's lights before any override (what the plugin would show without one).</summary>
         public RpmLayout CurrentBaseLayout { get; private set; }
+        /// <summary>The current car in the games' own data (rev lights, pit limiter), or null.</summary>
+        public CarLightsMatch CurrentGameLights { get; private set; }
         public string CurrentBaseSource { get; private set; }
 
         // The current car for dash switching (set on every car change, even before its RPM range is known).
@@ -339,6 +344,10 @@ namespace User.FXProRpmSync
             if (Settings.Feed.Enabled && Settings.Mode == WheelMode.Standard) SetFeedEnabled(true, save: false);
             carDb = new CarLedDatabase(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync"));
+            carLights = new CarLightsDatabase(() => Settings.Usb.LibraryUrl, System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync"));
+            carLights.Changed += () => { lock (sync) { profileCache.Clear(); } Reapply(); };
+            carLights.RefreshIfDue();
 
             this.AttachDelegate("Status", () => Status);
             this.AttachDelegate("CurrentCar", () => CurrentCar);
@@ -1077,6 +1086,7 @@ namespace User.FXProRpmSync
             dashCarGame = dashCarId = dashCarName = null;
             CurrentCarKey = CurrentGame = CurrentCarId = CurrentCarName = null;
             CurrentBaseLayout = null;
+            CurrentGameLights = null;
             CurrentBaseSource = null;
             CurrentLightsLayout = null;
             CurrentCar = "";
@@ -1183,8 +1193,15 @@ namespace User.FXProRpmSync
             var simProMax = await simPro.GetGameMaxRpm().ConfigureAwait(false);
             var scaleMax = simProMax > 0 ? simProMax : t.MaxRpm;
 
+            // The game's own data (extracted from its files, CarLightsDatabase) first, then Lovely Car Data.
+            CarLightsMatch game = Settings.UseCarDatabase || unlocked ? carLights.Find(t.GameName, t.CarId, t.CarModel) : null;
+            var gameLimiter = CarLightsDatabase.ToLimiter(game?.Car);
+            lock (sync) { if (gameLimiter != null) gameLimiters[t.CarKey] = gameLimiter; else gameLimiters.Remove(t.CarKey); }
+            CurrentGameLights = game;
             CarLedProfile profile = null;
-            if ((Settings.UseCarDatabase || unlocked) && !profileCache.TryGetValue(t.CarKey, out profile))
+            if (game?.Car.Rev != null)
+                profile = CarLightsDatabase.ToProfile(game.Car.Rev, game.Car.CarId, out _);
+            else if ((Settings.UseCarDatabase || unlocked) && !profileCache.TryGetValue(t.CarKey, out profile))
             {
                 profile = await carDb.Find(t.GameName, t.CarId, t.CarModel).ConfigureAwait(false);
                 profileCache[t.CarKey] = profile;
@@ -1197,7 +1214,9 @@ namespace User.FXProRpmSync
             {
                 // USB mode shows the car's own colours; SimPro only takes its palette
                 layout = RpmLayout.FromProfile(profile, includeGears: !w.OldDevice || Settings.LiveGearCurves, exactColours: unlocked);
-                source = $"car database, {profile.MatchedBy} ({profile.LedNumber} LEDs" + (layout.Gears != null ? ", per gear)" : ")");
+                source = game?.Car.Rev != null
+                    ? $"{game.Label} game data ({game.Car.Rev.Lights.Count} lights, {game.Car.Rev.Low}-{game.Car.Rev.High} rpm" + (game.Car.Rev.ColourGuessed ? ", some colours guessed)" : ")")
+                    : $"car database, {profile.MatchedBy} ({profile.LedNumber} LEDs" + (layout.Gears != null ? ", per gear)" : ")");
             }
             else if (t.Redline > 0)
             {

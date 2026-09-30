@@ -449,7 +449,7 @@ namespace User.FXProRpmSync
             else if (state == CarState.Menu || state == CarState.EngineOff) { v = SimLap.Values(0); v.Rpm = 0; v.AbsActive = v.TcActive = v.SpotterLeft = v.SpotterRight = false; v.InMenu = state == CarState.Menu; }
             else if (state == CarState.PitLimiter) { v.Rpm = 3400; v.PitLimiter = true; v.AbsActive = v.TcActive = false; }
             else if (state == CarState.Starting) v.Rpm = 900;
-            return (v, LightMoment.Of(state, progress, carLimiterDraft ?? plugin.LimiterFor(plugin.DashCarKey)));
+            return (v, LightMoment.Of(state, progress, carLimiterDraft ?? plugin.CarLimiterFor(plugin.DashCarKey)));
         }
 
         private void BuildStateChips()
@@ -483,20 +483,24 @@ namespace User.FXProRpmSync
             panel.Children.Clear();
             panel.Children.Add(Theme.Eyebrow("Pit limiter lights for this car"));
             string key = plugin.DashCarKey, name = plugin.CurrentCarNameForDash;
-            panel.Children.Add(Theme.Note("No sim tells us what a car's own dash does with the pit limiter on, so set it up once for the cars you know: " +
-                "pick the pattern and colours, check it on the wheel above (and on the real wheel in the pit lane), then save it for the car. " +
-                "Cars without their own use the light preset's. The same on both wheels."));
+            panel.Children.Add(Theme.Note("Cars whose dash has pit limiter lights in the game's own data (AMS2 so far) show those. For any other car, " +
+                "set it up once: pick the pattern and colours, check it on the wheel above (and on the real wheel in the pit lane), then save it " +
+                "for the car. Cars without either use the light preset's. The same on both wheels."));
             var saved = plugin.LimiterFor(key);
+            var fromGame = saved == null ? plugin.GameLimiterFor(key) : null;
             if (key == null)
                 panel.Children.Add(new TextBlock { Text = "Start a game to set up the car you're driving.", Foreground = Theme.Text2, Margin = new Thickness(0, 4, 0, 10) });
             else
             {
-                var look = carLimiterDraft ?? (saved ?? S.ActiveLights.Limiter ?? new LimiterLook()).Clone();
-                panel.Children.Add(Theme.Title((name ?? key) + (saved != null ? "  ·  saved" : ""), 16));
+                var look = carLimiterDraft ?? (saved ?? fromGame ?? S.ActiveLights.Limiter ?? new LimiterLook()).Clone();
+                panel.Children.Add(Theme.Title((name ?? key) + (saved != null ? "  ·  saved" : fromGame != null ? "  ·  from the game" : ""), 16));
+                if (fromGame != null && carLimiterDraft == null)
+                    panel.Children.Add(Theme.Note($"This car's own pit limiter lights, read from {plugin.CurrentGameLights?.Label ?? "the game"}'s dash. " +
+                        "Change them below and save if you'd rather have something else."));
                 panel.Children.Add(new Border { Height = 8 });
                 panel.Children.Add(LimiterEditor(look, () => { carLimiterDraft = look; }));
                 var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 6) };
-                row.Children.Add(Theme.Btn("Save for this car", () => { plugin.SetCarLimiter(key, look); carLimiterDraft = null; BuildCarLimiter(); }, primary: true));
+                row.Children.Add(Theme.Btn("Save for this car", () => { look.FromGame = false; plugin.SetCarLimiter(key, look); carLimiterDraft = null; BuildCarLimiter(); }, primary: true));
                 if (carLimiterDraft != null) row.Children.Add(Theme.Btn("Undo changes", () => { carLimiterDraft = null; BuildCarLimiter(); }));
                 if (saved != null) row.Children.Add(Theme.Btn("Remove this car's", () => { plugin.SetCarLimiter(key, null); carLimiterDraft = null; BuildCarLimiter(); }));
                 panel.Children.Add(row);
@@ -525,7 +529,9 @@ namespace User.FXProRpmSync
         {
             var box = new StackPanel();
             var style = new ComboBox { Width = 240 };
-            foreach (LimiterStyle st in Enum.GetValues(typeof(LimiterStyle))) style.Items.Add(new ComboBoxItem { Content = LimiterLook.StyleName(st), Tag = st });
+            foreach (LimiterStyle st in Enum.GetValues(typeof(LimiterStyle)))
+                if (st != LimiterStyle.CarPattern || look.Pattern != null) // the car's own needs its pattern from the game
+                    style.Items.Add(new ComboBoxItem { Content = LimiterLook.StyleName(st), Tag = st });
             style.SelectedItem = style.Items.Cast<ComboBoxItem>().First(i => (LimiterStyle)i.Tag == look.Style);
             style.SelectionChanged += (s2, e2) => { if (style.SelectedItem is ComboBoxItem i) { look.Style = (LimiterStyle)i.Tag; changed(); } };
             box.Children.Add(Theme.Field("Pattern", style));

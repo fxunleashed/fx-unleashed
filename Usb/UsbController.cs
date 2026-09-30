@@ -964,7 +964,7 @@ namespace User.FXProRpmSync
                 if (frame == null || frame.Length != engine.Count)
                 {
                     var st = carState.Update(v, now);
-                    var moment = LightMoment.Of(st, carState.Progress(now), plugin.LimiterFor(plugin.DashCarKey));
+                    var moment = LightMoment.Of(st, carState.Progress(now), plugin.CarLimiterFor(plugin.DashCarKey));
                     frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev, moment);
                     LightsState += " · " + CarStateTracker.Name(moment.State).ToLowerInvariant();
                 }

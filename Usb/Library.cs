@@ -152,6 +152,9 @@ namespace User.FXProRpmSync
             using (var sha = SHA256.Create()) return string.Concat(sha.ComputeHash(data).Select(b => b.ToString("x2")));
         }
 
+        /// <summary>Any file of the library (e.g. cars/index.json), at most max bytes.</summary>
+        public byte[] GetFile(string relative, int max) => Get(relative, max);
+
         private byte[] Get(string relative, int max)
         {
             if (relative.Contains("..")) throw new Exception("bad path");

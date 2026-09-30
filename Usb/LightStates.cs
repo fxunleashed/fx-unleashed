@@ -103,6 +103,8 @@ namespace User.FXProRpmSync
         Checker,
         /// <summary>The whole bar steady.</summary>
         Solid,
+        /// <summary>The car's own pattern from the game's dash (Pattern: a colour per rev LED; CarLightsDatabase).</summary>
+        CarPattern,
     }
 
     public class LimiterLook
@@ -114,8 +116,18 @@ namespace User.FXProRpmSync
         public double Hz = 3;
         /// <summary>Over every light on the wheel, not just the rev bar.</summary>
         public bool WholeWheel;
+        /// <summary>CarPattern: the colour of each of the wheel's rev LEDs, left to right ("#000000" = dark).</summary>
+        public List<string> Pattern;
+        /// <summary>Taken from the game's data for the car (not saved by the user).</summary>
+        public bool FromGame;
 
-        public LimiterLook Clone() { var c = (LimiterLook)MemberwiseClone(); c.Colors = (Colors ?? new List<string>()).ToList(); return c; }
+        public LimiterLook Clone()
+        {
+            var c = (LimiterLook)MemberwiseClone();
+            c.Colors = (Colors ?? new List<string>()).ToList();
+            c.Pattern = Pattern?.ToList();
+            return c;
+        }
 
         public static string StyleName(LimiterStyle s)
         {
@@ -129,6 +141,7 @@ namespace User.FXProRpmSync
                 case LimiterStyle.Chase: return "Light bounces end to end";
                 case LimiterStyle.CentreFill: return "Fills from the middle";
                 case LimiterStyle.Checker: return "Chequered, swapping";
+                case LimiterStyle.CarPattern: return "The car's own (from the game)";
                 default: return "Steady";
             }
         }
@@ -163,7 +176,8 @@ namespace User.FXProRpmSync
                     return (Math.Abs(x - 0.5) * 2 <= reach + 0.001 ? 1 : 0, false);
                 }
                 case LimiterStyle.Checker: return (1, ((i + phase) & 1) == 1);
-                case LimiterStyle.Solid: return (1, false);
+                case LimiterStyle.Solid:
+                case LimiterStyle.CarPattern: return (1, false);
                 default: return (0, false);
             }
         }

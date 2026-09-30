@@ -793,6 +793,17 @@ namespace User.FXProRpmSync
 
         private void ApplyLimiter(LedColor[] frame, LimiterLook lim, double now)
         {
+            if (lim.Style == LimiterStyle.CarPattern && lim.Pattern != null && lim.Pattern.Count > 0)
+            {
+                // the car's own lights, steady: the pattern is laid out for the rev bar, left to right
+                var rev = Model.Leds(LedGroup.Rev);
+                for (int i = 0; i < rev.Length; i++)
+                {
+                    var c = Rgb(lim.Pattern[Math.Min(lim.Pattern.Count - 1, i * lim.Pattern.Count / rev.Length)]);
+                    frame[rev[i]] = c.Item1 + c.Item2 + c.Item3 == 0 ? new LedColor(0, 0, 0, 1) : new LedColor(c.Item1, c.Item2, c.Item3, 90);
+                }
+                return;
+            }
             var cols = lim.Colors != null && lim.Colors.Count > 0 ? lim.Colors : new List<string> { "#0040FF" };
             var a = Rgb(cols[0]);
             var b = cols.Count > 1 ? Rgb(cols[1]) : ((byte)0, (byte)0, (byte)0);

@@ -161,8 +161,9 @@ Actions for **Controls and events**: `CurrentCarLightsLater`, `CurrentCarLightsE
 ## How it works
 
 1. SimHub reports a car change (game + car id + max RPM).
-2. The plugin looks the car up in Lovely Car Data (exact match, then same series / team if they all share one setup).
-   Cars that aren't found get your fallback style.
+2. The plugin looks the car up in our car light data, read from the game's own files for each game version (AMS2 so
+   far), then in Lovely Car Data (exact match, then same series / team if they all share one setup). Cars that
+   aren't found get your fallback style. The game data also brings the car's own pit limiter lights (USB mode).
 3. Any per-car override is applied.
 4. The result is converted to SimPro's format. SimPro stores LED thresholds as a percentage of the **game max RPM
    SimPro reads for the current car**, so the plugin scales to that. It also snaps thresholds to whole percents and
@@ -212,7 +213,8 @@ Set `SIMHUB_INSTALL_PATH` if SimHub isn't in `C:\Program Files (x86)\SimHub\`. D
 - **Issues:** [open one](https://github.com/fxunleashed/fx-unleashed/issues) with the game, the car, what happened
   versus what you expected, and the `[FXProRpmSync]` lines from `SimHub\Logs\SimHub.txt`.
 - **Dashes and screensavers:** submit them to the [library](https://github.com/fxunleashed/fx-unleashed-library).
-- **Wrong shift point for a car?** The data comes from Lovely Car Data: a fix
+- **Wrong shift point for a car?** For AMS2 the lights come from the game's own files; tell us if one looks off.
+  For other games the data comes from Lovely Car Data: a fix
   [there](https://github.com/Lovely-Sim-Racing/lovely-car-data) helps everyone. Until then, use a per-car override.
 - **Pull requests:** keep them focused, and describe how you tested them on a wheel.
 
