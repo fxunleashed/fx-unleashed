@@ -26,9 +26,7 @@ static class GtNeoTests
     static void Golden()
     {
         var file = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "golden-fxpro.txt");
-        var want = File.Exists(file) ? File.ReadAllText(file).Replace("
-", "
-") : null; // git may check it out with CRLF
+        var want = File.Exists(file) ? File.ReadAllText(file).Replace("\r\n", "\n") : null; // git may check it out with CRLF
         var got = global::Golden.Dump(() => new LightEngine(WheelModel.FxPro));
         Check("FX Pro: every preset renders exactly as before GT Neo support", want != null && got == want,
               want == null ? "golden-fxpro.txt missing" : FirstDiff(want, got));
