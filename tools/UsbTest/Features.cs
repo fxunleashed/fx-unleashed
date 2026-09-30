@@ -26,6 +26,7 @@ static class FeatureTests
         UpdaterTests.Run(dir);
         WorkstreamTests.Run();
         GtNeoTests.Run();
+        LightStateTests.Run();
         foreach (var extra in Extra) extra();
         Console.WriteLine(failures == 0 ? "features: OK" : $"features: {failures} FAILED");
         return failures == 0 ? 0 : 1;

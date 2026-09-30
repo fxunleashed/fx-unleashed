@@ -46,6 +46,11 @@ namespace User.FXProRpmSync
         public bool SpotterLeft, SpotterRight, LapInvalid, Stalled;
         public double FuelPercent = 100;
         public bool Running;
+        /// <summary>The game is in a menu, paused, a replay or spectating (the car isn't being driven). See CarStateTracker.</summary>
+        public bool InMenu;
+        /// <summary>The engine runs: the game says so, or the revs are up (games that don't report it). See CarStateTracker.</summary>
+        public bool EngineOn;
+        public double SpeedKmh;
 
         /// <summary>
         /// A preview (designer, offline tools): bindings that can't be evaluated here (SimHub formulas without SimHub)
@@ -234,6 +239,10 @@ namespace User.FXProRpmSync
             Try(() => { r.LapInvalid = d.LapInvalidated; r.Set("lapInvalid", r.LapInvalid); });
             // ignition on but the engine not running (games that don't report either leave both 0: never "stalled")
             Try(() => r.Stalled = d.EngineIgnitionOn != 0 && d.EngineStarted == 0 && d.SpeedKmh < 5);
+            // car state for the lights (CarStateTracker): an engine that's off has no revs, so games that never report
+            // ignition still read right
+            Try(() => { r.SpeedKmh = d.SpeedKmh; r.EngineOn = d.EngineStarted != 0 || d.Rpms > 300; });
+            Try(() => r.InMenu = data.GameInMenu || data.GamePaused || data.GameReplay || d.Spectating);
             if (binds != null)
                 foreach (var p in binds)
                     if (p.StartsWith("prop:", StringComparison.OrdinalIgnoreCase))
@@ -307,6 +316,7 @@ namespace User.FXProRpmSync
             r.AbsActive = t.Get("isAbsActive") > 0;
             r.TcActive = t.Get("isTcActive") > 0;
             r.PitLimiter = t.Get("isPitLimiterOn") > 0;
+            r.EngineOn = true; // the demo car is always running
             r.Set("absActive", r.AbsActive); r.Set("tcActive", r.TcActive); r.Set("pitLimiter", r.PitLimiter);
             r.BlueFlag = t.Get("blueFlag") > 0; r.YellowFlag = t.Get("yellowFlag") > 0;
             r.Set("spotterLeft", false); r.Set("spotterRight", false); r.Set("lapInvalid", false);

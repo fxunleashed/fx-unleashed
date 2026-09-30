@@ -170,7 +170,7 @@ static class GtNeoTests
         u.WheelButtons["sleep"] = 7;
         u.CarLights["ACC | car"] = "ember";
         u.SwapWheel(WheelModel.GtNeo);
-        Check("switch: the GT Neo starts with its own first preset and nothing mapped", u.ActiveWheel == "gtneo" && u.LightPreset == "neo-prism"
+        Check("switch: the GT Neo starts with its own first preset and nothing mapped", u.ActiveWheel == "gtneo" && u.LightPreset == "neo-neon-tokyo"
               && u.ButtonLeds.Count == 0 && u.WheelButtons.Count == 0 && u.CarLights.Count == 0 && u.Wheels.ContainsKey("fxpro"));
         u.LightPreset = "neo-ember"; u.ButtonLeds[3] = 5;
         Check("switch: the GT Neo's presets only", u.AllLightIds().All(id => id.StartsWith("neo-")) && u.ActiveLights.Id == "neo-ember");
@@ -196,7 +196,7 @@ static class GtNeoTests
         var p = NewPlugin();
         p.Settings.Usb.WheelButtons.Clear();
         p.SwitchWheel(WheelModel.GtNeo);
-        Check("plugin: switch to the GT Neo", p.ActiveModel == WheelModel.GtNeo && p.ActiveLightsFor(null).Id == "neo-prism");
+        Check("plugin: switch to the GT Neo", p.ActiveModel == WheelModel.GtNeo && p.ActiveLightsFor(null).Id == "neo-neon-tokyo");
         Check("plugin: no FX Pro dash-button binding on the GT Neo", !p.Settings.Usb.WheelButtons.ContainsValue(WheelButtons.DashButton));
         p.SwitchWheel(WheelModel.FxPro);
         Check("plugin: back on the FX Pro, the dash button steps the dashes", p.ActiveModel == WheelModel.FxPro && p.Settings.Usb.WheelButtons.TryGetValue("next", out var b) && b == WheelButtons.DashButton);

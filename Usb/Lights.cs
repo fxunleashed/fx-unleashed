@@ -33,6 +33,20 @@ namespace User.FXProRpmSync
         Rpm,
         /// <summary>Encoders: each shows its own setting (ABS, TC, BB, DIFF, MAP), coloured low to high.</summary>
         Levels,
+        /// <summary>A bright head with a fading tail running along the group and round again (first colour head, last tail).</summary>
+        Comet,
+        /// <summary>A lub-dub double pulse, once per cycle.</summary>
+        Heartbeat,
+        /// <summary>Flickering flames: the colours from coolest to hottest (e.g. dark red, orange, yellow).</summary>
+        Fire,
+        /// <summary>Stars: a dim base (first colour) with lights glinting on and off in the others (white if there's one colour).</summary>
+        Twinkle,
+        /// <summary>Waves spreading out from the middle of the group.</summary>
+        Ripple,
+        /// <summary>Colours melting into each other like a plasma lamp.</summary>
+        Plasma,
+        /// <summary>Emergency-light strobes: the two halves double-flash in turn (first colour left, second right).</summary>
+        Strobe,
     }
 
     /// <summary>Order doesn't matter (saved by name); new triggers go at the end.</summary>
@@ -71,6 +85,8 @@ namespace User.FXProRpmSync
         public bool FlashOnChange = true;
         /// <summary>Levels: what the DIFF encoder shows (no standard SimHub value): a SimHub property or formula, as AlertRule.Condition.</summary>
         public string DiffSource;
+        /// <summary>Groups in several segments (the GT Neo's rings): each one a step behind the last, so they chase each other.</summary>
+        public bool Stagger;
 
         public GroupLighting Clone() { var c = (GroupLighting)MemberwiseClone(); c.Colors = new List<string>(Colors); return c; }
     }
@@ -168,6 +184,19 @@ namespace User.FXProRpmSync
         /// <summary>First active alert wins for a LED.</summary>
         public List<AlertRule> Alerts = new List<AlertRule>();
 
+        // ---------- per car state (docs/light-states-plan.md) ----------
+
+        /// <summary>How it looks with no game, in a menu, with the engine off (missing = StateLook.Default).</summary>
+        public Dictionary<CarState, StateLook> Looks = new Dictionary<CarState, StateLook>();
+        public StartupStyle Startup = StartupStyle.Sweep;
+        public ShutdownStyle Shutdown = ShutdownStyle.Fade;
+        /// <summary>The pit limiter lights (a car's own, saved in UsbSettings.CarLimiters, come first).</summary>
+        public LimiterLook Limiter = new LimiterLook();
+        /// <summary>While driving, the rev bar's unlit LEDs glow in the theme's colour at this % (0 = dark, as before).</summary>
+        public int RevTint;
+
+        public StateLook LookFor(CarState s) => Looks != null && Looks.TryGetValue(s, out var l) && l != null ? l : StateLook.Default(s);
+
         public GroupLighting Group(LedGroup g) => Groups.TryGetValue(g, out var l) ? l : (Groups[g] = new GroupLighting { Effect = LightEffect.Off });
 
         /// <summary>SimHub properties / formulas these lights read (custom alerts, the DIFF encoder), for DataUpdate.</summary>
@@ -206,6 +235,8 @@ namespace User.FXProRpmSync
             c.Groups = Groups.ToDictionary(k => k.Key, k => k.Value.Clone());
             c.Rev = Rev.Clone();
             c.Alerts = Alerts.Select(a => a.Clone()).ToList();
+            c.Looks = (Looks ?? new Dictionary<CarState, StateLook>()).ToDictionary(k => k.Key, k => k.Value?.Clone());
+            c.Limiter = (Limiter ?? new LimiterLook()).Clone();
             return c;
         }
     }
@@ -226,83 +257,210 @@ namespace User.FXProRpmSync
 
         static LightPresets() { All = FxPro.Concat(GtNeo).ToArray(); }
 
+        // Order: the newest, most striking first (the first one is a new user's default), then the classics.
         public static readonly LightProfile[] FxPro =
         {
-            Make("mustang", "Prism", "A rainbow drifting over the buttons and encoders, breathing slowly.",
-                (LedGroup.Buttons, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
-                (LedGroup.Encoders, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
-                (LedGroup.SideLeft, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
-                (LedGroup.SideRight, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" })),
+            Make("neon-tokyo", "Neon Tokyo", "Rain-soaked Shibuya at 2 a.m.: magenta and cyan plasma melting across the buttons, city lights twinkling in the encoders, neon signs buzzing on the sides.",
+                (LedGroup.Buttons, LightEffect.Plasma, 7, 100, new[] { "#FF2E97", "#00F0FF", "#7B2FFF" }),
+                (LedGroup.Encoders, LightEffect.Twinkle, 5, 100, new[] { "#1A0033", "#00F0FF", "#FF2E97" }),
+                (LedGroup.SideLeft, LightEffect.Heartbeat, 2.2, 100, new[] { "#FF2E97" }),
+                (LedGroup.SideRight, LightEffect.Heartbeat, 2.6, 100, new[] { "#00F0FF" }))
+                .Parked(CarState.Idle, 80, LightEffect.Plasma, new[] { "#FF2E97", "#00F0FF", "#7B2FFF" }, 16, rev: true)
+                .Parked(CarState.EngineOff, 22, LightEffect.Twinkle, new[] { "#1A0033", "#00F0FF", "#FF2E97" }, 6)
+                .Motion(StartupStyle.Sweep, ShutdownStyle.Collapse).Limit(LimiterStyle.Checker, "#FF2E97", "#00F0FF", 4).TintRev(6),
+            Make("hyperspace", "Hyperspace", "Punch it: white star streaks racing out of every group into a violet warp. A starfield while you wait, and a hyperdrive spool-up every time the engine fires.",
+                (LedGroup.Buttons, LightEffect.Comet, 0.9, 100, new[] { "#FFFFFF", "#3A1CFF" }),
+                (LedGroup.Encoders, LightEffect.Twinkle, 3, 100, new[] { "#0A0030", "#FFFFFF", "#B0A0FF" }),
+                (LedGroup.SideLeft, LightEffect.Comet, 0.6, 100, new[] { "#FFFFFF", "#6040FF" }),
+                (LedGroup.SideRight, LightEffect.Comet, 0.6, 100, new[] { "#FFFFFF", "#6040FF" }))
+                .Parked(CarState.Idle, 75, LightEffect.Twinkle, new[] { "#05001A", "#FFFFFF", "#B0A0FF" }, 7, rev: true)
+                .Parked(CarState.EngineOff, 20, LightEffect.Twinkle, new[] { "#05001A", "#FFFFFF" }, 9)
+                .Motion(StartupStyle.Sweep, ShutdownStyle.Collapse).Limit(LimiterStyle.Chase, "#B0A0FF", hz: 1.5),
+            Make("le-mans-night", "Le Mans Night", "Three in the morning on the Mulsanne: warm headlight white on the buttons, amber glowing in the encoders, red tail lights breathing at the sides. Parks with its sidelights on.",
+                (LedGroup.Buttons, LightEffect.Solid, 4, 55, new[] { "#FFE3A8" }),
+                (LedGroup.Encoders, LightEffect.Breathe, 8, 70, new[] { "#FF9A1F" }),
+                (LedGroup.SideLeft, LightEffect.Breathe, 3, 85, new[] { "#FF1010" }),
+                (LedGroup.SideRight, LightEffect.Breathe, 3, 85, new[] { "#FF1010" }))
+                .Parked(CarState.Idle, 70, LightEffect.Comet, new[] { "#FFE3A8", "#3A2410" }, 5, rev: true)
+                .Parked(CarState.EngineOff, 14, LightEffect.Solid, new[] { "#FF9A1F" })
+                .Motion(StartupStyle.Ignite, ShutdownStyle.Fade).Limit(LimiterStyle.Ends, "#FFB000", hz: 2).TintRev(5),
+            Make("inferno", "Inferno", "Every light a live flame: flickering reds and oranges on the buttons, coals glowing in the encoders, the sides beating like an engine. Starting up lights the fuse; switching off leaves embers.",
+                (LedGroup.Buttons, LightEffect.Fire, 3, 100, new[] { "#3A0000", "#FF2000", "#FF8A00", "#FFD060" }),
+                (LedGroup.Encoders, LightEffect.Fire, 5, 80, new[] { "#200000", "#C01000", "#FF6A00" }),
+                (LedGroup.SideLeft, LightEffect.Heartbeat, 1.4, 100, new[] { "#FF2000" }),
+                (LedGroup.SideRight, LightEffect.Heartbeat, 1.4, 100, new[] { "#FF2000" }))
+                .Parked(CarState.Idle, 70, LightEffect.Fire, new[] { "#3A0000", "#FF2000", "#FF8A00", "#FFD060" }, 5, rev: true)
+                .Parked(CarState.EngineOff, 12, LightEffect.Fire, new[] { "#200000", "#C01000", "#FF6A00" }, 7)
+                .Motion(StartupStyle.Ignite, ShutdownStyle.Fade).Limit(LimiterStyle.Blink, "#FF6A00", hz: 3).TintRev(6),
+            Make("abyss", "Abyss", "The deep ocean: slow teal waves rippling out from the middle, bioluminescent sparks drifting through the encoders, a jellyfish pulse at the sides.",
+                (LedGroup.Buttons, LightEffect.Ripple, 9, 100, new[] { "#001A33", "#00C8FF", "#00FFC0" }),
+                (LedGroup.Encoders, LightEffect.Twinkle, 7, 100, new[] { "#001018", "#00FFD0", "#66F0FF" }),
+                (LedGroup.SideLeft, LightEffect.Breathe, 5, 90, new[] { "#00B0FF", "#8040FF" }),
+                (LedGroup.SideRight, LightEffect.Breathe, 5, 90, new[] { "#00B0FF", "#8040FF" }))
+                .Parked(CarState.Idle, 80, LightEffect.Ripple, new[] { "#001A33", "#00C8FF", "#00FFC0" }, 14, rev: true)
+                .Parked(CarState.EngineOff, 16, LightEffect.Twinkle, new[] { "#001018", "#00FFD0" }, 9)
+                .Motion(StartupStyle.Sweep, ShutdownStyle.Fade).Limit(LimiterStyle.Sweep, "#00FFD0", hz: 1.2),
+            Make("heartbeat", "Heartbeat", "The wheel has a pulse. Resting at 40 beats a minute while you wait, racing at 80 once the engine runs; a defibrillator jolt on start-up and a flatline when you switch off.",
+                (LedGroup.Buttons, LightEffect.Heartbeat, 0.75, 100, new[] { "#FF0030", "#FF4060" }),
+                (LedGroup.Encoders, LightEffect.Heartbeat, 0.75, 70, new[] { "#FF0030" }),
+                (LedGroup.SideLeft, LightEffect.Heartbeat, 0.75, 100, new[] { "#FF0030" }),
+                (LedGroup.SideRight, LightEffect.Heartbeat, 0.75, 100, new[] { "#FF0030" }))
+                .Parked(CarState.Idle, 60, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.5, rev: true)
+                .Parked(CarState.EngineOff, 20, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.2)
+                .Motion(StartupStyle.Ignite, ShutdownStyle.Collapse).Limit(LimiterStyle.Alternate, "#FF0030", hz: 2),
             Make("aurora", "Aurora", "Teal, blue and violet drifting like northern lights; the side lights breathe teal.",
                 (LedGroup.Buttons, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 6, 100, new[] { "#7B2FFF", "#00FFA3" }),
                 (LedGroup.SideLeft, LightEffect.Breathe, 6, 90, new[] { "#00FFA3" }),
-                (LedGroup.SideRight, LightEffect.Breathe, 6, 90, new[] { "#00FFA3" })),
+                (LedGroup.SideRight, LightEffect.Breathe, 6, 90, new[] { "#00FFA3" }))
+                .Parked(CarState.Idle, 85, LightEffect.Wave, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }, 14, rev: true),
             Make("synthwave", "Synthwave", "Hot pink, purple and cyan flowing over the buttons, neon side lights.",
                 (LedGroup.Buttons, LightEffect.Wave, 6, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 4, 100, new[] { "#FF2E97", "#00F0FF" }),
                 (LedGroup.SideLeft, LightEffect.Breathe, 3, 100, new[] { "#FF2E97" }),
-                (LedGroup.SideRight, LightEffect.Breathe, 3, 100, new[] { "#00F0FF" })),
+                (LedGroup.SideRight, LightEffect.Breathe, 3, 100, new[] { "#00F0FF" }))
+                .Parked(CarState.Idle, 85, LightEffect.Wave, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }, 10, rev: true),
             Make("ember", "Ember", "Glowing embers: slow orange and red breathing with the odd spark.",
                 (LedGroup.Buttons, LightEffect.Sparkle, 5, 100, new[] { "#FF3D00", "#FFB000" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 5, 100, new[] { "#FF5A00", "#FF1E00" }),
                 (LedGroup.SideLeft, LightEffect.Breathe, 7, 80, new[] { "#FF1E00" }),
-                (LedGroup.SideRight, LightEffect.Breathe, 7, 80, new[] { "#FF1E00" })),
+                (LedGroup.SideRight, LightEffect.Breathe, 7, 80, new[] { "#FF1E00" }))
+                .Parked(CarState.Idle, 60, LightEffect.Breathe, new[] { "#FF5A00", "#FF1E00" }, 8, rev: true),
             Make("ice", "Glacier", "Cold white and ice blue flowing slowly; calm and easy on the eyes at night.",
                 (LedGroup.Buttons, LightEffect.Wave, 12, 70, new[] { "#FFFFFF", "#7FDBFF", "#0060FF" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 8, 70, new[] { "#7FDBFF" }),
                 (LedGroup.SideLeft, LightEffect.Solid, 4, 40, new[] { "#0060FF" }),
-                (LedGroup.SideRight, LightEffect.Solid, 4, 40, new[] { "#0060FF" })),
-            Make("scanner", "Scanner", "A red light sweeping across the buttons, encoders breathing red.",
+                (LedGroup.SideRight, LightEffect.Solid, 4, 40, new[] { "#0060FF" }))
+                .Parked(CarState.Idle, 50, LightEffect.Breathe, new[] { "#7FDBFF" }, 12),
+            Make("scanner", "Scanner", "A red light sweeping across the buttons, encoders breathing red. Knight Rider across the whole wheel while you wait.",
                 (LedGroup.Buttons, LightEffect.Scanner, 1.6, 100, new[] { "#FF0010" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 3, 100, new[] { "#FF0010" }),
                 (LedGroup.SideLeft, LightEffect.Off, 4, 100, new[] { "#000000" }),
-                (LedGroup.SideRight, LightEffect.Off, 4, 100, new[] { "#000000" })),
-            Make("stealth", "Stealth", "Dim white buttons and nothing else, until something needs your attention.",
+                (LedGroup.SideRight, LightEffect.Off, 4, 100, new[] { "#000000" }))
+                .Parked(CarState.Idle, 100, LightEffect.Scanner, new[] { "#FF0010" }, 2, rev: true),
+            Make("stealth", "Stealth", "Dim white buttons and nothing else, until something needs your attention. Completely dark with the engine off.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 18, new[] { "#FFFFFF" }),
                 (LedGroup.Encoders, LightEffect.Off, 4, 100, new[] { "#000000" }),
                 (LedGroup.SideLeft, LightEffect.Off, 4, 100, new[] { "#000000" }),
-                (LedGroup.SideRight, LightEffect.Off, 4, 100, new[] { "#000000" })),
+                (LedGroup.SideRight, LightEffect.Off, 4, 100, new[] { "#000000" }))
+                .Parked(CarState.EngineOff, 0).Motion(StartupStyle.None, ShutdownStyle.Fade).Limit(LimiterStyle.Ends, "#0040FF", hz: 2),
             Make("rainbow", "Full Rainbow", "Every light a flowing rainbow; the rev lights stay shift lights.",
                 (LedGroup.Buttons, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" }),
                 (LedGroup.Encoders, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" }),
                 (LedGroup.SideLeft, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" }),
-                (LedGroup.SideRight, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" })),
+                (LedGroup.SideRight, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" }))
+                .Parked(CarState.Idle, 90, LightEffect.Rainbow, null, 8, rev: true),
         };
 
         /// <summary>
         /// The GT Neo's: its 10 button lights, four encoder rings of 12 (each ring runs its effect on its own, so waves
-        /// and rainbows go round the rings) and the rev bar. Alerts for the side lights use the ends of the rev bar.
+        /// and rainbows go round the rings; staggered rings chase each other) and the rev bar. Alerts for the side lights
+        /// use the ends of the rev bar.
         /// </summary>
         public static readonly LightProfile[] GtNeo =
         {
-            Make("neo-prism", "Prism", "A rainbow turning slowly around every ring, the buttons breathing through the colours.",
-                (LedGroup.Buttons, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
-                (LedGroup.Encoders, LightEffect.Rainbow, 6, 100, new[] { "#FFFFFF" })),
+            Make("neo-neon-tokyo", "Neon Tokyo", "Rain-soaked Shibuya at 2 a.m.: magenta and cyan plasma turning round the rings, one step apart, and city lights twinkling in the buttons.",
+                (LedGroup.Buttons, LightEffect.Twinkle, 4, 100, new[] { "#1A0033", "#FF2E97", "#00F0FF" }),
+                (LedGroup.Encoders, LightEffect.Plasma, 6, 100, new[] { "#FF2E97", "#00F0FF", "#7B2FFF" }))
+                .Staggered(LedGroup.Encoders)
+                .Parked(CarState.Idle, 80, LightEffect.Plasma, new[] { "#FF2E97", "#00F0FF", "#7B2FFF" }, 16, rev: true)
+                .Parked(CarState.EngineOff, 22, LightEffect.Twinkle, new[] { "#1A0033", "#00F0FF", "#FF2E97" }, 6)
+                .Motion(StartupStyle.Sweep, ShutdownStyle.Collapse).Limit(LimiterStyle.Checker, "#FF2E97", "#00F0FF", 4).TintRev(6),
+            Make("neo-hyperspace", "Hyperspace", "Punch it: four warp tunnels, white streaks orbiting each ring into violet, stars glinting on the buttons. A starfield while you wait, a hyperdrive spool-up on every start.",
+                (LedGroup.Buttons, LightEffect.Twinkle, 3, 100, new[] { "#0A0030", "#FFFFFF", "#B0A0FF" }),
+                (LedGroup.Encoders, LightEffect.Comet, 0.7, 100, new[] { "#FFFFFF", "#3A1CFF" }))
+                .Staggered(LedGroup.Encoders)
+                .Parked(CarState.Idle, 75, LightEffect.Twinkle, new[] { "#05001A", "#FFFFFF", "#B0A0FF" }, 7, rev: true)
+                .Parked(CarState.EngineOff, 20, LightEffect.Twinkle, new[] { "#05001A", "#FFFFFF" }, 9)
+                .Motion(StartupStyle.Sweep, ShutdownStyle.Collapse).Limit(LimiterStyle.Chase, "#B0A0FF", hz: 1.5),
+            Make("neo-le-mans-night", "Le Mans Night", "Three in the morning on the Mulsanne: warm headlight white on the buttons, red tail lights circling each ring like the cars ahead. Parks with its sidelights on.",
+                (LedGroup.Buttons, LightEffect.Solid, 4, 55, new[] { "#FFE3A8" }),
+                (LedGroup.Encoders, LightEffect.Comet, 2.4, 90, new[] { "#FF1010", "#2A0000" }))
+                .Staggered(LedGroup.Encoders)
+                .Parked(CarState.Idle, 70, LightEffect.Comet, new[] { "#FFE3A8", "#3A2410" }, 5, rev: true)
+                .Parked(CarState.EngineOff, 14, LightEffect.Solid, new[] { "#FF9A1F" })
+                .Motion(StartupStyle.Ignite, ShutdownStyle.Fade).Limit(LimiterStyle.Ends, "#FFB000", hz: 2).TintRev(5),
+            Make("neo-inferno", "Inferno", "Every light a live flame: the buttons flicker red and gold, four rings of fire burn round the encoders. Starting up lights the fuse; switching off leaves embers.",
+                (LedGroup.Buttons, LightEffect.Fire, 3, 100, new[] { "#3A0000", "#FF2000", "#FF8A00", "#FFD060" }),
+                (LedGroup.Encoders, LightEffect.Fire, 4, 100, new[] { "#200000", "#FF2000", "#FF8A00", "#FFD060" }))
+                .Parked(CarState.Idle, 70, LightEffect.Fire, new[] { "#3A0000", "#FF2000", "#FF8A00", "#FFD060" }, 5, rev: true)
+                .Parked(CarState.EngineOff, 12, LightEffect.Fire, new[] { "#200000", "#C01000", "#FF6A00" }, 7)
+                .Motion(StartupStyle.Ignite, ShutdownStyle.Fade).Limit(LimiterStyle.Blink, "#FF6A00", hz: 3).TintRev(6),
+            Make("neo-abyss", "Abyss", "The deep ocean: teal currents circling the rings one after another, bioluminescent sparks drifting across the buttons.",
+                (LedGroup.Buttons, LightEffect.Twinkle, 7, 100, new[] { "#001018", "#00FFD0", "#66F0FF" }),
+                (LedGroup.Encoders, LightEffect.Wave, 7, 100, new[] { "#001A33", "#00C8FF", "#00FFC0" }))
+                .Staggered(LedGroup.Encoders)
+                .Parked(CarState.Idle, 80, LightEffect.Wave, new[] { "#001A33", "#00C8FF", "#00FFC0" }, 14, rev: true)
+                .Parked(CarState.EngineOff, 16, LightEffect.Twinkle, new[] { "#001018", "#00FFD0" }, 9)
+                .Motion(StartupStyle.Sweep, ShutdownStyle.Fade).Limit(LimiterStyle.Sweep, "#00FFD0", hz: 1.2),
+            Make("neo-heartbeat", "Heartbeat", "The wheel has a pulse. Resting at 40 beats a minute while you wait, racing at 80 once the engine runs; a defibrillator jolt on start-up and a flatline when you switch off.",
+                (LedGroup.Buttons, LightEffect.Heartbeat, 0.75, 100, new[] { "#FF0030", "#FF4060" }),
+                (LedGroup.Encoders, LightEffect.Heartbeat, 0.75, 100, new[] { "#FF0030" }))
+                .Parked(CarState.Idle, 60, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.5, rev: true)
+                .Parked(CarState.EngineOff, 20, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.2)
+                .Motion(StartupStyle.Ignite, ShutdownStyle.Collapse).Limit(LimiterStyle.Alternate, "#FF0030", hz: 2),
             Make("neo-aurora", "Aurora", "Teal, blue and violet drifting round the rings; the buttons breathe teal and violet.",
                 (LedGroup.Buttons, LightEffect.Breathe, 6, 100, new[] { "#00FFA3", "#7B2FFF" }),
-                (LedGroup.Encoders, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" })),
+                (LedGroup.Encoders, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }))
+                .Parked(CarState.Idle, 85, LightEffect.Wave, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }, 14, rev: true),
             Make("neo-synthwave", "Synthwave", "Hot pink, purple and cyan flowing round the rings, neon buttons.",
                 (LedGroup.Buttons, LightEffect.Wave, 6, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }),
-                (LedGroup.Encoders, LightEffect.Wave, 5, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" })),
+                (LedGroup.Encoders, LightEffect.Wave, 5, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }))
+                .Parked(CarState.Idle, 85, LightEffect.Wave, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }, 10, rev: true),
             Make("neo-ember", "Ember", "Glowing embers: orange and red sparks on the buttons, the rings breathing red.",
                 (LedGroup.Buttons, LightEffect.Sparkle, 5, 100, new[] { "#FF3D00", "#FFB000" }),
-                (LedGroup.Encoders, LightEffect.Breathe, 5, 100, new[] { "#FF5A00", "#FF1E00" })),
+                (LedGroup.Encoders, LightEffect.Breathe, 5, 100, new[] { "#FF5A00", "#FF1E00" }))
+                .Parked(CarState.Idle, 60, LightEffect.Breathe, new[] { "#FF5A00", "#FF1E00" }, 8, rev: true),
             Make("neo-ice", "Glacier", "Cold white and ice blue flowing slowly round the rings; calm at night.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 50, new[] { "#7FDBFF" }),
-                (LedGroup.Encoders, LightEffect.Wave, 12, 70, new[] { "#FFFFFF", "#7FDBFF", "#0060FF" })),
-            Make("neo-chaser", "Chaser", "A red light chasing round each ring, the buttons dim red.",
+                (LedGroup.Encoders, LightEffect.Wave, 12, 70, new[] { "#FFFFFF", "#7FDBFF", "#0060FF" }))
+                .Parked(CarState.Idle, 50, LightEffect.Breathe, new[] { "#7FDBFF" }, 12),
+            Make("neo-chaser", "Chaser", "A red light chasing round each ring, the buttons dim red. Knight Rider across the whole wheel while you wait.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 25, new[] { "#FF0010" }),
-                (LedGroup.Encoders, LightEffect.Scanner, 1.2, 100, new[] { "#FF0010" })),
-            Make("neo-stealth", "Stealth", "Dim white buttons and nothing else, until something needs your attention.",
+                (LedGroup.Encoders, LightEffect.Scanner, 1.2, 100, new[] { "#FF0010" }))
+                .Parked(CarState.Idle, 100, LightEffect.Scanner, new[] { "#FF0010" }, 2, rev: true),
+            Make("neo-stealth", "Stealth", "Dim white buttons and nothing else, until something needs your attention. Completely dark with the engine off.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 18, new[] { "#FFFFFF" }),
-                (LedGroup.Encoders, LightEffect.Off, 4, 100, new[] { "#000000" })),
+                (LedGroup.Encoders, LightEffect.Off, 4, 100, new[] { "#000000" }))
+                .Parked(CarState.EngineOff, 0).Motion(StartupStyle.None, ShutdownStyle.Fade).Limit(LimiterStyle.Ends, "#0040FF", hz: 2),
             Make("neo-rainbow", "Full Rainbow", "Every light a flowing rainbow; the rev lights stay shift lights.",
                 (LedGroup.Buttons, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" }),
-                (LedGroup.Encoders, LightEffect.Rainbow, 3, 100, new[] { "#FFFFFF" })),
+                (LedGroup.Encoders, LightEffect.Rainbow, 3, 100, new[] { "#FFFFFF" }))
+                .Parked(CarState.Idle, 90, LightEffect.Rainbow, null, 8, rev: true),
         };
 
-        public static LightProfile Find(string id) => All.FirstOrDefault(p => p.Id == id);
+        /// <summary>Old preset ids and what they became: Prism was replaced (too close to Full Rainbow).</summary>
+        private static readonly Dictionary<string, string> Renamed = new Dictionary<string, string>
+        {
+            ["mustang"] = "rainbow", ["neo-prism"] = "neo-rainbow",
+        };
+
+        /// <summary>A preset id as it is now (a replaced one's successor; anything else unchanged).</summary>
+        public static string CurrentId(string id) => id != null && Renamed.TryGetValue(id, out var to) ? to : id;
+
+        public static LightProfile Find(string id) =>
+            id == null ? null : All.FirstOrDefault(p => p.Id == id) ?? (Renamed.TryGetValue(id, out var to) ? All.FirstOrDefault(p => p.Id == to) : null);
+
+        // ---------- building the presets ----------
+
+        /// <summary>How it looks in a parked state (no game, menu, engine off).</summary>
+        private static LightProfile Parked(this LightProfile p, CarState s, int brightness, LightEffect? effect = null, string[] colours = null, double period = 6, bool rev = false)
+        {
+            p.Looks[s] = new StateLook { Brightness = brightness, Effect = effect, Colors = colours?.ToList(), Period = period, RevBar = rev };
+            return p;
+        }
+
+        private static LightProfile Motion(this LightProfile p, StartupStyle start, ShutdownStyle stop) { p.Startup = start; p.Shutdown = stop; return p; }
+
+        private static LightProfile Limit(this LightProfile p, LimiterStyle style, string colour, string second = "#000000", double hz = 3, bool wholeWheel = false)
+        {
+            p.Limiter = new LimiterLook { Style = style, Colors = new List<string> { colour, second }, Hz = hz, WholeWheel = wholeWheel };
+            return p;
+        }
+
+        private static LightProfile TintRev(this LightProfile p, int percent) { p.RevTint = percent; return p; }
+
+        private static LightProfile Staggered(this LightProfile p, LedGroup g) { p.Group(g).Stagger = true; return p; }
 
         private static LightProfile Make(string id, string name, string description,
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) a,
@@ -438,37 +596,79 @@ namespace User.FXProRpmSync
 
         /// <param name="carLayout">The car's rev lights in real RPM (null = use the profile's colours).</param>
         /// <param name="reverseRev">The rev bar's first LED is the rightmost.</param>
-        public LedColor[] Render(LightProfile p, DashValues v, RpmLayout carLayout, double now, bool reverseRev)
+        public LedColor[] Render(LightProfile p, DashValues v, RpmLayout carLayout, double now, bool reverseRev) => Render(p, v, carLayout, now, reverseRev, null);
+
+        /// <summary>
+        /// One frame, layer by layer (docs/light-states-plan.md): the theme with the state's look, the rev bar (shift lights
+        /// with an optional theme tint while driving; dark or the look's effect when parked), the pit limiter, the start-up /
+        /// shutdown animation, then alerts on top. `m` null = driving (as before there were states).
+        /// </summary>
+        public LedColor[] Render(LightProfile p, DashValues v, RpmLayout carLayout, double now, bool reverseRev, LightMoment m)
         {
+            var state = m?.State ?? CarState.Driving;
+            bool parked = state == CarState.Idle || state == CarState.Menu || state == CarState.EngineOff;
+            var look = parked ? p.LookFor(state) : null;
+            double dim = look != null ? Math.Max(0, Math.Min(100, look.Brightness)) / 100.0 : 1;
             var frame = new LedColor[Count];
             byte max = (byte)Math.Max(1, Math.Min(90, p.MaxBrightness));
             foreach (LedGroup g in Model.Groups)
             {
                 var l = p.Group(g);
-                byte bright = (byte)Math.Max(1, Math.Round(max * Math.Max(0, Math.Min(100, l.Brightness)) / 100.0));
+                double level = max * Math.Max(0, Math.Min(100, l.Brightness)) / 100.0 * dim;
+                if (look != null && level < 0.5) { foreach (var led in Model.Leds(g)) frame[led] = new LedColor(0, 0, 0, 1); continue; }
+                byte bright = (byte)Math.Max(1, Math.Round(level));
                 if (l.Effect == LightEffect.Rpm)
                 {
                     var leds = Model.Leds(g);
                     if (g == LedGroup.Rev && reverseRev) leds = leds.Reverse().ToArray();
-                    RenderRpm(frame, leds, p.Rev, v, carLayout, now, bright);
+                    if (look != null)
+                    {
+                        // parked: the rev bar joins the look (its effect, or the theme's own colours) or stays dark
+                        var theme = ThemeLighting(p);
+                        var revLook = look.Effect != null ? LookLighting(look, theme) : theme;
+                        if (look.RevBar && revLook != null && revLook.Effect != LightEffect.Off)
+                            for (int i = 0; i < leds.Length; i++) frame[leds[i]] = Ambient(revLook, i, leds.Length, leds[i], now, Bright(max, theme, dim));
+                        else foreach (var led in leds) frame[led] = new LedColor(0, 0, 0, 1);
+                    }
+                    else
+                    {
+                        RenderRpm(frame, leds, p.Rev, v, carLayout, now, bright);
+                        if (p.RevTint > 0) Tint(frame, leds, p, max);
+                    }
                 }
-                else if (l.Effect == LightEffect.Levels && Model.HasLevels) RenderLevels(frame, Model.Leds(g), l, v, now, bright);
+                else if (l.Effect == LightEffect.Levels && Model.HasLevels && look?.Effect == null) RenderLevels(frame, Model.Leds(g), l, v, now, bright);
                 else
                 {
                     // effects run along each segment (the GT Neo's encoder rings each get their own); Levels on a wheel
                     // without level lights shows its colours steady
-                    var ambient = l.Effect == LightEffect.Levels ? new GroupLighting { Effect = LightEffect.Solid, Colors = l.Colors, Period = l.Period } : l;
-                    foreach (var leds in Model.Segments(g))
+                    var ambient = look?.Effect != null ? LookLighting(look, l)
+                                : l.Effect == LightEffect.Levels ? new GroupLighting { Effect = LightEffect.Solid, Colors = l.Colors, Period = l.Period } : l;
+                    var segs = Model.Segments(g);
+                    for (int k = 0; k < segs.Length; k++)
+                    {
+                        var leds = segs[k];
+                        double t = l.Stagger && segs.Length > 1 ? now + k * Math.Max(0.2, ambient.Period) / segs.Length : now;
                         for (int i = 0; i < leds.Length; i++)
-                            frame[leds[i]] = Ambient(ambient, i, leds.Length, leds[i], now, bright);
+                            frame[leds[i]] = Ambient(ambient, i, leds.Length, leds[i], t, bright);
+                    }
                 }
             }
 
-            // Alerts: first active rule wins for a LED.
+            // The pit limiter: this car's own lights, else the preset's
+            var limiter = m?.CarLimiter ?? p.Limiter;
+            bool limiterOn = state == CarState.PitLimiter && limiter != null && limiter.Style != LimiterStyle.None;
+            if (limiterOn) ApplyLimiter(frame, limiter, now);
+
+            // Start-up / shutdown: short, over the theme, under the alerts
+            if (state == CarState.Starting && p.Startup != StartupStyle.None) ApplyStartup(frame, p.Startup, m.Progress);
+            if (state == CarState.Stopping && p.Shutdown != ShutdownStyle.None) ApplyShutdown(frame, p.Shutdown, m.Progress);
+
+            // Alerts: first active rule wins for a LED. The pit limiter alert gives way to the limiter lights above.
             var taken = new bool[Count];
             foreach (var a in p.Alerts)
             {
                 if (!a.Enabled || !Active(a, v)) continue;
+                if (limiterOn && a.Trigger == AlertTrigger.PitLimiter) continue;
                 var (r, g, b) = Rgb(a.Color);
                 var leds = a.Groups.SelectMany(Model.AlertLeds).Distinct().ToArray();
                 for (int i = 0; i < leds.Length; i++)
@@ -481,6 +681,139 @@ namespace User.FXProRpmSync
                 }
             }
             return frame;
+        }
+
+        /// <summary>The theme's lighting for the rev bar when parked: the first group that isn't off (buttons, usually).</summary>
+        private GroupLighting ThemeLighting(LightProfile p)
+        {
+            foreach (var g in Model.Groups)
+            {
+                if (g == LedGroup.Rev) continue;
+                var l = p.Group(g);
+                if (l.Effect != LightEffect.Off && l.Effect != LightEffect.Rpm)
+                    return l.Effect == LightEffect.Levels ? new GroupLighting { Effect = LightEffect.Solid, Colors = l.Colors, Period = l.Period, Brightness = l.Brightness } : l;
+            }
+            return null;
+        }
+
+        private static byte Bright(byte max, GroupLighting l, double dim) => (byte)Math.Max(1, Math.Round(max * Math.Max(0, Math.Min(100, l?.Brightness ?? 100)) / 100.0 * dim));
+
+        /// <summary>A look's one effect, in its own colours or the group's.</summary>
+        private static GroupLighting LookLighting(StateLook look, GroupLighting group) => new GroupLighting
+        {
+            Effect = look.Effect ?? LightEffect.Solid,
+            Colors = look.Colors != null && look.Colors.Count > 0 ? look.Colors : group?.Colors ?? new List<string> { "#FFFFFF" },
+            Period = look.Period, Stagger = group?.Stagger ?? false,
+        };
+
+        /// <summary>Unlit rev LEDs glow faintly in the theme's colour (RevTint %); the shift lights stay as they are.</summary>
+        private void Tint(LedColor[] frame, int[] leds, LightProfile p, byte max)
+        {
+            var theme = ThemeLighting(p);
+            if (theme == null) return;
+            var (r, g, b) = Rgb(theme.Colors != null && theme.Colors.Count > 0 ? theme.Colors[0] : "#FFFFFF");
+            double k = Math.Min(40, p.RevTint) / 100.0;
+            byte bright = (byte)Math.Max(1, Math.Round(max * k));
+            foreach (var led in leds)
+                if (frame[led].R + frame[led].G + frame[led].B == 0) frame[led] = new LedColor(r, g, b, bright);
+        }
+
+        private void ApplyLimiter(LedColor[] frame, LimiterLook lim, double now)
+        {
+            var cols = lim.Colors != null && lim.Colors.Count > 0 ? lim.Colors : new List<string> { "#0040FF" };
+            var a = Rgb(cols[0]);
+            var b = cols.Count > 1 ? Rgb(cols[1]) : ((byte)0, (byte)0, (byte)0);
+            void Paint(int[] leds)
+            {
+                for (int i = 0; i < leds.Length; i++)
+                {
+                    var (level, second) = lim.At(i, leds.Length, now);
+                    var c = second ? b : a;
+                    frame[leds[i]] = level <= 0 || c.Item1 + c.Item2 + c.Item3 == 0 ? new LedColor(0, 0, 0, 1)
+                                   : new LedColor((byte)(c.Item1 * level), (byte)(c.Item2 * level), (byte)(c.Item3 * level), 90);
+                }
+            }
+            if (lim.WholeWheel) foreach (var g in Model.Groups) foreach (var seg in Model.Segments(g)) Paint(seg);
+            else Paint(Model.Leds(LedGroup.Rev));
+        }
+
+        /// <summary>Each LED's distance from the middle of its segment, 0 (middle) to 1 (an end): the takeovers' shape.</summary>
+        private double[] middles;
+
+        private double[] Middles()
+        {
+            if (middles != null) return middles;
+            var d = new double[Count];
+            foreach (var g in Model.Groups)
+                foreach (var seg in Model.Segments(g))
+                    for (int i = 0; i < seg.Length; i++) d[seg[i]] = seg.Length <= 1 ? 0 : Math.Abs((double)i / (seg.Length - 1) - 0.5) * 2;
+            return middles = d;
+        }
+
+        private static LedColor Blend(LedColor under, (byte R, byte G, byte B) over, double k, byte bright = 90)
+        {
+            k = Math.Max(0, Math.Min(1, k));
+            if (under.R + under.G + under.B == 0) under = new LedColor(0, 0, 0, bright);
+            return new LedColor((byte)(under.R + (over.R - under.R) * k), (byte)(under.G + (over.G - under.G) * k), (byte)(under.B + (over.B - under.B) * k),
+                                (byte)Math.Max(under.Brightness, (byte)(bright * k)));
+        }
+
+        private static LedColor Scaled(LedColor c, double k) { k = Math.Max(0, Math.Min(1, k)); return new LedColor((byte)(c.R * k), (byte)(c.G * k), (byte)(c.B * k), c.Brightness); }
+
+        /// <summary>The engine-start animation over the theme, `t` from 0 to 1.</summary>
+        private void ApplyStartup(LedColor[] frame, StartupStyle style, double t)
+        {
+            var mid = Middles();
+            var white = ((byte)255, (byte)255, (byte)255);
+            var rev = Model.Leds(LedGroup.Rev);
+            for (int led = 0; led < frame.Length; led++)
+            {
+                var theme = frame[led];
+                switch (style)
+                {
+                    case StartupStyle.Sweep:
+                    {
+                        // a white front runs out from the middle (0-0.6), the theme fills in behind it
+                        double front = t / 0.6 * 1.25;
+                        if (mid[led] > front) { frame[led] = new LedColor(0, 0, 0, 1); break; }
+                        double glow = Math.Max(0, 1 - (front - mid[led]) / 0.35);
+                        frame[led] = Blend(t < 0.6 ? Scaled(theme, 0.5) : theme, white, glow);
+                        break;
+                    }
+                    case StartupStyle.Ignite:
+                    {
+                        if (t < 0.12 || (t >= 0.24 && t < 0.36)) frame[led] = new LedColor(255, 255, 255, 90);
+                        else if (t < 0.36) frame[led] = new LedColor(0, 0, 0, 1);
+                        else frame[led] = Blend(theme, white, 1 - (t - 0.36) / 0.64);
+                        break;
+                    }
+                    case StartupStyle.SelfTest:
+                    {
+                        int at = Array.IndexOf(rev, led);
+                        if (at >= 0)
+                        {
+                            // the bar fills in the standard shift colours, flashes, then hands over
+                            var colours = new RevLighting().Colors;
+                            var c = Rgb(colours[Math.Min(colours.Count - 1, at * colours.Count / Math.Max(1, rev.Length))]);
+                            bool lit = t < 0.6 ? (double)at / rev.Length < t / 0.6 : t < 0.8 && (int)(t * 20) % 2 == 0;
+                            frame[led] = lit ? new LedColor(c.Item1, c.Item2, c.Item3, 90) : t >= 0.8 ? Scaled(theme, (t - 0.8) / 0.2) : new LedColor(0, 0, 0, 1);
+                        }
+                        else frame[led] = t < 0.8 ? new LedColor(0, 0, 0, 1) : Scaled(theme, (t - 0.8) / 0.2);
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>The engine-off animation over the theme, `t` from 0 to 1.</summary>
+        private void ApplyShutdown(LedColor[] frame, ShutdownStyle style, double t)
+        {
+            var mid = Middles();
+            for (int led = 0; led < frame.Length; led++)
+            {
+                if (style == ShutdownStyle.Fade) frame[led] = Scaled(frame[led], 1 - t);
+                else if (style == ShutdownStyle.Collapse) frame[led] = mid[led] <= 1 - t * 1.1 ? frame[led] : new LedColor(0, 0, 0, 1);
+            }
         }
 
         /// <summary>How lit (0-1) light `i` of an alert's `n` lights is at `now`, by the alert's style.</summary>
@@ -620,6 +953,58 @@ namespace User.FXProRpmSync
                     double level = Math.Max(0, 1 - Math.Abs(i - head) / 2.2);
                     return Scale(Rgb(colours[0]), 0.04 + 0.96 * level * level, bright);
                 }
+                case LightEffect.Comet:
+                {
+                    // head runs along and round again; the tail fades from the first colour to the last
+                    double head = (now / period % 1) * n;
+                    double tail = Math.Max(2, n * 0.45);
+                    double back = ((head - i) % n + n) % n;
+                    if (back > tail) return new LedColor(0, 0, 0, 1);
+                    double k = 1 - back / tail;
+                    return Scale(Mix(Rgb(colours[0]), Rgb(colours[colours.Count - 1]), 1 - k), k * k, bright);
+                }
+                case LightEffect.Heartbeat:
+                {
+                    double t = now / period % 1;
+                    double beat = Math.Max(Pulse(t, 0, 0.11), 0.75 * Pulse(t, 0.18, 0.13));
+                    var c = beat > 0 && t >= 0.18 && colours.Count > 1 ? Rgb(colours[1]) : Rgb(colours[0]);
+                    return Scale(c, 0.05 + 0.95 * beat, bright);
+                }
+                case LightEffect.Fire:
+                {
+                    double speed = 8 / period;
+                    double heat = 0.25 + 0.75 * Noise(led * 1.7, now * speed) * (0.55 + 0.45 * Noise(led * 0.31 + 9, now * speed * 0.37));
+                    return Scale(Ramp(colours.Count > 1 ? colours : new List<string> { "#300000", colours[0] }, heat), 0.2 + 0.8 * heat, bright);
+                }
+                case LightEffect.Twinkle:
+                {
+                    var star = colours.Count > 1 ? colours[1 + (int)(Hash(led * 3.3) * (colours.Count - 1)) % (colours.Count - 1)] : "#FFFFFF";
+                    double rate = 0.6 + Hash(led * 7.1) * 0.9;
+                    double c = now / period * rate + Hash(led * 5.7 + 1);
+                    double f = c - Math.Floor(c);
+                    double k = Hash(led * 13.7 + Math.Floor(c) * 3.1) > 0.45 ? Math.Pow(Math.Sin(Math.PI * f), 3) : 0;
+                    return Scale(Mix(Scale01(Rgb(colours[0]), 0.35), Rgb(star), k), Math.Max(0.12, k), bright);
+                }
+                case LightEffect.Ripple:
+                {
+                    double d = n <= 1 ? 0 : Math.Abs((double)i / (n - 1) - 0.5) * 2;
+                    double wave = 0.5 + 0.5 * Math.Cos(2 * Math.PI * (d * 1.2 - now / period));
+                    return Scale(Gradient(colours, d * 0.5 - now / period * 0.25), 0.12 + 0.88 * wave * wave, bright);
+                }
+                case LightEffect.Plasma:
+                {
+                    double w = 2 * Math.PI * now / period;
+                    double x = Math.Sin(i * 0.9 + w) + Math.Sin(i * 0.37 - w * 1.7 + 1.3) + Math.Sin((i + now * 3 / period) * 0.21);
+                    return Scale(Gradient(colours, (x / 3 + 1) / 2), 1, bright);
+                }
+                case LightEffect.Strobe:
+                {
+                    double t = now / period % 1;
+                    bool left = (double)i / Math.Max(1, n) < 0.5;
+                    double local = left ? t : (t + 0.5) % 1;
+                    bool on = local < 0.08 || (local >= 0.14 && local < 0.22);
+                    return on ? Scale(Rgb(colours[left || colours.Count < 2 ? 0 : 1]), 1, bright) : new LedColor(0, 0, 0, 1);
+                }
                 case LightEffect.Sparkle:
                 {
                     if (led < sparkle.Length)
@@ -683,6 +1068,23 @@ namespace User.FXProRpmSync
         // ---------- Colour helpers ----------
 
         private static double Breath(double cycle) => 0.06 + 0.94 * (0.5 - 0.5 * Math.Cos(cycle * 2 * Math.PI));
+
+        /// <summary>A soft pulse: 0 outside [start, start + width], a sine hump inside.</summary>
+        private static double Pulse(double t, double start, double width) => t < start || t > start + width ? 0 : Math.Sin(Math.PI * (t - start) / width);
+
+        /// <summary>0-1, the same for the same input (so effects look random but render the same every time).</summary>
+        private static double Hash(double x) { double v = Math.Sin(x * 12.9898 + 78.233) * 43758.5453; return v - Math.Floor(v); }
+
+        /// <summary>Smooth value noise over time for one light: 0-1, changing gently with t.</summary>
+        private static double Noise(double x, double t)
+        {
+            double a = Math.Floor(t), f = t - a;
+            f = f * f * (3 - 2 * f);
+            double h0 = Hash(x * 17.13 + a * 3.71), h1 = Hash(x * 17.13 + (a + 1) * 3.71);
+            return h0 + (h1 - h0) * f;
+        }
+
+        private static (byte, byte, byte) Scale01((byte R, byte G, byte B) c, double k) => ((byte)(c.R * k), (byte)(c.G * k), (byte)(c.B * k));
 
         private static LedColor Scale((byte R, byte G, byte B) c, double level, byte bright)
         {

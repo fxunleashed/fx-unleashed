@@ -117,6 +117,25 @@ namespace User.FXProRpmSync
         /// The lights a car uses: its own preset, else its game's, else the global one. `carKey` is "Game | CarId"
         /// (null = no car: the global preset).
         /// </summary>
+        /// <summary>A car's own pit limiter lights (UsbSettings.CarLimiters), or null = the preset's.</summary>
+        public LimiterLook LimiterFor(string carKey)
+        {
+            if (carKey == null) return null;
+            lock (sync) return Settings.Usb.CarLimiters != null && Settings.Usb.CarLimiters.TryGetValue(carKey, out var l) ? l : null;
+        }
+
+        /// <summary>Saves (or with null removes) a car's own pit limiter lights.</summary>
+        public void SetCarLimiter(string carKey, LimiterLook look)
+        {
+            if (carKey == null) return;
+            lock (sync)
+            {
+                if (Settings.Usb.CarLimiters == null) Settings.Usb.CarLimiters = new Dictionary<string, LimiterLook>();
+                if (look == null) Settings.Usb.CarLimiters.Remove(carKey); else Settings.Usb.CarLimiters[carKey] = look.Clone();
+            }
+            QuickChanged();
+        }
+
         public LightProfile ActiveLightsFor(string carKey)
         {
             var u = Settings.Usb;

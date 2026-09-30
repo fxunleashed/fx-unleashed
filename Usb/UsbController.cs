@@ -28,7 +28,7 @@ namespace User.FXProRpmSync
         public bool IdleLights = true;
         /// <summary>Between sessions, show the plugin's logo on the wheel's screen instead of the wheel's own dash.</summary>
         public bool ScreenSaver = true;
-        public string LightPreset = "mustang";
+        public string LightPreset = "neon-tokyo";
         /// <summary>The user's own lights ("Customize"), used when LightPreset is "custom".</summary>
         public LightProfile CustomLights;
         /// <summary>Rev LED 23 is the rightmost (flip the rev bar).</summary>
@@ -161,6 +161,15 @@ namespace User.FXProRpmSync
         /// </summary>
         public Dictionary<string, WheelSettings> Wheels = new Dictionary<string, WheelSettings>();
 
+        /// <summary>Saved preset ids that were replaced point at their successor (LightPresets.CurrentId), on every wheel.</summary>
+        public void UpdateRenamedPresets()
+        {
+            void Fix(ref string id) => id = LightPresets.CurrentId(id);
+            void FixMap(Dictionary<string, string> m) { if (m != null) foreach (var k in m.Keys.ToList()) m[k] = LightPresets.CurrentId(m[k]); }
+            Fix(ref LightPreset); FixMap(CarLights); FixMap(GameLights);
+            if (Wheels != null) foreach (var w in Wheels.Values) if (w != null) { w.LightPreset = LightPresets.CurrentId(w.LightPreset); FixMap(w.CarLights); FixMap(w.GameLights); }
+        }
+
         /// <summary>Makes `to` the active wheel: the current wheel's LED/button settings go into Wheels, `to`'s come out.</summary>
         public void SwapWheel(WheelModel to)
         {
@@ -203,6 +212,12 @@ namespace User.FXProRpmSync
             LightsFrom = w.LightsFrom; AtsrDevice = w.AtsrDevice; AtsrMap = w.AtsrMap ?? ""; AtsrBrightness = w.AtsrBrightness;
             TurnedOffSimHubDevice = w.TurnedOffSimHubDevice;
         }
+
+        /// <summary>
+        /// Pit limiter lights saved per car ("Game | CarId"): what that car's own dash does, set up once by someone who
+        /// knows it (no sim publishes it). They come before the preset's own limiter lights, on any wheel.
+        /// </summary>
+        public Dictionary<string, LimiterLook> CarLimiters = new Dictionary<string, LimiterLook>();
 
         /// <summary>The plugin turned SimHub's own device for this wheel off (GT Neo), so it can offer to turn it back on.</summary>
         public bool TurnedOffSimHubDevice;
@@ -272,6 +287,12 @@ namespace User.FXProRpmSync
         private WheelModel model = WheelModel.FxPro;
         private string neoSerial;
         private LightProfile lights;          // this thread's copy (the settings page edits the original)
+        private readonly CarStateTracker carState = new CarStateTracker();
+        private string lightsId;              // the lights shown, to preview a newly picked preset
+        private double previewLightsUntil = -1;
+
+        /// <summary>What the car is doing, as the lights see it (docs/light-states-plan.md).</summary>
+        public CarState CarState => carState.State;
         private bool reverseRev;
         private int dashReloads;
         private UsbDemo demo;
@@ -615,6 +636,9 @@ namespace User.FXProRpmSync
                 appliedVersion = version;
                 lightsCar = car;
                 try { lights = plugin.ActiveLightsFor(plugin.DashCarKey).Clone(); } catch { lights = lights ?? LightPresets.For(model)[0].Clone(); }
+                // a newly picked preset shows its driving look for 3 s, even while parked (it may be dark then)
+                if (lightsId != null && lights.Id != lightsId) previewLightsUntil = clock.Elapsed.TotalSeconds + 3;
+                lightsId = lights.Id;
                 reverseRev = false; // the LED order is mapped (WheelView); the old "fill from the right" is gone
                 lightProps = lights.Bindings().Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
                 UpdateProps();
@@ -942,7 +966,13 @@ namespace User.FXProRpmSync
                     else LightsState = "no data from SimHub's device \"FX Pro wheel (USB mode)\" (add it in SimHub > Devices), showing the built-in lights";
                 }
                 else LightsState = testing && s.LightsFrom != LightsSource.BuiltIn ? "built-in (test)" : "built-in";
-                if (frame == null || frame.Length != engine.Count) frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
+                if (frame == null || frame.Length != engine.Count)
+                {
+                    var st = carState.Update(v, now);
+                    bool parked = st == CarState.Idle || st == CarState.Menu || st == CarState.EngineOff;
+                    var moment = LightMoment.Of(parked && now < previewLightsUntil ? CarState.Driving : st, carState.Progress(now), plugin.LimiterFor(plugin.DashCarKey));
+                    frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev, moment);
+                }
                 if (s.PressLights && !frameSleeping && !TestingLeds) frame = PressOverlay(frame, s);
                 // every frame passes here (presets, ATSR-Hub, alerts, idle, tests, the API), so the ceiling holds for all
                 byte ceiling = s.LedCeilingNow(plugin.NightActive);
