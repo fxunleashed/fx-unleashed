@@ -237,32 +237,27 @@ namespace User.FXProRpmSync
                 (LedGroup.Buttons, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 6, 100, new[] { "#7B2FFF", "#00FFA3" }),
                 (LedGroup.SideLeft, LightEffect.Breathe, 6, 90, new[] { "#00FFA3" }),
-                (LedGroup.SideRight, LightEffect.Breathe, 6, 90, new[] { "#00FFA3" }),
-                rev: ("#00FFA3", "#00B3FF", "#7B2FFF", "#FFFFFF")),
+                (LedGroup.SideRight, LightEffect.Breathe, 6, 90, new[] { "#00FFA3" })),
             Make("synthwave", "Synthwave", "Hot pink, purple and cyan flowing over the buttons, neon side lights.",
                 (LedGroup.Buttons, LightEffect.Wave, 6, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 4, 100, new[] { "#FF2E97", "#00F0FF" }),
                 (LedGroup.SideLeft, LightEffect.Breathe, 3, 100, new[] { "#FF2E97" }),
-                (LedGroup.SideRight, LightEffect.Breathe, 3, 100, new[] { "#00F0FF" }),
-                rev: ("#00F0FF", "#9D4EDD", "#FF2E97", "#FFFFFF")),
+                (LedGroup.SideRight, LightEffect.Breathe, 3, 100, new[] { "#00F0FF" })),
             Make("ember", "Ember", "Glowing embers: slow orange and red breathing with the odd spark.",
                 (LedGroup.Buttons, LightEffect.Sparkle, 5, 100, new[] { "#FF3D00", "#FFB000" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 5, 100, new[] { "#FF5A00", "#FF1E00" }),
                 (LedGroup.SideLeft, LightEffect.Breathe, 7, 80, new[] { "#FF1E00" }),
-                (LedGroup.SideRight, LightEffect.Breathe, 7, 80, new[] { "#FF1E00" }),
-                rev: ("#FFD000", "#FF7A00", "#FF1E00", "#FFFFFF")),
+                (LedGroup.SideRight, LightEffect.Breathe, 7, 80, new[] { "#FF1E00" })),
             Make("ice", "Glacier", "Cold white and ice blue flowing slowly; calm and easy on the eyes at night.",
                 (LedGroup.Buttons, LightEffect.Wave, 12, 70, new[] { "#FFFFFF", "#7FDBFF", "#0060FF" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 8, 70, new[] { "#7FDBFF" }),
                 (LedGroup.SideLeft, LightEffect.Solid, 4, 40, new[] { "#0060FF" }),
-                (LedGroup.SideRight, LightEffect.Solid, 4, 40, new[] { "#0060FF" }),
-                rev: ("#FFFFFF", "#7FDBFF", "#0060FF", "#FF0020")),
+                (LedGroup.SideRight, LightEffect.Solid, 4, 40, new[] { "#0060FF" })),
             Make("scanner", "Scanner", "A red light sweeping across the buttons, encoders breathing red.",
                 (LedGroup.Buttons, LightEffect.Scanner, 1.6, 100, new[] { "#FF0010" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 3, 100, new[] { "#FF0010" }),
                 (LedGroup.SideLeft, LightEffect.Off, 4, 100, new[] { "#000000" }),
-                (LedGroup.SideRight, LightEffect.Off, 4, 100, new[] { "#000000" }),
-                rev: ("#FF0010", "#FF0010", "#FF0010", "#FFFFFF")),
+                (LedGroup.SideRight, LightEffect.Off, 4, 100, new[] { "#000000" })),
             Make("stealth", "Stealth", "Dim white buttons and nothing else, until something needs your attention.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 18, new[] { "#FFFFFF" }),
                 (LedGroup.Encoders, LightEffect.Off, 4, 100, new[] { "#000000" }),
@@ -286,24 +281,19 @@ namespace User.FXProRpmSync
                 (LedGroup.Encoders, LightEffect.Rainbow, 6, 100, new[] { "#FFFFFF" })),
             Make("neo-aurora", "Aurora", "Teal, blue and violet drifting round the rings; the buttons breathe teal and violet.",
                 (LedGroup.Buttons, LightEffect.Breathe, 6, 100, new[] { "#00FFA3", "#7B2FFF" }),
-                (LedGroup.Encoders, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }),
-                rev: ("#00FFA3", "#00B3FF", "#7B2FFF", "#FFFFFF")),
+                (LedGroup.Encoders, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" })),
             Make("neo-synthwave", "Synthwave", "Hot pink, purple and cyan flowing round the rings, neon buttons.",
                 (LedGroup.Buttons, LightEffect.Wave, 6, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }),
-                (LedGroup.Encoders, LightEffect.Wave, 5, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }),
-                rev: ("#00F0FF", "#9D4EDD", "#FF2E97", "#FFFFFF")),
+                (LedGroup.Encoders, LightEffect.Wave, 5, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" })),
             Make("neo-ember", "Ember", "Glowing embers: orange and red sparks on the buttons, the rings breathing red.",
                 (LedGroup.Buttons, LightEffect.Sparkle, 5, 100, new[] { "#FF3D00", "#FFB000" }),
-                (LedGroup.Encoders, LightEffect.Breathe, 5, 100, new[] { "#FF5A00", "#FF1E00" }),
-                rev: ("#FFD000", "#FF7A00", "#FF1E00", "#FFFFFF")),
+                (LedGroup.Encoders, LightEffect.Breathe, 5, 100, new[] { "#FF5A00", "#FF1E00" })),
             Make("neo-ice", "Glacier", "Cold white and ice blue flowing slowly round the rings; calm at night.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 50, new[] { "#7FDBFF" }),
-                (LedGroup.Encoders, LightEffect.Wave, 12, 70, new[] { "#FFFFFF", "#7FDBFF", "#0060FF" }),
-                rev: ("#FFFFFF", "#7FDBFF", "#0060FF", "#FF0020")),
+                (LedGroup.Encoders, LightEffect.Wave, 12, 70, new[] { "#FFFFFF", "#7FDBFF", "#0060FF" })),
             Make("neo-chaser", "Chaser", "A red light chasing round each ring, the buttons dim red.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 25, new[] { "#FF0010" }),
-                (LedGroup.Encoders, LightEffect.Scanner, 1.2, 100, new[] { "#FF0010" }),
-                rev: ("#FF0010", "#FF0010", "#FF0010", "#FFFFFF")),
+                (LedGroup.Encoders, LightEffect.Scanner, 1.2, 100, new[] { "#FF0010" })),
             Make("neo-stealth", "Stealth", "Dim white buttons and nothing else, until something needs your attention.",
                 (LedGroup.Buttons, LightEffect.Solid, 4, 18, new[] { "#FFFFFF" }),
                 (LedGroup.Encoders, LightEffect.Off, 4, 100, new[] { "#000000" })),
@@ -318,27 +308,23 @@ namespace User.FXProRpmSync
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) a,
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) b,
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) c,
-            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) d,
-            (string Low, string Mid, string High, string Flash)? rev = null) => Make(id, name, description, new[] { a, b, c, d }, rev);
+            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) d) => Make(id, name, description, new[] { a, b, c, d });
 
         private static LightProfile Make(string id, string name, string description,
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) a,
-            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) b,
-            (string Low, string Mid, string High, string Flash)? rev = null) => Make(id, name, description, new[] { a, b }, rev);
+            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) b) => Make(id, name, description, new[] { a, b });
 
+        /// <summary>
+        /// A built-in preset. Its rev lights always keep the standard shift colours (RevLighting's green, amber, red and blue
+        /// flash): drivers are used to them, so presets only style the other lights. A duplicate can change them.
+        /// </summary>
         private static LightProfile Make(string id, string name, string description,
-            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors)[] groups,
-            (string Low, string Mid, string High, string Flash)? rev)
+            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors)[] groups)
         {
             var p = new LightProfile { Id = id, Name = name, Description = description };
             foreach (var g in groups)
                 p.Groups[g.G] = new GroupLighting { Effect = g.E, Period = g.Period, Brightness = g.Brightness, Colors = g.Colors.ToList() };
             p.Groups[LedGroup.Rev] = new GroupLighting { Effect = LightEffect.Rpm };
-            if (rev.HasValue)
-            {
-                p.Rev.Colors = new List<string> { rev.Value.Low, rev.Value.Mid, rev.Value.High };
-                p.Rev.FlashColor = rev.Value.Flash;
-            }
             p.Alerts = DefaultAlerts();
             return p;
         }

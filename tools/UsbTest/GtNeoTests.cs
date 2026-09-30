@@ -28,7 +28,7 @@ static class GtNeoTests
         var file = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "golden-fxpro.txt");
         var want = File.Exists(file) ? File.ReadAllText(file).Replace("\r\n", "\n") : null; // git may check it out with CRLF
         var got = global::Golden.Dump(() => new LightEngine(WheelModel.FxPro));
-        Check("FX Pro: every preset renders exactly as before GT Neo support", want != null && got == want,
+        Check("FX Pro: every preset renders exactly as recorded (golden-fxpro.txt; only deliberate changes regenerate it)", want != null && got == want,
               want == null ? "golden-fxpro.txt missing" : FirstDiff(want, got));
     }
 
@@ -68,6 +68,10 @@ static class GtNeoTests
             var f = new LightEngine(neo).Render(p, v, null, 1.3, false);
             Check($"GT Neo preset {p.Name}: a full frame, rev bar lit near the shift point", f.Length == 73 && f.Skip(58).Take(10).All(c => c.R + c.G + c.B > 0));
         }
+        var std = new RevLighting();
+        Check("every built-in preset keeps the standard rev colours (green, amber, red, blue flash)",
+              LightPresets.All.All(p => p.Rev.Colors.SequenceEqual(std.Colors) && p.Rev.FlashColor == std.FlashColor)
+              && std.Colors.SequenceEqual(new[] { "#00FF40", "#FFB000", "#FF0020" }) && std.FlashColor == "#0040FF");
         Check("presets per wheel", LightPresets.For(neo).All(p => p.Id.StartsWith("neo-")) && LightPresets.For(WheelModel.FxPro).All(p => !p.Id.StartsWith("neo-"))
               && LightPresets.All.Select(p => p.Id).Distinct().Count() == LightPresets.All.Length);
 
