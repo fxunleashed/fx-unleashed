@@ -18,7 +18,8 @@ per wheel (and Race Engineer). Not yet tried on a wheel in a game. Both wheels.
   Hyperspace, Le Mans Night, Inferno, Abyss, Heartbeat (resting 40 bpm when idle, 80 driving). Every built-in has
   idle / engine-off looks, a start-up, a shutdown and limiter lights; rev colours stay standard.
 - Lights tab: "Preview as" chips (every state, on the big wheel and every preset tile); your own lights edit the
-  parked looks, start/stop, limiter and rev tint. The USB loop previews a newly picked preset for 3 s while parked.
+  parked looks, start/stop, limiter and rev tint. A newly picked preset shows straight away in the current state (the
+  3 s driving-look preview was removed 2026-09-29 at the user's request: it looked like a bad transition).
 - **Ring gauges (step 6, GT Neo):** "Setting levels" on the encoder rings makes each ring a 12-segment gauge
   (`RingGauge`: TC, ABS, brake bias, engine map, fuel, revs, throttle, brake pedal, or any SimHub property / formula
   with its own range), filled clockwise from 12 o'clock or as a pointer, coloured low to high, flashing on a change; a
@@ -94,7 +95,8 @@ Every frame is built bottom-up; each layer only touches the LEDs it uses:
 3. **Ring / encoder info** (optional): a value per encoder (FX Pro Levels today; on the GT Neo a 12-segment gauge
    per ring: fuel, brake bias, engine map, TC, ABS...).
 4. **Alerts:** the existing ordered list (the user's arrows set priority), now including pit limiter styles.
-5. **Takeovers:** start-up / shutdown sweeps and the 3 s preset preview. They're short and can't hide flags.
+5. **Takeovers:** start-up / shutdown sweeps. They're short and can't hide flags. (A 3 s preview on a preset change
+   was built and removed: it looked like a bad transition.)
 6. **Button press lights.**
 7. **Brightness limit and night mode** (last, over everything).
 
@@ -111,7 +113,7 @@ Every frame is built bottom-up; each layer only touches the LEDs it uses:
 
 1. **State detector + tests** (fake `DashValues` sequences: game start, engine start, limiter, pause, stall, exit).
 2. **State looks in the engine** with defaults matching today; golden frames unchanged for Driving.
-3. **Transitions:** start-up and shutdown sweeps (a few styles), the 3 s preview when the preset changes.
+3. **Transitions:** start-up and shutdown sweeps (a few styles).
 4. **Rev tint** (per preset, off by default) and **pit limiter styles** as an alert style.
 5. **Editor:** a "When" strip on the Lights tab (Idle · Menu · Engine off · Driving · Pit limiter) to preview and
    tweak each look; the preview can play each state.

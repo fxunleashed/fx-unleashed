@@ -288,8 +288,6 @@ namespace User.FXProRpmSync
         private string neoSerial;
         private LightProfile lights;          // this thread's copy (the settings page edits the original)
         private readonly CarStateTracker carState = new CarStateTracker();
-        private string lightsId;              // the lights shown, to preview a newly picked preset
-        private double previewLightsUntil = -1;
 
         /// <summary>What the car is doing, as the lights see it (docs/light-states-plan.md).</summary>
         public CarState CarState => carState.State;
@@ -636,9 +634,6 @@ namespace User.FXProRpmSync
                 appliedVersion = version;
                 lightsCar = car;
                 try { lights = plugin.ActiveLightsFor(plugin.DashCarKey).Clone(); } catch { lights = lights ?? LightPresets.For(model)[0].Clone(); }
-                // a newly picked preset shows its driving look for 3 s, even while parked (it may be dark then)
-                if (lightsId != null && lights.Id != lightsId) previewLightsUntil = clock.Elapsed.TotalSeconds + 3;
-                lightsId = lights.Id;
                 reverseRev = false; // the LED order is mapped (WheelView); the old "fill from the right" is gone
                 lightProps = lights.Bindings().Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
                 UpdateProps();
@@ -969,8 +964,7 @@ namespace User.FXProRpmSync
                 if (frame == null || frame.Length != engine.Count)
                 {
                     var st = carState.Update(v, now);
-                    bool parked = st == CarState.Idle || st == CarState.Menu || st == CarState.EngineOff;
-                    var moment = LightMoment.Of(parked && now < previewLightsUntil ? CarState.Driving : st, carState.Progress(now), plugin.LimiterFor(plugin.DashCarKey));
+                    var moment = LightMoment.Of(st, carState.Progress(now), plugin.LimiterFor(plugin.DashCarKey));
                     frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev, moment);
                     LightsState += " · " + CarStateTracker.Name(moment.State).ToLowerInvariant();
                 }
