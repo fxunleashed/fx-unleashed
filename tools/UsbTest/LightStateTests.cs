@@ -13,6 +13,7 @@ static class LightStateTests
     public static void Run()
     {
         Tracker();
+        Gauges();
         Looks();
         Limiter();
         Takeovers();
@@ -57,6 +58,44 @@ static class LightStateTests
         // a game that never reports ignition: revs up = engine on (DashValues.FromSimHub sets EngineOn from the revs)
         var g = new CarStateTracker();
         Check("state: from the menu into a running car", g.Update(Car(false, menu: true), 0) == CarState.Menu && g.Update(Car(true, 850), 0.1) == CarState.Driving);
+    }
+
+    static void Gauges()
+    {
+        var neo = WheelModel.GtNeo;
+        var p = LightPresets.Find("neo-race-engineer").Clone();
+        var e = new LightEngine(neo);
+        var v = Car(true, 5000);
+        v.Set("tcLevel", 6.0); v.Set("absLevel", 0.0); v.Set("brakeBias", 57.0); v.Set("engineMap", 10.0);
+        var f = e.Render(p, v, null, 1, false, LightMoment.Of(CarState.Driving));
+        bool Lit(int i) => f[i].Brightness > 20 && f[i].R + f[i].G + f[i].B > 60;
+        Check("gauge: TC 6 of 1-11 fills half the upper left ring, clockwise from 12", Enumerable.Range(10, 6).All(Lit) && Enumerable.Range(16, 6).All(i => !Lit(i)));
+        Check("gauge: ABS 0 (not on this car) leaves the ring dim", Enumerable.Range(22, 12).All(i => !Lit(i)));
+        var brightest = Enumerable.Range(34, 12).OrderByDescending(i => f[i].R + f[i].G + f[i].B).First();
+        Check("gauge: brake bias 57 of 50-64 is a pointer at 6 o'clock (dim neighbours, the rest dark)", brightest == 40
+              && Enumerable.Range(34, 12).Count(i => f[i].R + f[i].G + f[i].B > 200) == 1 && f[39].R + f[39].G + f[39].B > 30 && f[34].R + f[34].G + f[34].B < 30);
+        Check("gauge: map 10 of 1-10 fills the ring, ending red", Enumerable.Range(46, 12).All(Lit) && f[57].R > 200 && f[57].G < 40);
+        var low = Car(true, 5000); low.Set("engineMap", 1.0); low.Set("throttle", 0.0);
+        var lp = LightPresets.Find("neo-race-engineer").Clone();
+        lp.Group(LedGroup.Encoders).Gauges = new List<RingGauge> { RingGauge.Of("throttle"), RingGauge.Of("absLevel"), RingGauge.Of("brakeBias"), RingGauge.Of("engineMap") };
+        var lf = new LightEngine(neo).Render(lp, low, null, 1, false, LightMoment.Of(CarState.Driving));
+        Check("gauge: a setting at its lowest shows one segment, a pedal at 0 none",
+              Enumerable.Range(46, 12).Count(i => lf[i].R + lf[i].G + lf[i].B > 60) == 1 && Enumerable.Range(10, 12).All(i => lf[i].R + lf[i].G + lf[i].B < 60));
+        // a change flashes the ring for a second
+        v.Set("tcLevel", 7.0);
+        var flashes = Enumerable.Range(0, 16).Select(k => { var c = e.Render(p, v, null, 1.01 + k * 0.03, false, LightMoment.Of(CarState.Driving))[10]; return c.R + c.G + c.B; }).Distinct().Count();
+        Check("gauge: a change flashes the ring", flashes > 1);
+        // custom value
+        var enc = p.Group(LedGroup.Encoders);
+        enc.Gauges = RingGauge.Defaults();
+        enc.Gauges[0] = new RingGauge { Source = "DataCorePlugin.GameData.NewData.TyreWearFrontLeft", Low = 0, High = 100 };
+        Check("gauge: a custom SimHub value is read in DataUpdate", p.Bindings().Contains("prop:DataCorePlugin.GameData.NewData.TyreWearFrontLeft"));
+        var v2 = Car(true, 5000); v2.Set("prop:DataCorePlugin.GameData.NewData.TyreWearFrontLeft", 25.0);
+        var f2 = new LightEngine(neo).Render(p, v2, null, 1, false, LightMoment.Of(CarState.Driving));
+        Check("gauge: custom value 25 of 0-100 fills 3 segments", Enumerable.Range(10, 12).Count(i => f2[i].Brightness > 20 && f2[i].R + f2[i].G + f2[i].B > 60) == 3);
+        var rt = Newtonsoft.Json.JsonConvert.DeserializeObject<LightProfile>(Newtonsoft.Json.JsonConvert.SerializeObject(p));
+        Check("gauge: saved and loaded", rt.Group(LedGroup.Encoders).Gauges[0].IsCustom && rt.Group(LedGroup.Encoders).GaugeFor(2).Style == GaugeStyle.Pointer);
+        Check("gauge: no values while parked (the look takes over)", new LightEngine(neo).Render(p, new DashValues(), null, 1, false, LightMoment.Of(CarState.Idle)).Length == 73);
     }
 
     static void Looks()
@@ -169,6 +208,7 @@ static class LightStateTests
     {
         string[] fresh = { "neon-tokyo", "hyperspace", "le-mans-night", "inferno", "abyss", "heartbeat" };
         Check("six new presets on the FX Pro, first in the list", LightPresets.FxPro.Take(6).Select(p => p.Id).SequenceEqual(fresh));
+        Check("Race Engineer on both wheels, right after them", LightPresets.FxPro[6].Id == "race-engineer" && LightPresets.GtNeo[6].Id == "neo-race-engineer");
         Check("six new presets on the GT Neo, first in the list", LightPresets.GtNeo.Take(6).Select(p => p.Id).SequenceEqual(fresh.Select(x => "neo-" + x)));
         Check("Prism is gone from both wheels", LightPresets.All.All(p => p.Name != "Prism"));
         Check("Prism ids lead to Full Rainbow", LightPresets.Find("mustang")?.Id == "rainbow" && LightPresets.Find("neo-prism")?.Id == "neo-rainbow");

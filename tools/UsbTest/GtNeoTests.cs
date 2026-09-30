@@ -82,11 +82,11 @@ static class GtNeoTests
         bool turns = !Same(fr[10], fr[16]);
         Check("GT Neo: a rainbow goes round each ring", same && turns);
 
-        // an FX Pro profile on the GT Neo: side groups skipped, Levels shown steady
+        // an FX Pro profile on the GT Neo: side groups skipped, Levels become ring gauges (no values here: dim rings)
         var fx = LightPresets.Find("aurora").Clone();
         fx.Groups[LedGroup.Encoders] = new GroupLighting { Effect = LightEffect.Levels, Colors = new List<string> { "#00FF00", "#FF0000" } };
         var ff = new LightEngine(neo).Render(fx, v, null, 0.5, false);
-        Check("an FX Pro profile renders on the GT Neo (Levels steady)", ff.Length == 73 && ff[10].G == 255 && ff[10].R == 0);
+        Check("an FX Pro profile renders on the GT Neo (Levels as dim gauges without values)", ff.Length == 73 && ff[10].G > 0 && ff[10].G < 40 && ff[10].R == 0);
 
         // spotter on the left: the left end of the rev bar
         var stealth = LightPresets.Find("neo-stealth").Clone();

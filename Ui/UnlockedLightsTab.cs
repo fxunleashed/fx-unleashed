@@ -584,7 +584,7 @@ namespace User.FXProRpmSync
             var effect = new ComboBox { Width = 240 };
             // shift lights only on the rev bar, setting levels only on the encoders
             var effects = Enum.GetValues(typeof(LightEffect)).Cast<LightEffect>()
-                .Where(x => (x != LightEffect.Rpm || group == LedGroup.Rev) && (x != LightEffect.Levels || (group == LedGroup.Encoders && model.HasLevels)));
+                .Where(x => (x != LightEffect.Rpm || group == LedGroup.Rev) && (x != LightEffect.Levels || (group == LedGroup.Encoders && (model.HasLevels || model.GaugeRings))));
             foreach (var x in effects) effect.Items.Add(new ComboBoxItem { Content = EffectName(x), Tag = x });
             effect.SelectedItem = effect.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (LightEffect)i.Tag == l.Effect) ?? effect.Items[0];
             var details = new StackPanel();
@@ -816,6 +816,7 @@ namespace User.FXProRpmSync
 
         private void BuildLevelsEditor(StackPanel details, GroupLighting l)
         {
+            if (model.GaugeRings) { BuildGaugesEditor(details, l); return; }
             details.Children.Add(Theme.Note("Each encoder's light shows its own setting: ABS, TC, brake bias, DIFF and engine map, " +
                 "coloured from the first colour (low) to the last (high). A setting the game doesn't give stays dim."));
             if (l.Colors == null || l.Colors.Count < 2) l.Colors = new List<string> { "#00FF40", "#FFB000", "#FF0020" };
@@ -830,6 +831,69 @@ namespace User.FXProRpmSync
             details.Children.Add(Theme.Field("DIFF shows", diff));
             var ranges = string.Join(" · ", LightEngine.EncoderLevels.Where(x => x.Name != "DIFF").Select(x => $"{x.Name} {x.Low:0}-{x.High:0}")) + " · DIFF 1-10";
             details.Children.Add(Theme.Note("Colour ranges: " + ranges + " (brake bias in %).", new Thickness(170, 0, 0, 8)));
+        }
+
+        /// <summary>
+        /// GT Neo: each encoder ring as a gauge. Per ring: what it shows (a built-in value or any SimHub property /
+        /// formula), its range for custom values, and fill or pointer.
+        /// </summary>
+        private void BuildGaugesEditor(StackPanel details, GroupLighting l)
+        {
+            details.Children.Add(Theme.Note("Each ring is a gauge of a value: it fills clockwise from 12 o'clock (or shows a pointer) in the colours from " +
+                "low to high, and flashes when the value changes. A value the game doesn't give leaves the ring dim."));
+            if (l.Colors == null || l.Colors.Count < 2) l.Colors = new List<string> { "#00FF40", "#FFB000", "#FF0020" };
+            details.Children.Add(Theme.Field("Colours, low to high", ColourList(l.Colors, 1, 4)));
+            details.Children.Add(Theme.Field("Brightness", Theme.SliderField(5, 100, l.Brightness, 1, v => $"{v:0}%", v => { if (!loading) { l.Brightness = (int)v; Changed(); } })));
+            var flash = Theme.Switch("Flash for a second when a value changes", l.FlashOnChange, v => { l.FlashOnChange = v; Changed(); });
+            flash.Margin = new Thickness(170, 0, 0, 10);
+            details.Children.Add(flash);
+            string[] where = { "Upper left ring", "Upper right ring", "Lower left ring", "Lower right ring" };
+            if (l.Gauges == null) l.Gauges = new List<RingGauge>();
+            for (int k = 0; k < 4; k++)
+            {
+                while (l.Gauges.Count <= k) l.Gauges.Add(l.GaugeFor(l.Gauges.Count).Clone());
+                int kk = k;
+                var g = l.Gauges[k];
+                var row = new WrapPanel();
+                var source = new ComboBox { Width = 170 };
+                foreach (var s in RingGauge.Sources) source.Items.Add(new ComboBoxItem { Content = s.Name, Tag = s.Key });
+                source.Items.Add(new ComboBoxItem { Content = "A SimHub value…", Tag = RingGauge.Custom });
+                source.SelectedItem = source.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == (g.IsCustom ? RingGauge.Custom : g.Source));
+                var custom = new TextBox { Width = 260, Text = g.IsCustom ? g.Source : "", Margin = new Thickness(8, 0, 0, 0), Visibility = g.IsCustom ? Visibility.Visible : Visibility.Collapsed,
+                    ToolTip = "A SimHub property (DataCorePlugin.GameData.NewData.TyreWearFrontLeft) or a formula ([Fuel] / [MaxFuel] * 100)" };
+                var low = new TextBox { Width = 50, Text = g.Low.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture), Margin = new Thickness(8, 0, 0, 0), ToolTip = "The value for an empty ring" };
+                var high = new TextBox { Width = 50, Text = g.High.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture), Margin = new Thickness(4, 0, 0, 0), ToolTip = "The value for a full ring" };
+                var style = new ComboBox { Width = 100, Margin = new Thickness(8, 0, 0, 0) };
+                style.Items.Add(new ComboBoxItem { Content = "Fill", Tag = GaugeStyle.Fill });
+                style.Items.Add(new ComboBoxItem { Content = "Pointer", Tag = GaugeStyle.Pointer });
+                style.SelectedItem = style.Items.Cast<ComboBoxItem>().First(i => (GaugeStyle)i.Tag == g.Style);
+                source.SelectionChanged += (s2, e2) =>
+                {
+                    if (loading || !(source.SelectedItem is ComboBoxItem i)) return;
+                    var key = (string)i.Tag;
+                    var fresh = key == RingGauge.Custom ? new RingGauge { Source = custom.Text.Trim().Length > 0 ? custom.Text.Trim() : "", Low = 0, High = 100 } : RingGauge.Of(key);
+                    l.Gauges[kk] = fresh;
+                    custom.Visibility = key == RingGauge.Custom ? Visibility.Visible : Visibility.Collapsed;
+                    low.Text = fresh.Low.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                    high.Text = fresh.High.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                    style.SelectedItem = style.Items.Cast<ComboBoxItem>().First(x => (GaugeStyle)x.Tag == fresh.Style);
+                    Changed();
+                };
+                custom.LostFocus += (s2, e2) => { var t = custom.Text.Trim(); if (l.Gauges[kk].IsCustom && t != l.Gauges[kk].Source) { l.Gauges[kk].Source = t; Changed(); } };
+                Action<TextBox, Action<double>> number = (box, set) => box.LostFocus += (s2, e2) =>
+                {
+                    if (double.TryParse(box.Text.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)) { set(d); Changed(); }
+                };
+                number(low, d => l.Gauges[kk].Low = d);
+                number(high, d => l.Gauges[kk].High = d);
+                style.SelectionChanged += (s2, e2) => { if (!loading && style.SelectedItem is ComboBoxItem i) { l.Gauges[kk].Style = (GaugeStyle)i.Tag; Changed(); } };
+                row.Children.Add(source); row.Children.Add(custom);
+                row.Children.Add(new TextBlock { Text = "from", Foreground = Theme.Text3, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) });
+                row.Children.Add(low);
+                row.Children.Add(new TextBlock { Text = "to", Foreground = Theme.Text3, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
+                row.Children.Add(high); row.Children.Add(style);
+                details.Children.Add(Theme.Field(where[k], row));
+            }
         }
 
         private static ControlTemplate chipTemplate;

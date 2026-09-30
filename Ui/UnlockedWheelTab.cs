@@ -298,6 +298,7 @@ namespace User.FXProRpmSync
             };
             // settings changing now and then (the encoders' Levels effect)
             v.Set("absLevel", 2.0 + (int)(t / 5) % 7); v.Set("tcLevel", 9.0 - (int)((t + 2) / 7) % 6);
+            v.Set("fuelPercent", 80 - t % 60); v.Set("rpmPercent", rpm / 84); v.Set("throttle", cycle < 4.5 ? 100.0 : 0.0); v.Set("brake", cycle >= 4.5 ? 70.0 : 0.0);
             v.Set("brakeBias", 52 + (int)((t + 4) / 9) % 8 * 1.5); v.Set("engineMap", 1.0 + (int)((t + 1) / 11) % 9);
             return v;
         }

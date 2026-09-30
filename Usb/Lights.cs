@@ -73,6 +73,61 @@ namespace User.FXProRpmSync
         Checker,
     }
 
+    /// <summary>How a ring gauge shows its value.</summary>
+    [JsonConverter(typeof(StringEnumConverter))]
+    public enum GaugeStyle
+    {
+        /// <summary>Fills clockwise from 12 o'clock, low to high.</summary>
+        Fill,
+        /// <summary>One bright segment where the value is (brake bias, a dial).</summary>
+        Pointer,
+    }
+
+    /// <summary>
+    /// What one encoder ring shows as a gauge with the Levels effect (GT Neo; WheelModel.GaugeRings): a built-in value or
+    /// any SimHub property / formula, over a range.
+    /// </summary>
+    public class RingGauge
+    {
+        /// <summary>A built-in key (see Sources) or, for Custom, a SimHub property / formula as AlertRule.Condition.</summary>
+        public string Source = "tcLevel";
+        public double Low = 1, High = 11;
+        public GaugeStyle Style = GaugeStyle.Fill;
+
+        public const string Custom = "custom";
+
+        /// <summary>The built-in values: key, name, range, style, and whether 0 means the car hasn't got it (a dim ring).</summary>
+        public static readonly (string Key, string Name, double Low, double High, GaugeStyle Style, bool ZeroIsOff)[] Sources =
+        {
+            ("tcLevel", "TC", 1, 11, GaugeStyle.Fill, true), ("absLevel", "ABS", 1, 11, GaugeStyle.Fill, true),
+            ("brakeBias", "Brake bias", 50, 64, GaugeStyle.Pointer, false), ("engineMap", "Engine map", 1, 10, GaugeStyle.Fill, true),
+            ("fuelPercent", "Fuel left", 0, 100, GaugeStyle.Fill, false), ("rpmPercent", "Revs", 0, 100, GaugeStyle.Fill, false),
+            ("throttle", "Throttle", 0, 100, GaugeStyle.Fill, false), ("brake", "Brake pedal", 0, 100, GaugeStyle.Fill, false),
+        };
+
+        /// <summary>A built-in value as a gauge, with its usual range and style.</summary>
+        public static RingGauge Of(string key)
+        {
+            foreach (var s in Sources) if (s.Key == key) return new RingGauge { Source = key, Low = s.Low, High = s.High, Style = s.Style };
+            return new RingGauge { Source = key, Low = 0, High = 100 };
+        }
+
+        /// <summary>The four rings' defaults (upper left, upper right, lower left, lower right).</summary>
+        public static List<RingGauge> Defaults() => new List<RingGauge> { Of("tcLevel"), Of("absLevel"), Of("brakeBias"), Of("engineMap") };
+
+        [JsonIgnore]
+        public bool IsCustom => !Sources.Any(s => s.Key == Source);
+
+        /// <summary>What DashValues is asked for: the key, or the custom text as a binding.</summary>
+        [JsonIgnore]
+        public string Bind => IsCustom ? AlertRule.Bind(Source) : Source;
+
+        [JsonIgnore]
+        public bool ZeroIsOff => Sources.Any(s => s.Key == Source && s.ZeroIsOff);
+
+        public RingGauge Clone() => (RingGauge)MemberwiseClone();
+    }
+
     public class GroupLighting
     {
         public LightEffect Effect = LightEffect.Solid;
@@ -87,8 +142,13 @@ namespace User.FXProRpmSync
         public string DiffSource;
         /// <summary>Groups in several segments (the GT Neo's rings): each one a step behind the last, so they chase each other.</summary>
         public bool Stagger;
+        /// <summary>Levels on ring encoders (GT Neo): what each ring shows, in ring order (missing = RingGauge.Defaults).</summary>
+        public List<RingGauge> Gauges;
 
-        public GroupLighting Clone() { var c = (GroupLighting)MemberwiseClone(); c.Colors = new List<string>(Colors); return c; }
+        /// <summary>Ring `k`'s gauge (its own, else the default for that ring).</summary>
+        public RingGauge GaugeFor(int k) => Gauges != null && k < Gauges.Count && Gauges[k] != null ? Gauges[k] : RingGauge.Defaults()[Math.Min(k, 3)];
+
+        public GroupLighting Clone() { var c = (GroupLighting)MemberwiseClone(); c.Colors = new List<string>(Colors); c.Gauges = Gauges?.Select(g => g?.Clone()).ToList(); return c; }
     }
 
     public class AlertRule
@@ -208,6 +268,8 @@ namespace User.FXProRpmSync
             {
                 var diff = AlertRule.Bind(enc.DiffSource);
                 if (diff != null) yield return diff;
+                foreach (var g in enc.Gauges ?? new List<RingGauge>())
+                    if (g != null && g.IsCustom && g.Bind != null) yield return g.Bind;
             }
         }
 
@@ -308,6 +370,12 @@ namespace User.FXProRpmSync
                 .Parked(CarState.Idle, 60, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.5, rev: true)
                 .Parked(CarState.EngineOff, 20, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.2)
                 .Motion(StartupStyle.Ignite, ShutdownStyle.Collapse).Limit(LimiterStyle.Alternate, "#FF0030", hz: 2),
+            Make("race-engineer", "Race Engineer", "All business: each encoder shows its setting (ABS, TC, brake bias, DIFF, map) from green to red, flashing when you change it; calm white everywhere else.",
+                (LedGroup.Buttons, LightEffect.Solid, 4, 30, new[] { "#FFFFFF" }),
+                (LedGroup.Encoders, LightEffect.Levels, 4, 100, new[] { "#00FF40", "#FFB000", "#FF0020" }),
+                (LedGroup.SideLeft, LightEffect.Solid, 4, 20, new[] { "#FFFFFF" }),
+                (LedGroup.SideRight, LightEffect.Solid, 4, 20, new[] { "#FFFFFF" }))
+                .Parked(CarState.Idle, 40, LightEffect.Breathe, new[] { "#FFFFFF" }, 8).Motion(StartupStyle.SelfTest, ShutdownStyle.Fade),
             Make("aurora", "Aurora", "Teal, blue and violet drifting like northern lights; the side lights breathe teal.",
                 (LedGroup.Buttons, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }),
                 (LedGroup.Encoders, LightEffect.Breathe, 6, 100, new[] { "#7B2FFF", "#00FFA3" }),
@@ -399,6 +467,10 @@ namespace User.FXProRpmSync
                 .Parked(CarState.Idle, 60, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.5, rev: true)
                 .Parked(CarState.EngineOff, 20, LightEffect.Heartbeat, new[] { "#FF0030" }, 1.2)
                 .Motion(StartupStyle.Ignite, ShutdownStyle.Collapse).Limit(LimiterStyle.Alternate, "#FF0030", hz: 2),
+            Make("neo-race-engineer", "Race Engineer", "All business: the four rings are gauges of TC, ABS, brake bias and engine map, green to red, flashing when you change them; calm white buttons.",
+                (LedGroup.Buttons, LightEffect.Solid, 4, 30, new[] { "#FFFFFF" }),
+                (LedGroup.Encoders, LightEffect.Levels, 4, 100, new[] { "#00FF40", "#FFB000", "#FF0020" }))
+                .Parked(CarState.Idle, 40, LightEffect.Breathe, new[] { "#FFFFFF" }, 8).Motion(StartupStyle.SelfTest, ShutdownStyle.Fade),
             Make("neo-aurora", "Aurora", "Teal, blue and violet drifting round the rings; the buttons breathe teal and violet.",
                 (LedGroup.Buttons, LightEffect.Breathe, 6, 100, new[] { "#00FFA3", "#7B2FFF" }),
                 (LedGroup.Encoders, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }))
@@ -637,6 +709,7 @@ namespace User.FXProRpmSync
                     }
                 }
                 else if (l.Effect == LightEffect.Levels && Model.HasLevels && look?.Effect == null) RenderLevels(frame, Model.Leds(g), l, v, now, bright);
+                else if (l.Effect == LightEffect.Levels && Model.GaugeRings && look?.Effect == null) RenderGauges(frame, Model.Segments(g), l, v, now, bright);
                 else
                 {
                     // effects run along each segment (the GT Neo's encoder rings each get their own); Levels on a wheel
@@ -917,6 +990,56 @@ namespace User.FXProRpmSync
                 var c = colours.Count == 1 ? Rgb(colours[0]) : Ramp(colours, t);
                 bool blink = l.FlashOnChange && now - levelChanged[i] < 1 && (int)((now - levelChanged[i]) * 16) % 2 == 1;
                 frame[leds[i]] = Scale(c, blink ? 0.1 : 1, bright);
+            }
+        }
+
+        private readonly Dictionary<int, double?> lastGauge = new Dictionary<int, double?>();
+        private readonly Dictionary<int, double> gaugeChanged = new Dictionary<int, double>();
+
+        /// <summary>
+        /// Each ring as a gauge of its value (GT Neo): filled clockwise from 12 o'clock in the colours from low to high, or
+        /// one bright segment where the value sits (Pointer). A value the game doesn't give (or 0 for a setting the car
+        /// hasn't got) leaves the ring dim; a change makes the ring flash for a second, like the FX Pro's levels.
+        /// </summary>
+        private void RenderGauges(LedColor[] frame, int[][] rings, GroupLighting l, DashValues v, double now, byte bright)
+        {
+            var colours = l.Colors != null && l.Colors.Count > 0 ? l.Colors : new List<string> { "#00FF40", "#FFB000", "#FF0020" };
+            for (int k = 0; k < rings.Length; k++)
+            {
+                var ring = rings[k];
+                int n = ring.Length;
+                var gauge = l.GaugeFor(k);
+                double? x = v == null || !v.Running || gauge.Bind == null ? null : v.Number(gauge.Bind);
+                lastGauge.TryGetValue(k, out var last);
+                if (x != last)
+                {
+                    if (last.HasValue && x.HasValue) gaugeChanged[k] = now;
+                    lastGauge[k] = x;
+                }
+                var dim = Scale(Rgb(colours[0]), 0.06, bright);
+                if (!x.HasValue || (x.Value <= 0 && gauge.ZeroIsOff)) { foreach (var led in ring) frame[led] = dim; continue; }
+                double span = gauge.High - gauge.Low;
+                double t = span == 0 ? 1 : Math.Max(0, Math.Min(1, (x.Value - gauge.Low) / span));
+                gaugeChanged.TryGetValue(k, out var changedAt);
+                bool changed = l.FlashOnChange && gaugeChanged.ContainsKey(k) && now - changedAt < 1;
+                bool blinkOff = changed && (int)((now - changedAt) * 16) % 2 == 1;
+                if (gauge.Style == GaugeStyle.Pointer)
+                {
+                    int at = (int)Math.Round(t * (n - 1));
+                    var c = colours.Count == 1 ? Rgb(colours[0]) : Ramp(colours, t);
+                    for (int i = 0; i < n; i++)
+                    {
+                        int d = Math.Min(Math.Abs(i - at), n - Math.Abs(i - at));
+                        frame[ring[i]] = d == 0 ? Scale(c, blinkOff ? 0.15 : 1, bright) : d == 1 ? Scale(c, 0.22, bright) : dim;
+                    }
+                }
+                else
+                {
+                    // a setting at its lowest still shows one segment (it's on, just low); a pedal at 0 is empty
+                    int lit = Math.Max(t > 0 || gauge.ZeroIsOff ? 1 : 0, (int)Math.Round(t * n));
+                    for (int i = 0; i < n; i++)
+                        frame[ring[i]] = i < lit ? Scale(colours.Count == 1 ? Rgb(colours[0]) : Ramp(colours, n <= 1 ? 1 : (double)i / (n - 1)), blinkOff ? 0.15 : 1, bright) : dim;
+                }
             }
         }
 

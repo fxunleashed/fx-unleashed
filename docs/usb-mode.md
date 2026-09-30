@@ -206,7 +206,8 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
   there). Never sent: `F0 [6]=00 [7]=CA` (hangs the wheel) or `F1` (update).
 - **Effects** run per segment: each ring on its own, so rainbows and chasers go round the rings. Presets:
   `LightPresets.GtNeo` (ids `neo-...`). The GT Neo has no side lights; alerts on them use the ends of the rev bar (4
-  LEDs each side). The Levels effect is FX Pro only (its encoders sit on ABS/TC/BB/DIFF/MAP).
+  LEDs each side). The Levels effect makes each ring a 12-segment gauge (`RingGauge`; docs/light-states-plan.md);
+  on the FX Pro it keeps showing ABS/TC/BB/DIFF/MAP on its encoder lights.
 - **SimHub's own GT Neo device** (SimHub > Devices > Simagic GT Neo) drives the same LEDs, so both at once flicker.
   The Lights tab offers **Turn it off** or **Use SimHub's device instead**, and **Turn it back on** later
   (`Usb/SimHubDevices.cs`: SimHub's `DevicesPlugin`, `DeviceInstance.Enabled`, then `DevicesPlugin.SaveSettings`). With

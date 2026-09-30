@@ -62,6 +62,9 @@ static class UiTest
         // UI_WHEEL=gtneo: the pages for the GT Neo
         var wheel = Environment.GetEnvironmentVariable("UI_WHEEL");
         if (!string.IsNullOrEmpty(wheel)) plugin.Settings.Usb.SwapWheel(WheelModel.Find(wheel));
+        // UI_PRESET=id: that light preset selected
+        var preset = Environment.GetEnvironmentVariable("UI_PRESET");
+        if (!string.IsNullOrEmpty(preset)) plugin.Settings.Usb.LightPreset = preset;
         if (Environment.GetEnvironmentVariable("UI_CUSTOM") == "1")
         {
             var u = plugin.Settings.Usb;

@@ -27,6 +27,8 @@ namespace User.FXProRpmSync
         public LedGroup[] Groups { get; private set; }
         /// <summary>Its encoder lights sit on ABS, TC, BB, DIFF, MAP, so they can show those levels (LightEffect.Levels).</summary>
         public bool HasLevels { get; private set; }
+        /// <summary>Its encoders have rings of LEDs, so Levels shows each as a 12-segment gauge (RingGauge) instead.</summary>
+        public bool GaugeRings { get; private set; }
         /// <summary>Button bits in its input report 01 (bytes 3-7).</summary>
         public int ButtonCount { get; private set; } = 40;
 
@@ -97,7 +99,7 @@ namespace User.FXProRpmSync
         public static readonly WheelModel GtNeo = new WheelModel
         {
             Id = "gtneo", Name = "GT Neo", UsbFilter = NeoUsb.DeviceFilter, SimProProduct = "0000000002060000",
-            HasScreen = false, NeedsFirmware = false, ModeName = "USB", LedCount = 73, HasLevels = false,
+            HasScreen = false, NeedsFirmware = false, ModeName = "USB", LedCount = 73, HasLevels = false, GaugeRings = true,
             Groups = new[] { LedGroup.Buttons, LedGroup.Encoders, LedGroup.Rev },
             segments =
             {

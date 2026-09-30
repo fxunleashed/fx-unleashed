@@ -1,7 +1,7 @@
 # Lights that know what the car is doing: plan
 
-Written 2026-09-29. Status: **built 2026-09-29** (steps 1-5 and 7, plus per-car pit limiter lights and six new
-presets per wheel); step 6 (GT Neo ring gauges) not yet. Not yet tried on a wheel in a game. Both wheels.
+Written 2026-09-29. Status: **all seven steps built 2026-09-29**, plus per-car pit limiter lights and six new presets
+per wheel (and Race Engineer). Not yet tried on a wheel in a game. Both wheels.
 
 **As built:**
 - `Usb/LightStates.cs`: `CarStateTracker` (engine on = `EngineStarted` or revs above 300, debounced 0.4 s; start-up
@@ -19,6 +19,11 @@ presets per wheel); step 6 (GT Neo ring gauges) not yet. Not yet tried on a whee
   idle / engine-off looks, a start-up, a shutdown and limiter lights; rev colours stay standard.
 - Lights tab: "Preview as" chips (every state, on the big wheel and every preset tile); your own lights edit the
   parked looks, start/stop, limiter and rev tint. The USB loop previews a newly picked preset for 3 s while parked.
+- **Ring gauges (step 6, GT Neo):** "Setting levels" on the encoder rings makes each ring a 12-segment gauge
+  (`RingGauge`: TC, ABS, brake bias, engine map, fuel, revs, throttle, brake pedal, or any SimHub property / formula
+  with its own range), filled clockwise from 12 o'clock or as a pointer, coloured low to high, flashing on a change; a
+  setting at its lowest shows one segment, a missing one leaves the ring dim. Defaults: TC, ABS, brake bias
+  (pointer), engine map. New preset **Race Engineer** on both wheels (gauges on the GT Neo, levels on the FX Pro).
 - Tests: `tools/UsbTest/LightStateTests.cs`.
 
 ## What ATSR-Hub does (studied from its GT-Neo profile, V3.5.0)
