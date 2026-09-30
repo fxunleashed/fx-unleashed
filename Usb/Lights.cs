@@ -1174,7 +1174,7 @@ namespace User.FXProRpmSync
                 }
                 for (int i = 0; i < leds.Length && i < layout.Rpm.Length; i++)
                 {
-                    bool lit = layout.Rpm[i] > 0 && rpm >= layout.Rpm[i];
+                    bool lit = layout.Lit(i, rpm);
                     var (r, g, b) = Rgb(layout.Colors[i]);
                     frame[leds[i]] = lit ? new LedColor(r, g, b, bright) : new LedColor(0, 0, 0, 1);
                 }

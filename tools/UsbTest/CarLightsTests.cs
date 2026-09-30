@@ -82,6 +82,20 @@ static class CarLightsTests
         var ligier = CarLightsDatabase.ToLimiter(db.Find("Automobilista2", "Ligier JS P217").Car);
         Check("car lights: pit lamps off the bar = the whole bar in their colour", ligier.Style == LimiterStyle.Solid && ligier.Colors[0] == "#40FF00");
 
+        // lights that switch off again: the BMW M Hybrid V8's pair moving inward (one side of its mirrored row)
+        db.Load(@"{ ""schema"": 1, ""game"": ""ams2x"", ""simhubGame"": ""Automobilista2x"", ""gameVersion"": ""1"", ""cars"": [
+          { ""carId"": ""Mover"", ""dash"": ""shift-lights"", ""rev"": { ""range"": [7100, 7850], ""steps"": 6, ""leds"": [
+            { ""pos"": 0.0, ""stages"": [[7100, ""#FFBE12""], [7400, null], [7850, ""#00A1FF""]] },
+            { ""pos"": 0.5, ""stages"": [[7250, ""#FFBE12""], [7550, null], [7850, ""#00A1FF""]] },
+            { ""pos"": 1.0, ""stages"": [[7400, ""#FFBE12""], [7850, ""#00A1FF""]] } ] } } ] }");
+        var mover = CarLightsDatabase.ToProfile(db.Find("Automobilista2x", "Mover").Car.Rev, "Mover", out _);
+        var ml = RpmLayout.FromProfile(mover, includeGears: false, exactColours: true);
+        int a = Array.IndexOf(ml.Rpm, 7100), c = Array.IndexOf(ml.Rpm, 7400);
+        Check("car lights: a light that switches off keeps its off RPM", mover.OffRpm != null && mover.OffRpm[1] == 7400 && mover.OffRpm[3] == 0 && ml.OffRpm[a] == 7400);
+        Check("car lights: ...and is dark from there until the flash", ml.Lit(a, 7300) && !ml.Lit(a, 7450) && ml.Lit(c, 7450) && ml.FlashRpm == 7850,
+              string.Join(",", ml.Rpm) + " / " + string.Join(",", ml.OffRpm));
+        Check("car lights: an off RPM moves with an offset", ml.Offset(100).OffRpm[a] == 7500 && ml.Clone().OffRpm != ml.OffRpm);
+
         Check("car lights: slots keep an even bar as it is", CarLightsDatabase.Slots(new List<double> { 0, 0.25, 0.5, 0.75, 1 }).All(s => s != null));
         Check("car lights: a newer schema is ignored", Try(() => db.Load(M4Json().Replace("\"schema\": 1", "\"schema\": 99").Replace("\"ams2\"", "\"ams3\""))) &&
               db.Find("Automobilista2", "BMW M4 GT3")?.GameVersion == "1.6.9.96");

@@ -85,6 +85,15 @@ namespace User.FXProRpmSync
         /// <summary>Wheel buttons bound to actions: "next" / "prev" / "sleep" -> button number (1-40). See WheelButtons.</summary>
         public Dictionary<string, int> WheelButtons = new Dictionary<string, int>();
 
+        /// <summary>Wheel app build 8+: the controller button (1-40) the dash button reports as. Pick one no control uses
+        /// (the capture of 2026-09-30 on the user's FX Pro: 23, 25, 26, 28, 30, 33-36 never seen; 24/27 become the upper
+        /// paddles). Builds 5-7 always use 40.</summary>
+        public int DashSlot = 36;
+
+        /// <summary>Wheel app build 8+: report the two upper paddles (analogue channels 4/5, which stock never sends over
+        /// USB) as the buttons SimPro's map gives logical inputs 24 and 27 (24 and 27 by default; not in clutch mode 2).</summary>
+        public bool UpperPaddles = true;
+
         /// <summary>The screen's backlight, 5-100 (the plugin sends it on connect, on change and after sleep).</summary>
         public int ScreenBrightness = 100;
 
@@ -608,8 +617,15 @@ namespace User.FXProRpmSync
             }
             conn = new FxConnection(path);
             sentBrightness = -1; // sent with the first settings pass
-            // Wheel app build 5: the dash button becomes controller button 40 and stops switching the wheel's own
-            // pages (no flash save). Harmless on older builds (unused RAM). Cleared again in Deactivate.
+            // Wheel app build 8: where the dash button reports (CTRL+0x168, 0-39) and whether the upper paddles are
+            // sent (CTRL+0x169 bit 0); written before the button mode that enables them. Unused RAM on older builds.
+            var slot = Math.Max(1, Math.Min(40, S.DashSlot));
+            try { conn.WriteRam(FxConnection.Ctrl + 0x168, new[] { (byte)(slot - 1), (byte)(S.UpperPaddles ? 1 : 0) }); } catch { }
+            WheelButtons.DashButton = build >= 8 ? slot : WheelButtons.LegacyDashButton;
+            if (build >= 8 && S.WheelButtons != null && S.WheelButtons.TryGetValue("next", out var next) && next == WheelButtons.LegacyDashButton)
+                S.WheelButtons["next"] = slot; // the default binding followed the dash button; on build 8, 40 is a stock control again
+            // Wheel app build 5: the dash button becomes a controller button (40 on builds 5-7, DashSlot on 8+) and stops
+            // switching the wheel's own pages (no flash save). Harmless on older builds (unused RAM). Cleared again in Deactivate.
             try { conn.WriteRam(FxConnection.Ctrl + 0x160, BitConverter.GetBytes(ButtonMagic)); } catch { }
             // A reconnect after the link dropped (wheel kept powered by the base) can leave its button reports stuck.
             if (status?.IsSupportedApp == true) FxUsb.ReleaseInputReports(conn);

@@ -23,12 +23,20 @@ namespace User.FXProRpmSync
         /// <summary>Optional per-gear LED/flash RPMs ("R","N","1"..) for wheels with SimPro's Advanced mode.</summary>
         public Dictionary<string, GearCurve> Gears;
 
+        /// <summary>Optional: RPM where a lit LED goes dark again (0 = stays lit until the flash), e.g. the BMW M Hybrid
+        /// V8's pair moving inward. USB mode only; SimPro's lights can't switch an LED off.</summary>
+        public int[] OffRpm;
+
+        /// <summary>Whether LED i is lit at rpm (its own RPM reached, and not yet past its off RPM).</summary>
+        public bool Lit(int i, double rpm) => Rpm[i] > 0 && rpm >= Rpm[i] && !(OffRpm != null && OffRpm[i] > 0 && rpm >= OffRpm[i]);
+
         public RpmLayout Clone()
         {
             var c = (RpmLayout)MemberwiseClone();
             c.Rpm = (int[])Rpm.Clone();
             c.Colors = (string[])Colors.Clone();
             c.Gears = Gears?.ToDictionary(g => g.Key, g => g.Value.Clone());
+            c.OffRpm = (int[])OffRpm?.Clone();
             return c;
         }
 
@@ -41,6 +49,7 @@ namespace User.FXProRpmSync
             var c = Clone();
             int Move(int v) => v <= 0 ? 0 : Math.Max(1, v + offset);
             for (int i = 0; i < c.Rpm.Length; i++) c.Rpm[i] = Move(c.Rpm[i]);
+            if (c.OffRpm != null) for (int i = 0; i < c.OffRpm.Length; i++) c.OffRpm[i] = Move(c.OffRpm[i]);
             c.FlashRpm = Move(c.FlashRpm);
             if (c.Gears != null)
                 foreach (var g in c.Gears.Values)
@@ -102,6 +111,8 @@ namespace User.FXProRpmSync
                 bool off = color == null || defaultCurve[src] <= 0;
                 layout.Rpm[j] = off ? 0 : defaultCurve[src];
                 layout.Colors[j] = off ? LedPalette.Off : color;
+                if (car.OffRpm != null && !off && src < car.OffRpm.Length && car.OffRpm[src] > 0)
+                    (layout.OffRpm ?? (layout.OffRpm = new int[RpmLightsMapper.WheelLeds]))[j] = car.OffRpm[src];
             }
             layout.FlashRpm = redColor != null && defaultCurve[0] > 0 ? defaultCurve[0] : 0;
             layout.FlashColor = redColor ?? LedPalette.Blue;

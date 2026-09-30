@@ -50,7 +50,10 @@ A plugin that reads format 1 ignores a file or index with a higher `schema` (and
      {"pos": 0.4506, "stages": [[6840, "#FF0000"]]}
    ],
    "colourGuessed": true,                // optional: some colours couldn't be read and follow green, yellow, red
-   "layout": "step-order",               // optional: not a straight bar (a grid, two columns); pos = step order
+   "layout": "step-order",               // optional: not a straight bar (a grid, two columns); pos = step order,
+                                         // or "mirrored-column": one column on the dash screen shown on both halves
+                                         // of the row, step 1 at the ends (best guess: the screen texture's mapping
+                                         // onto the wheel model isn't readable)
    "withTacho": true                     // optional: shift lights hung on a sweep tacho (range starts at 0)
  },
  "limiter": {                            // null: the dash shows nothing special
@@ -67,7 +70,8 @@ A plugin that reads format 1 ignores a file or index with a higher `schema` (and
   a vertical one is turned so its first step is at 0.
 - **`stages`**: `[rpm, colour]` from the first change to the last. A light that's lit stays lit; a later stage
   changes its colour (the M4 GT3's last step turns every light red). A light already in that colour doesn't repeat
-  the stage.
+  the stage. A `null` colour switches the light off (the BMW M Hybrid V8's lit pair moves inward: `[[7100,
+  "#FFBE12"], [7400, null], [7850, "#00A1FF"]]`); the plugin keeps it dark from there until the flash.
 - **Colours** are what an LED should show: the dominant hue of the light's texture (or of its part of a sprite sheet)
   at full brightness, `#RRGGBB`.
 - **Limiter off the bar** (`"onBar": false`): the dash has pit lamps of its own elsewhere:

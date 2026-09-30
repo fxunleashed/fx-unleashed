@@ -15,8 +15,13 @@ namespace User.FXProRpmSync
     /// </summary>
     internal sealed class WheelButtons : IDisposable
     {
-        /// <summary>The dash button with wheel app build 5 (while the plugin has set the button mode).</summary>
-        public const int DashButton = 40;
+        /// <summary>The dash button with wheel app builds 5-7 (while the plugin has set the button mode). It shares the
+        /// button with a stock control (on the FX Pro an encoder direction), so build 8 moves it (DashSlot).</summary>
+        public const int LegacyDashButton = 40;
+
+        /// <summary>The dash button as the wheel reports it now: UsbSettings.DashSlot on build 8+, else button 40. Set by
+        /// UsbController when it learns the wheel's build.</summary>
+        public static int DashButton = LegacyDashButton;
 
         private readonly FXProRpmSyncPlugin plugin;
         private readonly Thread thread;

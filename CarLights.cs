@@ -275,27 +275,33 @@ namespace User.FXProRpmSync
             var last = ordered.Select(l => l.Stages[l.Stages.Count - 1]).ToList();
             int flashRpm = last.Max(s => s.Rpm);
             string flashColour = last.First(s => s.Rpm == flashRpm).Colour;
-            bool flash = ordered.Count > 1
+            bool flash = ordered.Count > 1 && flashColour != null
                          && last.All(s => string.Equals(s.Colour, flashColour, StringComparison.OrdinalIgnoreCase))
                          && ordered.Any(l => l.Stages.Count > 1 && l.Stages[l.Stages.Count - 1].Rpm == flashRpm);
             if (flash) last = last.Select(_ => (flashRpm, flashColour)).ToList();
             int n = slots.Count;
             var colours = new string[n + 1];
             var curve = new int[n + 1];
+            var offAt = new int[n + 1];
             colours[0] = flash ? Argb(last[0].Colour) : "#00000000";
             curve[0] = flash ? last[0].Rpm : 0;
             int k = 0;
             for (int i = 0; i < n; i++)
             {
                 if (slots[i] == null) { colours[i + 1] = "#00000000"; continue; }
-                var first = ordered[k++].Stages[0];
+                var light = ordered[k++];
+                var first = light.Stages[0];
                 colours[i + 1] = Argb(first.Colour);
                 curve[i + 1] = first.Rpm;
+                // a later stage with no colour switches it off (before the flash, which lights everything)
+                var dark = light.Stages.Skip(1).FirstOrDefault(st => st.Colour == null);
+                if (dark.Rpm > 0 && (!flash || dark.Rpm < last[0].Rpm)) offAt[i + 1] = dark.Rpm;
             }
             return new CarLedProfile
             {
                 CarName = name, LedNumber = n, Colors = colours,
                 GearRpm = new Dictionary<string, int[]> { ["1"] = curve },
+                OffRpm = offAt.Any(v => v > 0) ? offAt : null,
                 MatchedBy = "the game's own dash",
             };
         }

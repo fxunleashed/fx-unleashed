@@ -17,6 +17,8 @@ namespace User.FXProRpmSync
         public int RedlineBlinkIntervalMs;
         public string[] Colors;                       // length N+1
         public Dictionary<string, int[]> GearRpm;    // gear ("R","N","1"..) -> length N+1
+        /// <summary>Optional: RPM where a lit LED goes dark again before the flash (0 = stays lit), length N+1 (index 0 unused).</summary>
+        public int[] OffRpm;
         public string MatchedBy = "exact";
 
         public string Signature() =>
