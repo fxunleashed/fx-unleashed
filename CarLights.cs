@@ -47,6 +47,8 @@ namespace User.FXProRpmSync
     {
         public CarLightsRecord Car;
         public string Game, GameVersion;
+        /// <summary>The name the game reported when it isn't the car's own (a variant suffix, e.g. "... Model1"), else null.</summary>
+        public string ReportedAs;
         public string Label => $"{GameNames.Short(Game)} {GameVersion}".Trim();
     }
 
@@ -103,8 +105,38 @@ namespace User.FXProRpmSync
                 foreach (var key in new[] { carId, carModel })
                     if (!string.IsNullOrEmpty(key) && g.ByKey.TryGetValue(key.Trim(), out var car))
                         return new CarLightsMatch { Car = car, Game = g.Game, GameVersion = g.GameVersion };
+                foreach (var key in new[] { carId, carModel })
+                {
+                    var prefix = ByPrefix(g.ByKey, key);
+                    if (prefix == null) continue;
+                    if (loggedPrefix.Add(key))
+                        SimHub.Logging.Current.Info($"[FXProRpmSync] car light data: {g.Game} reports \"{key.Trim()}\", matched to \"{prefix.CarId}\" (add it as an alias)");
+                    return new CarLightsMatch { Car = prefix, Game = g.Game, GameVersion = g.GameVersion, ReportedAs = key.Trim() };
+                }
                 return null;
             }
+        }
+
+        private readonly HashSet<string> loggedPrefix = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// A name the game reports with a variant word after the car's own name (AMS2's "Formula V8 Gen2 Model1" for
+        /// "Formula V8 Gen2"): the longest known name it starts with, when what follows is one short word. Exact names
+        /// always win before this is tried.
+        /// </summary>
+        internal static CarLightsRecord ByPrefix(Dictionary<string, CarLightsRecord> byKey, string reported)
+        {
+            var name = reported?.Trim();
+            if (string.IsNullOrEmpty(name)) return null;
+            string best = null;
+            foreach (var k in byKey.Keys)
+            {
+                if (k.Length >= name.Length || !name.StartsWith(k + " ", StringComparison.OrdinalIgnoreCase)) continue;
+                var rest = name.Substring(k.Length + 1).Trim();
+                if (rest.Length == 0 || rest.Length > 12 || rest.Contains(" ")) continue;
+                if (best == null || k.Length > best.Length) best = k;
+            }
+            return best == null ? null : byKey[best];
         }
 
         public void RefreshIfDue()

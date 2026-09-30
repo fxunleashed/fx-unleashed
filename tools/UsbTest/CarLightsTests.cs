@@ -50,6 +50,11 @@ static class CarLightsTests
         Check("car lights: found by an alias", db.Find("Automobilista2", "BMW_M4_GT3")?.Car.CarId == "BMW M4 GT3");
         Check("car lights: another game's names don't match", db.Find("IRacing", "BMW M4 GT3") == null);
         Check("car lights: cars no longer in the game are left out", db.Find("Automobilista2", "Gone Car") == null);
+        var variant = db.Find("Automobilista2", "BMW M4 GT3 Model1");
+        Check("car lights: a variant word after the name finds the car", variant?.Car.CarId == "BMW M4 GT3" && variant.ReportedAs == "BMW M4 GT3 Model1");
+        Check("car lights: an exact name doesn't count as a variant", db.Find("Automobilista2", "BMW M4 GT3")?.ReportedAs == null);
+        Check("car lights: more than one extra word isn't a variant", db.Find("Automobilista2", "BMW M4 GT3 Evo Special") == null);
+        Check("car lights: a name that only starts the same isn't a variant", db.Find("Automobilista2", "BMW M4 GT34") == null);
 
         // gaps: two lights missing between the groups -> one unused slot each side, like Lovely's 12
         var profile = CarLightsDatabase.ToProfile(m4.Car.Rev, "BMW M4 GT3", out var slots);

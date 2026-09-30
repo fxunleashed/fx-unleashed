@@ -1215,7 +1215,8 @@ namespace User.FXProRpmSync
                 // USB mode shows the car's own colours; SimPro only takes its palette
                 layout = RpmLayout.FromProfile(profile, includeGears: !w.OldDevice || Settings.LiveGearCurves, exactColours: unlocked);
                 source = game?.Car.Rev != null
-                    ? $"{game.Label} game data ({game.Car.Rev.Lights.Count} lights, {game.Car.Rev.Low}-{game.Car.Rev.High} rpm" + (game.Car.Rev.ColourGuessed ? ", some colours guessed)" : ")")
+                    ? $"{game.Label} game data ({game.Car.Rev.Lights.Count} lights, {game.Car.Rev.Low}-{game.Car.Rev.High} rpm" + (game.Car.Rev.ColourGuessed ? ", some colours guessed" : "")
+                      + (game.ReportedAs != null ? $", as {game.Car.CarId})" : ")")
                     : $"car database, {profile.MatchedBy} ({profile.LedNumber} LEDs" + (layout.Gears != null ? ", per gear)" : ")");
             }
             else if (t.Redline > 0)

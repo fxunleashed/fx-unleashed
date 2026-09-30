@@ -75,6 +75,10 @@ A plugin that reads format 1 ignores a file or index with a higher `schema` (and
 
 ### How the plugin uses it
 
+- **Finding the car**: by SimHub's game name (`simhubGame`) and car id (or model), exact or one of the `aliases`.
+  Failing that, a reported name that is a known name plus one short word (AMS2 reports "Formula V8 Gen2 Model1" for
+  "Formula V8 Gen2") matches the longest such name; SimHub's log says so once per name, to add it as an alias.
+
 - **Rev lights** (`CarLightsDatabase.ToProfile`): the lights in `pos` order become a car profile like Lovely's; a gap
   of about two spacings becomes one unused slot, three two, so a gap stays a gap on the wheel. When every light ends
   in one colour and the last step turns lights to it, that step is the flash (`Colors[0]`, `GearRpm[0]`).
