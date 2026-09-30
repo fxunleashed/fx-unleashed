@@ -34,7 +34,10 @@ namespace User.FXProRpmSync
         [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetFeature(SafeFileHandle h, byte[] b, int n);
 
         /// <summary>Device path of the wheel's HID interface, or null when it isn't plugged in.</summary>
-        public static string FindPath()
+        public static string FindPath() => FindPath(DeviceFilter);
+
+        /// <summary>Device path of the first HID interface whose path contains `filter` ("vid_xxxx&amp;pid_yyyy"), or null.</summary>
+        public static string FindPath(string filter)
         {
             HidD_GetHidGuid(out var g);
             IntPtr set = SetupDiGetClassDevs(ref g, IntPtr.Zero, IntPtr.Zero, 0x12);
@@ -51,7 +54,7 @@ namespace User.FXProRpmSync
                         Marshal.WriteInt32(b, IntPtr.Size == 8 ? 8 : 6);
                         if (!SetupDiGetDeviceInterfaceDetail(set, ref di, b, req, out req, IntPtr.Zero)) continue;
                         string p = Marshal.PtrToStringAuto(b + 4);
-                        if (p != null && p.IndexOf(DeviceFilter, StringComparison.OrdinalIgnoreCase) >= 0) return p;
+                        if (p != null && p.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0) return p;
                     }
                     finally { Marshal.FreeHGlobal(b); }
                 }

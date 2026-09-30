@@ -14,12 +14,18 @@ namespace User.FXProRpmSync
     /// <summary>
     /// Settings page, built in code (no XAML files): a header with live status, the mode (Standard = stock wheel through
     /// SimPro, Unlocked = flashed wheel over USB) as two cards, and the mode's tabs. Tabs are built when first opened and
-    /// only the open one is on screen, so only it animates.
+    /// only the open one is on screen, so only it animates. Everything follows the active wheel (FX Pro or GT Neo): a chip
+    /// in the header names it, and turns into a switch when both wheels are connected; a switch rebuilds the page.
     /// </summary>
     public class SettingsControl : UserControl
     {
         private readonly FXProRpmSyncPlugin plugin;
-        private readonly Border standardCard, unlockedCard;
+        private Border standardCard, unlockedCard;
+        private readonly Grid modes;
+        private readonly Border wheelChip;
+        private readonly TextBlock wheelChipText, wheelChipIcon;
+        /// <summary>The wheel the page is built for (rebuilt when plugin.ActiveModel changes).</summary>
+        private WheelModel shownModel;
         private readonly StackPanel tabStrip;
         private readonly ContentControl tabHost = new ContentControl();
         private readonly Dictionary<string, FrameworkElement> built = new Dictionary<string, FrameworkElement>();
@@ -51,6 +57,19 @@ namespace User.FXProRpmSync
             // ----- Header -----
             var header = new DockPanel { Margin = new Thickness(0, 0, 0, 22), LastChildFill = true };
             var pills = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            // the wheel in use; with both wheels connected, a click switches to the other one
+            var chipBody = new StackPanel { Orientation = Orientation.Horizontal };
+            wheelChipIcon = new TextBlock { Text = "\uE8AB", FontFamily = Theme.Icons, FontSize = 12, Foreground = Theme.Red, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            chipBody.Children.Add(wheelChipIcon);
+            wheelChipText = new TextBlock { FontFamily = Theme.Display, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = Theme.Text, VerticalAlignment = VerticalAlignment.Center };
+            chipBody.Children.Add(wheelChipText);
+            wheelChip = new Border
+            {
+                CornerRadius = new CornerRadius(14), Padding = new Thickness(12, 5, 14, 6), Margin = new Thickness(0, 0, 10, 0), BorderThickness = new Thickness(1),
+                BorderBrush = Theme.Line2, Background = Theme.Raised, VerticalAlignment = VerticalAlignment.Center, Child = chipBody,
+            };
+            wheelChip.MouseLeftButtonUp += (s, e) => SwitchToOther();
+            pills.Children.Add(wheelChip);
             pills.Children.Add(Theme.Pill(out wheelPill, out wheelDot));
             pills.Children.Add(Theme.Pill(out carPill, out carDot));
             DockPanel.SetDock(pills, Dock.Right);
@@ -72,19 +91,10 @@ namespace User.FXProRpmSync
             page.Children.Add(updateBanner = UpdateBanner(out updateText));
 
             // ----- Mode -----
-            var modes = new Grid { Margin = new Thickness(0, 0, 0, 22) };
+            modes = new Grid { Margin = new Thickness(0, 0, 0, 22) };
             modes.ColumnDefinitions.Add(new ColumnDefinition());
             modes.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
             modes.ColumnDefinitions.Add(new ColumnDefinition());
-            standardCard = ModeCard("", "STANDARD", "Stock wheel · over RF",
-                "Nothing to flash. The rev lights follow each car and the wheel switches to each car's dash, through SimPro.",
-                new[] { "Rev lights per car", "Dash per car", "SimHub data on wheel dashes" }, WheelMode.Standard);
-            unlockedCard = ModeCard("", "UNLEASHED", "Flashed wheel · over USB",
-                "The plugin drives the wheel itself: your own dashes per car, all 38 lights, screensavers and sleep.",
-                new[] { "Custom dashes", "Every light", "Screensavers", "Sleep" }, WheelMode.Unlocked);
-            Grid.SetColumn(unlockedCard, 2);
-            modes.Children.Add(standardCard);
-            modes.Children.Add(unlockedCard);
             page.Children.Add(modes);
 
             // ----- Tabs -----
@@ -104,6 +114,58 @@ namespace User.FXProRpmSync
             Loaded += (s, e) => { statusTimer.Start(); RefreshStatus(); };
             Unloaded += (s, e) => statusTimer.Stop();
 
+            BuildModeCards();
+            ShowMode();
+        }
+
+        /// <summary>The two mode cards, worded for the active wheel.</summary>
+        private void BuildModeCards()
+        {
+            shownModel = plugin.ActiveModel;
+            modes.Children.Clear();
+            if (shownModel == WheelModel.GtNeo)
+            {
+                standardCard = ModeCard(Glyph(0), "STANDARD", "Through SimPro",
+                    "The rev lights follow each car, through SimPro.",
+                    new[] { "Rev lights per car" }, WheelMode.Standard);
+                unlockedCard = ModeCard(Glyph(1), "USB", "Button 3 at power-up · over USB",
+                    "The plugin drives every light on the wheel itself: presets, each car's shift lights, alerts and sleep.",
+                    new[] { "Every light", "Shift lights per car", "Alerts", "Sleep" }, WheelMode.Unlocked);
+            }
+            else
+            {
+                standardCard = ModeCard(Glyph(0), "STANDARD", "Stock wheel · over RF",
+                    "Nothing to flash. The rev lights follow each car and the wheel switches to each car's dash, through SimPro.",
+                    new[] { "Rev lights per car", "Dash per car", "SimHub data on wheel dashes" }, WheelMode.Standard);
+                unlockedCard = ModeCard(Glyph(1), "UNLEASHED", "Flashed wheel · over USB",
+                    "The plugin drives the wheel itself: your own dashes per car, all 38 lights, screensavers and sleep.",
+                    new[] { "Custom dashes", "Every light", "Screensavers", "Sleep" }, WheelMode.Unlocked);
+            }
+            Grid.SetColumn(unlockedCard, 2);
+            modes.Children.Add(standardCard);
+            modes.Children.Add(unlockedCard);
+        }
+
+        /// <summary>The other connected wheel, or null when only one is connected.</summary>
+        private WheelModel OtherConnected()
+        {
+            var connected = plugin.ConnectedWheels.Select(w => w.Model).Distinct().ToList();
+            return connected.Count > 1 ? connected.FirstOrDefault(m => m != plugin.ActiveModel) : null;
+        }
+
+        private void SwitchToOther()
+        {
+            var other = OtherConnected();
+            if (other == null) return;
+            plugin.SwitchWheel(other);
+            RefreshStatus();
+        }
+
+        /// <summary>Rebuilds everything that depends on the wheel (mode cards, tabs) after a switch.</summary>
+        private void ShowWheel()
+        {
+            BuildModeCards();
+            built.Clear();
             ShowMode();
         }
 
@@ -111,6 +173,8 @@ namespace User.FXProRpmSync
         internal void OpenTab(string name) => Open(name);
 
         internal IEnumerable<string> TabNames => Tabs().Select(t => t.Name);
+
+        private static string Glyph(int card) => card == 0 ? "\uE701" : "\uE88E";
 
         private Border ModeCard(string glyph, string title, string tag, string text, string[] features, WheelMode mode)
         {
@@ -197,18 +261,19 @@ namespace User.FXProRpmSync
 
         private IEnumerable<(string Name, string Glyph, Func<FrameworkElement> Build)> Tabs()
         {
+            bool screen = plugin.ActiveModel.HasScreen;
             if (Mode == WheelMode.Standard)
             {
                 yield return ("Rev lights", "", () => new StandardLightsTab(plugin));
-                yield return ("Dashes", "", () => Wrap(new DashSection(plugin)));
+                if (screen) yield return ("Dashes", "", () => Wrap(new DashSection(plugin)));
                 yield return ("Car tuning", "", () => CarTuning());
-                yield return ("Dash data", "", () => Wrap(new FeedSection(plugin)));
+                if (screen) yield return ("Dash data", "", () => Wrap(new FeedSection(plugin)));
                 yield return ("About", "", () => new AboutTab(plugin));
             }
             else
             {
                 yield return ("Wheel", "", () => new UnlockedWheelTab(plugin, Open));
-                yield return ("Dashes", "", () => new UnlockedDashesTab(plugin));
+                if (screen) yield return ("Dashes", "", () => new UnlockedDashesTab(plugin));
                 yield return ("Lights", "", () => new UnlockedLightsTab(plugin));
                 yield return ("Idle & sleep", "", () => new UnlockedIdleTab(plugin));
                 yield return ("Car tuning", "", () => CarTuning());
@@ -236,7 +301,7 @@ namespace User.FXProRpmSync
             var tab = Tabs().FirstOrDefault(t => t.Name == name);
             if (tab.Build == null) return;
             lastTab[Mode] = name;
-            string key = Mode + "|" + name;
+            string key = Mode + "|" + plugin.ActiveModel.Id + "|" + name;
             if (!built.TryGetValue(key, out var content)) built[key] = content = tab.Build();
             tabHost.Content = content;
             foreach (Border t in tabStrip.Children)
@@ -307,6 +372,14 @@ namespace User.FXProRpmSync
 
         private void RefreshStatus()
         {
+            if (plugin.ActiveModel != shownModel) ShowWheel();
+            var other = OtherConnected();
+            wheelChipText.Text = shownModel.Name + (other != null ? "   ·   switch to " + other.Name : "");
+            wheelChip.Cursor = other != null ? Cursors.Hand : null;
+            wheelChipIcon.Visibility = other != null ? Visibility.Visible : Visibility.Collapsed; // the switch icon only when there's something to switch to
+            wheelChip.BorderBrush = other != null ? Theme.Red : Theme.Line2;
+            wheelChip.ToolTip = other != null ? $"Both wheels are connected. The pages are for the {shownModel.Name}; click to set up the {other.Name} instead."
+                                              : $"The pages are for the {shownModel.Name} (the wheel found).";
             RefreshUpdateBanner();
             feedProblem.Visibility = plugin.FeedProblem ? Visibility.Visible : Visibility.Collapsed;
             if (plugin.FeedProblem)
@@ -319,7 +392,7 @@ namespace User.FXProRpmSync
             {
                 var u = plugin.Usb;
                 string state = u?.State ?? "Off";
-                wheelPill.Text = "USB  ·  " + state + (u?.WheelVersion != null ? "  ·  app " + u.WheelVersion : "");
+                wheelPill.Text = "USB  ·  " + state + (u?.WheelVersion != null && shownModel == WheelModel.FxPro ? "  ·  app " + u.WheelVersion : "");
                 wheelDot.Fill = StateBrush(state);
             }
             else

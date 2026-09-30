@@ -14,7 +14,9 @@ using System.Windows.Shapes;
 namespace User.FXProRpmSync
 {
     /// <summary>
-    /// The FX Pro drawn from the front, with all 38 LEDs where they are on the wheel: the outline is traced from
+    /// A wheel drawn from the front with its LEDs (WheelModel). The GT Neo is our own schematic drawing: rev bar, 10 button
+    /// lights and four rings of 12 around the encoders, in the order its LEDs are numbered (positions to be checked on the
+    /// wheel). The FX Pro, with all 38 LEDs where they are on the wheel: the outline is traced from
     /// Simagic's front photo (assets/fxpro-outline.svg, 663x396), the LED positions measured on the same photo.
     /// Shows an LED frame (colour x brightness, with a glow), optionally a picture in the screen (the dash preview).
     /// LED numbers as the firmware counts them (mapped with a camera): buttons 0-5 left / 6-11 right (see LeftButtons),
@@ -26,7 +28,7 @@ namespace User.FXProRpmSync
         public const double W = 663, H = 396;
         private const double Mid = 331.5;
 
-        private enum Kind { Rev, Side, Button, Encoder }
+        private enum Kind { Rev, Side, Button, Encoder, Ring }
 
         // Where each LED is (mapped on the wheel with a camera, 2026-09-27): per side, the lower cluster (outer-high,
         // inner-high, middle, bottom) and the top pair (outer, inner). Left: 0-3 = lower cluster bottom-up, 4 = top outer
@@ -45,12 +47,15 @@ namespace User.FXProRpmSync
         private static readonly Dictionary<int, (Brush Core, Brush Halo, Brush Rim)> brushes = new Dictionary<int, (Brush, Brush, Brush)>();
 
         private readonly Canvas canvas = new Canvas { Width = W, Height = H };
-        private readonly Shape[] cores = new Shape[LightEngine.Count];
-        private readonly Ellipse[] halos = new Ellipse[LightEngine.Count];
-        private readonly Kind[] kinds = new Kind[LightEngine.Count];
-        private readonly int[] shown = new int[LightEngine.Count];
-        private readonly Ellipse[] marks = new Ellipse[LightEngine.Count];
+        private readonly Shape[] cores;
+        private readonly Ellipse[] halos;
+        private readonly Kind[] kinds;
+        private readonly int[] shown;
+        private readonly Ellipse[] marks;
         private readonly bool glow;
+
+        /// <summary>The wheel drawn.</summary>
+        public WheelModel Model { get; }
         private bool reverseRev;
 
         public Image Screen { get; } = new Image { Stretch = Stretch.Uniform };
@@ -61,14 +66,19 @@ namespace User.FXProRpmSync
         private static readonly Brush Unlit = Theme.B("#1B1E23"), UnlitRim = Theme.B("#2E323A"), KnobFill = Theme.B("#111316");
 
         /// <param name="glow">Halos and the neon outline (the big view); off for the small gallery ones.</param>
-        public WheelView(bool glow = true)
+        public WheelView(bool glow = true) : this(WheelModel.FxPro, glow) { }
+
+        public WheelView(WheelModel model, bool glow = true)
         {
+            Model = model ?? WheelModel.FxPro;
             this.glow = glow;
+            int n = Model.LedCount;
+            cores = new Shape[n]; halos = new Ellipse[n]; kinds = new Kind[n]; shown = new int[n]; marks = new Ellipse[n];
             Stretch = Stretch.Uniform;
             Child = canvas;
             for (int i = 0; i < shown.Length; i++) shown[i] = -1;
 
-            var geo = Outline();
+            var geo = Model == WheelModel.GtNeo ? NeoOutline() : Outline();
             if (geo != null)
             {
                 if (glow)
@@ -85,6 +95,8 @@ namespace User.FXProRpmSync
                     CacheMode = new BitmapCache(), IsHitTestVisible = false,
                 });
             }
+
+            if (Model == WheelModel.GtNeo) { BuildGtNeo(); return; }
 
             // Bezel and screen
             Add(new Rectangle { Width = 262, Height = 148, RadiusX = 12, RadiusY = 12, Fill = Theme.B("#050607"), Stroke = Theme.B("#30343C"), StrokeThickness = 1.5 }, 201.5, 28);
@@ -118,13 +130,65 @@ namespace User.FXProRpmSync
 
         private static double RevX(int i) => Mid - 101 + i * (202.0 / 14);
 
+        // ---------- GT Neo (our own drawing) ----------
+
+        /// <summary>Button lights 0-9: five down each side of the centre panel (left top to bottom, then right).</summary>
+        private static readonly (double X, double Y)[] NeoButtons =
+        {
+            (196, 118), (176, 162), (168, 208), (176, 254), (196, 298),
+            (2 * Mid - 196, 118), (2 * Mid - 176, 162), (2 * Mid - 168, 208), (2 * Mid - 176, 254), (2 * Mid - 196, 298),
+        };
+
+        /// <summary>The four encoders whose rings are LEDs 10-21, 22-33, 34-45, 46-57.</summary>
+        private static readonly (double X, double Y)[] NeoRings = { (266, 176), (266, 266), (2 * Mid - 266, 176), (2 * Mid - 266, 266) };
+
+        private const double NeoRingR = 25;
+
+        private void BuildGtNeo()
+        {
+            // centre panel
+            Add(new Rectangle { Width = 250, Height = 250, RadiusX = 26, RadiusY = 26, Fill = Theme.B("#0B0C0F"), Stroke = Theme.B("#2A2E35"), StrokeThickness = 1.5 }, Mid - 125, 92);
+            // rev bar
+            Add(new Rectangle { Width = 300, Height = 26, RadiusX = 13, RadiusY = 13, Fill = Theme.B("#050607"), Stroke = Theme.B("#30343C"), StrokeThickness = 1.5 }, Mid - 150, 44);
+            for (int i = 0; i < 15; i++) Led(58 + i, Kind.Rev, Mid - 133 + i * 19, 57, 5, $"Rev light {i + 1}");
+            // encoders: a knob with its ring of 12 LEDs, the first at the top, clockwise
+            string[] where = { "left, upper", "left, lower", "right, upper", "right, lower" };
+            for (int k = 0; k < 4; k++)
+            {
+                var (cx, cy) = NeoRings[k];
+                Add(new Ellipse { Width = 34, Height = 34, Fill = KnobFill, Stroke = UnlitRim, StrokeThickness = 2 }, cx - 17, cy - 17);
+                for (int j = 0; j < 12; j++)
+                {
+                    double a = -Math.PI / 2 + j * Math.PI / 6;
+                    Led(10 + 12 * k + j, Kind.Ring, cx + NeoRingR * Math.Cos(a), cy + NeoRingR * Math.Sin(a), 3.4, $"Encoder ring {k + 1} ({where[k]}), light {j + 1}");
+                }
+            }
+            for (int i = 0; i < 10; i++) Led(i, Kind.Button, NeoButtons[i].X, NeoButtons[i].Y, 12, $"{(i < 5 ? "Left" : "Right")} button {i % 5 + 1}");
+        }
+
+        private static Geometry neoOutline;
+
+        /// <summary>A round GT wheel with a flat bottom and open grips (drawn for this plugin).</summary>
+        private static Geometry NeoOutline()
+        {
+            if (neoOutline != null) return neoOutline;
+            var g = Geometry.Parse("M 331.5,12 C 470,12 590,70 628,170 C 650,232 640,300 606,344 C 590,366 560,380 526,380 L 470,380 " +
+                                   "C 450,380 440,366 440,350 L 440,336 C 440,318 426,306 406,306 L 257,306 C 237,306 223,318 223,336 L 223,350 " +
+                                   "C 223,366 213,380 193,380 L 137,380 C 103,380 73,366 57,344 C 23,300 13,232 35,170 C 73,70 193,12 331.5,12 Z " +
+                                   "M 331.5,40 C 216,40 116,90 84,176 C 66,228 74,282 100,318 C 110,332 126,340 146,340 L 170,340 " +
+                                   "C 184,340 190,332 190,320 L 190,110 C 230,84 280,72 331.5,72 C 383,72 433,84 473,110 L 473,320 " +
+                                   "C 473,332 479,340 493,340 L 517,340 C 537,340 553,332 563,318 C 589,282 597,228 579,176 C 547,90 447,40 331.5,40 Z");
+            g.Freeze();
+            return neoOutline = g;
+        }
+
         /// <summary>Rev LED 23 on the right (the plugin's "fill from the right").</summary>
         public bool ReverseRev
         {
             get => reverseRev;
             set
             {
-                if (reverseRev == value) return;
+                if (reverseRev == value || Model != WheelModel.FxPro) return;
                 reverseRev = value;
                 for (int i = 0; i < 15; i++)
                 {
@@ -150,7 +214,7 @@ namespace User.FXProRpmSync
             kinds[index] = kind;
             if (glow)
             {
-                double hr = kind == Kind.Rev || kind == Kind.Side ? r * 3.2 : r * 2.1;
+                double hr = kind == Kind.Rev || kind == Kind.Side ? r * 3.2 : kind == Kind.Ring ? r * 2.6 : r * 2.1;
                 var halo = new Ellipse { Width = hr * 2, Height = hr * 2, IsHitTestVisible = false, Visibility = Visibility.Hidden };
                 Add(halo, cx - hr, cy - hr);
                 halos[index] = halo;
@@ -160,7 +224,7 @@ namespace User.FXProRpmSync
             else core = new Ellipse { Width = r * 2, Height = r * 2 };
             core.Fill = kind == Kind.Encoder ? KnobFill : Unlit;
             core.Stroke = UnlitRim;
-            core.StrokeThickness = kind == Kind.Encoder ? 3.5 : kind == Kind.Button ? 2 : 1;
+            core.StrokeThickness = kind == Kind.Encoder ? 3.5 : kind == Kind.Button ? 2 : kind == Kind.Ring ? 0.6 : 1;
             core.ToolTip = name + $"  (LED {index})";
             core.Cursor = Cursors.Hand;
             core.MouseLeftButtonUp += (s, e) => LedClicked?.Invoke(index);
@@ -250,20 +314,10 @@ namespace User.FXProRpmSync
             catch { return null; }
         }
 
-        /// <summary>The LEDs of a group, in the engine's order.</summary>
-        public static IEnumerable<int> LedsOf(LedGroup g)
-        {
-            switch (g)
-            {
-                case LedGroup.Buttons: return Enumerable.Range(0, 12);
-                case LedGroup.Encoders: return Enumerable.Range(12, 5);
-                case LedGroup.SideLeft: return Enumerable.Range(17, 3);
-                case LedGroup.SideRight: return Enumerable.Range(20, 3);
-                default: return Enumerable.Range(23, 15);
-            }
-        }
+        /// <summary>The LEDs of a group on this wheel, in the engine's order.</summary>
+        public IEnumerable<int> LedsOf(LedGroup g) => Model.Leds(g);
 
-        public static LedGroup GroupOf(int led) =>
-            led < 12 ? LedGroup.Buttons : led < 17 ? LedGroup.Encoders : led < 20 ? LedGroup.SideLeft : led < 23 ? LedGroup.SideRight : LedGroup.Rev;
+        /// <summary>The group an LED belongs to.</summary>
+        public LedGroup GroupOf(int led) => Model.GroupOf(led) ?? LedGroup.Rev;
     }
 }

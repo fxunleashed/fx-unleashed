@@ -90,6 +90,7 @@ static class UsbTestMain
     {
         string dir = args[0];
         Directory.CreateDirectory(dir);
+        if (args.Length > 1 && args[1] == "golden") { File.WriteAllText(Path.Combine(dir, "golden.txt"), Golden.Dump(() => new LightEngine(WheelModel.FxPro))); return 0; }
         if (args.Length > 1 && args[1] == "atsr")
         {
             var bg = Enumerable.Repeat("#FFFF0000", 40).ToList();                 // opaque red

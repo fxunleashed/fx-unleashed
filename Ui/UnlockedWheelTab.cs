@@ -10,7 +10,8 @@ namespace User.FXProRpmSync
 {
     /// <summary>
     /// Unlocked mode, the overview: the wheel drawn with what it shows (live while the plugin drives it, else a preview
-    /// of your dash and lights), its state, the first-time setup, and shortcuts to the other tabs.
+    /// of your dash and lights), its state, the first-time setup, and shortcuts to the other tabs. For the active wheel:
+    /// the GT Neo has no screen and needs no firmware, so its page is lights only, with its own setup steps.
     /// </summary>
     public class UnlockedWheelTab : StackPanel
     {
@@ -18,9 +19,11 @@ namespace User.FXProRpmSync
         private UsbSettings S => plugin.Settings.Usb;
         private UsbController Usb => plugin.Usb;
 
-        private readonly WheelView wheel = new WheelView { Width = 640 };
+        private readonly WheelModel model;
+        private readonly WheelView wheel;
         private readonly LiveDashPreview dashPreview;
-        private readonly LightEngine engine = new LightEngine();
+        private readonly LightEngine engine;
+        private readonly Border neoSetup;
         private readonly TextBlock state, detail, firmware, screenInfo, lightsInfo;
         private readonly System.Windows.Shapes.Ellipse stateDot;
         private readonly Button demoButton, sleepButton;
@@ -35,7 +38,24 @@ namespace User.FXProRpmSync
         public UnlockedWheelTab(FXProRpmSyncPlugin plugin, Action<string> openTab)
         {
             this.plugin = plugin;
+            model = plugin.ActiveModel;
+            bool neo = model == WheelModel.GtNeo;
+            wheel = new WheelView(model) { Width = 640 };
+            engine = new LightEngine(model);
             dashPreview = new LiveDashPreview(wheel.Screen, () => plugin.Usb);
+
+            // ----- GT Neo: how to bring it up on USB -----
+            var neoSteps = new StackPanel();
+            neoSteps.Children.Add(Theme.Eyebrow("Set up", Theme.Red));
+            neoSteps.Children.Add(Theme.Title("Connect your GT Neo", 20));
+            neoSteps.Children.Add(Theme.Note("The GT Neo talks to the PC through the quick release when it starts with button 3 held.", new Thickness(0, 6, 0, 12)));
+            neoSteps.Children.Add(Step("1", "Switch the base off, with the GT Neo on it."));
+            neoSteps.Children.Add(Step("2", "Hold button 3 on the wheel and switch the base on. Keep holding it for about 2 seconds."));
+            neoSteps.Children.Add(Step("3", "The wheel shows up here. It stays connected like this until the base is switched off."));
+            neoSetup = Theme.CardBox(neoSteps);
+            neoSetup.BorderBrush = Theme.Red;
+            neoSetup.Visibility = Visibility.Collapsed;
+            Children.Add(neoSetup);
 
             // ----- First-time setup -----
             var steps = new StackPanel();
@@ -52,7 +72,7 @@ namespace User.FXProRpmSync
             steps.Children.Add(Theme.Switch("My wheel runs the patched firmware", S.FirmwareConfirmed, v => { S.FirmwareConfirmed = v; Changed(); Refresh(); }));
             setup = Theme.CardBox(steps);
             setup.BorderBrush = Theme.Red;
-            Children.Add(setup);
+            if (!neo) Children.Add(setup);
 
             // ----- Hero: the wheel + status -----
             var hero = new Grid();
@@ -86,7 +106,8 @@ namespace User.FXProRpmSync
             actions.Children.Add(sleepButton);
             status.Children.Add(actions);
             status.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 10, 0, 14) });
-            status.Children.Add(Shortcut("", "Dashes", out dashTile, () => openTab("Dashes")));
+            var dashShortcut = Shortcut("", "Dashes", out dashTile, () => openTab("Dashes"));
+            if (!neo) status.Children.Add(dashShortcut);
             status.Children.Add(Shortcut("", "Lights", out lightsTile, () => openTab("Lights")));
             status.Children.Add(Shortcut("", "Idle & sleep", out idleTile, () => openTab("Idle & sleep")));
             var statusCard = Theme.CardBox(status, 20, new Thickness(0));
@@ -94,12 +115,13 @@ namespace User.FXProRpmSync
             hero.Children.Add(statusCard);
             Children.Add(new Border { Margin = new Thickness(0, 0, 0, 14), Child = hero });
             Children.Add(new QuickControlsCard(plugin));
-            Children.Add(WiringCard.Build());
+            if (!neo) Children.Add(WiringCard.Build());
+            if (neo) ((FrameworkElement)screenInfo.Parent).Visibility = Visibility.Collapsed; // no screen
 
             frameTimer.Tick += (s, e) => RenderLights();
             dashTimer.Tick += (s, e) => RenderScreen();
             slowTimer.Tick += (s, e) => Refresh();
-            Loaded += (s, e) => { frameTimer.Start(); dashTimer.Start(); slowTimer.Start(); Refresh(); };
+            Loaded += (s, e) => { frameTimer.Start(); if (model.HasScreen) dashTimer.Start(); slowTimer.Start(); Refresh(); };
             Unloaded += (s, e) => { frameTimer.Stop(); dashTimer.Stop(); slowTimer.Stop(); dashPreview.Dispose(); };
             Refresh();
         }
@@ -160,6 +182,7 @@ namespace User.FXProRpmSync
 
         private void Refresh()
         {
+            if (model == WheelModel.GtNeo) { RefreshNeo(); return; }
             var u = Usb;
             bool patched = u?.FirmwarePatched ?? S.FirmwareConfirmed;
             setup.Visibility = patched ? Visibility.Collapsed : Visibility.Visible;
@@ -179,8 +202,7 @@ namespace User.FXProRpmSync
                 : u?.SaverActive == true ? "Screensaver: " + IdleScreens.Find(S, u.SaverShown ?? S.SaverId).Name
                 : (plugin.DashCarKey != null ? "This car: " : "Races show ") + dashName;
             lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom != LightsSource.BuiltIn ? "Lights from " + (S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : "SimHub's device") + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + plugin.ActiveLightsFor(plugin.DashCarKey).Name;
-            demoButton.Content = Label(u?.DemoOn == true ? "Stop the demo" : "Run the demo", u?.DemoOn == true ? "" : "");
-            sleepButton.Content = Label(u?.Sleeping == true ? "Wake" : "Sleep now", u?.Sleeping == true ? "" : "");
+            ActionLabels(u);
             demoButton.IsEnabled = sleepButton.IsEnabled = patched;
 
             var rot = plugin.UsbRotation(plugin.DashCarKey, out _, out int cur);
@@ -189,6 +211,35 @@ namespace User.FXProRpmSync
             lightsTile.Text = !S.LightsEnabled ? "SimPro's lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : S.LightsFrom == LightsSource.SimHubDevice ? "SimHub device" : plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             idleTile.Text = (S.ScreenSaver ? IdleScreens.Find(S, S.SaverId).Name : "No screensaver") + "  ·  " +
                             (S.SleepEnabled ? $"sleep after {S.SleepMinutes} min" : "no sleep");
+        }
+
+        /// <summary>The GT Neo's state: lights only, no firmware, found or how to connect it.</summary>
+        private void RefreshNeo()
+        {
+            var u = Usb;
+            bool found = u?.WheelFound == true && u.Model == model;
+            neoSetup.Visibility = found ? Visibility.Collapsed : Visibility.Visible;
+            string st = u?.State ?? "Off";
+            state.Text = st;
+            stateDot.Fill = SettingsControl.StateBrush(st);
+            detail.Text = u?.Detail ?? "";
+            firmware.Text = found ? "GT Neo on USB" + (u.WheelVersion != null ? $" ({u.WheelVersion})" : "") : "GT Neo not found on USB";
+            bool simHubOn = S.LightsFrom != LightsSource.SimHubDevice && SimHubGtNeoDevice.Enabled(plugin.PluginManager) == true;
+            lightsInfo.Text = !S.LightsEnabled ? "Lights: the wheel's own"
+                            : S.LightsFrom == LightsSource.SimHubDevice ? "Lights from SimHub's own GT Neo device"
+                            : (S.LightsFrom == LightsSource.AtsrHub ? "Lights from ATSR-Hub" : "Lights: " + plugin.ActiveLightsFor(plugin.DashCarKey).Name) +
+                              (u?.Active == true ? " (" + u.LightsState + ")" : "") +
+                              (simHubOn ? ". SimHub's own GT Neo device is on too: see the Lights tab." : "");
+            ActionLabels(u);
+            demoButton.IsEnabled = sleepButton.IsEnabled = found;
+            lightsTile.Text = !S.LightsEnabled ? "The wheel's own lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : S.LightsFrom == LightsSource.SimHubDevice ? "SimHub's GT Neo device" : plugin.ActiveLightsFor(plugin.DashCarKey).Name;
+            idleTile.Text = S.SleepEnabled ? $"Sleep after {S.SleepMinutes} min" : "No sleep";
+        }
+
+        private void ActionLabels(UsbController u)
+        {
+            demoButton.Content = Label(u?.DemoOn == true ? "Stop the demo" : "Run the demo", u?.DemoOn == true ? "" : "");
+            sleepButton.Content = Label(u?.Sleeping == true ? "Wake" : "Sleep now", u?.Sleeping == true ? "" : "");
         }
 
         private static object Label(string text, string glyph)

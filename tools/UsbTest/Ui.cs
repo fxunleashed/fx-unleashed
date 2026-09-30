@@ -59,6 +59,9 @@ static class UiTest
         var plugin = new FXProRpmSyncPlugin { Settings = new FXProRpmSyncSettings() };
         plugin.Settings.Mode = mode;
         plugin.Settings.Usb.Enabled = mode == WheelMode.Unlocked;
+        // UI_WHEEL=gtneo: the pages for the GT Neo
+        var wheel = Environment.GetEnvironmentVariable("UI_WHEEL");
+        if (!string.IsNullOrEmpty(wheel)) plugin.Settings.Usb.SwapWheel(WheelModel.Find(wheel));
         if (Environment.GetEnvironmentVariable("UI_CUSTOM") == "1")
         {
             var u = plugin.Settings.Usb;

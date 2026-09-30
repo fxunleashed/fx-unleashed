@@ -71,13 +71,17 @@ namespace User.FXProRpmSync
             };
             add.Children.Add(dashBox);
             saver.Children.Add(add);
-            Children.Add(Theme.CardBox(saver));
+            var saverCard = Theme.CardBox(saver);
+            Children.Add(saverCard);
 
             var online = new StackPanel();
             online.Children.Add(Theme.Eyebrow("Library"));
             online.Children.Add(Theme.Note("Screensavers made by the community: install one and pick it above."));
             online.Children.Add(new Expander { Header = "Browse the library", Content = new LibraryPanel(plugin, "saver", BuildGallery), Margin = new Thickness(0, 8, 0, 0) });
-            Children.Add(Theme.CardBox(online));
+            var onlineCard = Theme.CardBox(online);
+            Children.Add(onlineCard);
+            bool hasScreen = plugin.ActiveModel.HasScreen;
+            if (!hasScreen) saverCard.Visibility = onlineCard.Visibility = Visibility.Collapsed; // screensavers need a screen
 
             // ----- Sleep -----
             var sleep = new StackPanel();
@@ -91,7 +95,7 @@ namespace User.FXProRpmSync
             sleepText.Children.Add(Theme.Title("Lights out", 20));
             sleepHead.Children.Add(sleepText);
             sleep.Children.Add(sleepHead);
-            sleep.Children.Add(Theme.Note("After a while without a game, every light goes dark and the screen's backlight turns off. " +
+            sleep.Children.Add(Theme.Note("After a while without a game, every light goes dark" + (hasScreen ? " and the screen's backlight turns off" : "") + ". " +
                                           "Starting a game (or the demo, or changing a setting here) wakes the wheel."));
             sleep.Children.Add(Theme.Field("Sleep after", Theme.SliderField(1, 60, S.SleepMinutes, 1, v => $"{v:0} min", v => { S.SleepMinutes = (int)v; Changed(); }), 130));
             var row = new DockPanel();

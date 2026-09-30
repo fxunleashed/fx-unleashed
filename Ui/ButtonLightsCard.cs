@@ -9,15 +9,18 @@ namespace User.FXProRpmSync
 {
     /// <summary>
     /// Lights tab: a button's LED lights up while it's held. Which LED sits under which button isn't known in advance
-    /// (buttons are numbered by the wheel's controller, LEDs by the firmware), so "Map the buttons" walks the 12 button
-    /// LEDs one by one: the LED is shown here (and lit on the wheel while the plugin drives it), the user presses the
+    /// (buttons are numbered by the wheel's controller, LEDs by the firmware), so "Map the buttons" walks the wheel's button
+    /// LEDs one by one (FX Pro 12, GT Neo 10): the LED is shown here (and lit on the wheel while the plugin drives it), the user presses the
     /// button at it. The small wheel then shows held buttons live, so the map can be checked without a game.
     /// </summary>
     public class ButtonLightsCard : StackPanel
     {
         private readonly FXProRpmSyncPlugin plugin;
         private UsbSettings S => plugin.Settings.Usb;
-        private readonly WheelView view = new WheelView(glow: false) { Width = 300 };
+        private readonly WheelModel model;
+        private readonly WheelView view;
+        /// <summary>The wheel's button lights, in mapping order.</summary>
+        private readonly int[] leds;
         private readonly TextBlock status, prompt;
         private readonly Button map, skip, clear;
         private readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
@@ -28,6 +31,9 @@ namespace User.FXProRpmSync
         {
             this.plugin = plugin;
             this.changed = changed;
+            model = plugin.ActiveModel;
+            view = new WheelView(model, glow: false) { Width = 300 };
+            leds = model.Leds(LedGroup.Buttons);
             if (S.ButtonLeds == null) S.ButtonLeds = new Dictionary<int, int>();
 
             var grid = new Grid();
@@ -67,14 +73,14 @@ namespace User.FXProRpmSync
 
         private void Show()
         {
-            int n = S.ButtonLeds.Values.Distinct().Count(led => led >= 0 && led < 12);
+            int n = S.ButtonLeds.Values.Distinct().Count(led => leds.Contains(led));
             bool found = plugin.Buttons?.Found == true;
             status.Text = mapping >= 0 ? "Press the wheel button at the lit light. Skip lights without a button."
                         : (n == 0 ? "Not mapped yet: map the buttons once, then pressing one lights it."
-                                  : $"{n} of 12 button lights mapped. Press a button to check: it lights here.")
+                                  : $"{n} of {leds.Length} button lights mapped. Press a button to check: it lights here.")
                           + (found ? "" : " The wheel isn't being read on USB now (USB mode on and the wheel plugged in).");
             prompt.Visibility = mapping >= 0 ? Visibility.Visible : Visibility.Collapsed;
-            prompt.Text = mapping >= 0 ? $"Light {mapping + 1} of 12: press its button" : "";
+            prompt.Text = mapping >= 0 ? $"Light {mapping + 1} of {leds.Length}: press its button" : "";
             map.Content = mapping >= 0 ? "Stop" : S.ButtonLeds.Count > 0 ? "Map again" : "Map the buttons";
             map.IsEnabled = found || mapping >= 0;
             skip.Visibility = mapping >= 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -89,15 +95,15 @@ namespace User.FXProRpmSync
             Next();
         }
 
-        /// <summary>On to the next LED (or done after the 12th).</summary>
+        /// <summary>On to the next LED (or done after the last).</summary>
         private void Next()
         {
             mapping++;
-            if (mapping >= 12) { Stop(); return; }
+            if (mapping >= leds.Length) { Stop(); return; }
             // light it on the wheel too, while the plugin drives the LEDs
-            var frame = new LedColor[LightEngine.Count];
+            var frame = new LedColor[model.LedCount];
             for (int i = 0; i < frame.Length; i++) frame[i] = new LedColor(0, 0, 0, 1);
-            frame[mapping] = new LedColor(255, 255, 255, 90);
+            frame[leds[mapping]] = new LedColor(255, 255, 255, 90);
             plugin.Usb?.TestLeds(frame, 30);
             plugin.Buttons?.Learn(b => Dispatcher.BeginInvoke(new Action(() => Learned(b))));
             Show();
@@ -107,8 +113,9 @@ namespace User.FXProRpmSync
         {
             if (mapping < 0) return;
             // one button per LED, one LED per button
-            foreach (var k in S.ButtonLeds.Where(kv => kv.Value == mapping || kv.Key == button).Select(kv => kv.Key).ToList()) S.ButtonLeds.Remove(k);
-            S.ButtonLeds[button] = mapping;
+            int led = leds[mapping];
+            foreach (var k in S.ButtonLeds.Where(kv => kv.Value == led || kv.Key == button).Select(kv => kv.Key).ToList()) S.ButtonLeds.Remove(k);
+            S.ButtonLeds[button] = led;
             changed();
             Next();
         }
@@ -117,24 +124,24 @@ namespace User.FXProRpmSync
         {
             mapping = -1;
             plugin.Buttons?.CancelLearn();
-            plugin.Usb?.TestLeds(new LedColor[LightEngine.Count], 0.05); // ends the test frame
+            plugin.Usb?.TestLeds(new LedColor[model.LedCount], 0.05); // ends the test frame
             Show();
         }
 
         private void Render()
         {
-            var frame = new LedColor[LightEngine.Count];
+            var frame = new LedColor[model.LedCount];
             var (r, g, b) = LightEngine.Rgb(S.PressColor);
             if (mapping >= 0)
             {
                 bool on = DateTime.Now.Millisecond < 700;
-                frame[mapping] = on ? new LedColor(255, 255, 255, 90) : new LedColor(0, 0, 0, 1);
+                frame[leds[mapping]] = on ? new LedColor(255, 255, 255, 90) : new LedColor(0, 0, 0, 1);
             }
             else
             {
                 ulong down = plugin.Buttons?.Down ?? 0;
                 foreach (var kv in S.ButtonLeds)
-                    if (kv.Value >= 0 && kv.Value < 12)
+                    if (leds.Contains(kv.Value))
                         frame[kv.Value] = kv.Key >= 1 && kv.Key <= 64 && (down >> (kv.Key - 1) & 1) != 0
                             ? new LedColor(r, g, b, 90) : new LedColor(40, 40, 40, 30); // mapped: faintly lit
             }

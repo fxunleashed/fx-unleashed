@@ -176,8 +176,10 @@ namespace User.FXProRpmSync
 
         // USB mode (patched wheel firmware): custom dash + all LEDs over the wheel's own USB.
         internal UsbController Usb { get; private set; }
-        /// <summary>The FX Pro's buttons read directly (bindings for next/previous dash, sleep).</summary>
+        /// <summary>The active wheel's buttons read directly (bindings for next/previous dash, sleep).</summary>
         internal WheelButtons Buttons { get; private set; }
+        /// <summary>Which wheels are connected (their own USB, or SimPro listing them on the base), every 2 s.</summary>
+        internal WheelDetector Detector { get; private set; }
         private long lastUsbPublishTicks, lastAtsrTicks, lastFormulaTicks, lastWheelTeleTicks;
         private readonly SimProTelemetry wheelTele = new SimProTelemetry();
         private long wheelTeleTicks;
@@ -321,12 +323,12 @@ namespace User.FXProRpmSync
             Usb = new UsbController(this);
             // the FX Pro as a SimHub LED device (Usb/SimHubLedDevice.cs): its frames come in here
             SimHubLedDevice.Sink = f => { if (Settings.Usb.LightsFrom == User.FXProRpmSync.LightsSource.SimHubDevice) Usb?.PublishDevice(f); };
-            SimHubLedDevice.IsConnected = () => Settings.Usb.Enabled && Usb?.WheelFound == true;
+            SimHubLedDevice.IsConnected = () => Settings.Usb.Enabled && Usb?.Model == WheelModel.FxPro && Usb?.WheelFound == true;
             if (Settings.Usb.WheelButtons == null) Settings.Usb.WheelButtons = new Dictionary<string, int>();
-            // The dash button (build 5) steps through the dashes unless the user bound it or "next" elsewhere
-            if (!Settings.Usb.WheelButtons.ContainsKey("next") && !Settings.Usb.WheelButtons.ContainsValue(WheelButtons.DashButton))
-                Settings.Usb.WheelButtons["next"] = WheelButtons.DashButton;
+            DefaultDashButton();
             Buttons = new WheelButtons(this);
+            Detector = new WheelDetector();
+            Detector.Changed += OnWheelsDetected;
             if (Settings.Usb.DesignerServer) StartDesigner();
 
             cts = new CancellationTokenSource();
@@ -407,7 +409,8 @@ namespace User.FXProRpmSync
                 lastAtsrTicks = DateTime.UtcNow.Ticks;
                 try
                 {
-                    if (atsrMap == null || atsrMapText != usb.AtsrMap) { atsrMapText = usb.AtsrMap; atsrMap = AtsrBridge.ParseMap(usb.AtsrMap, out _); }
+                    string mapKey = usb.ActiveWheel + "|" + usb.AtsrMap;
+                    if (atsrMap == null || atsrMapText != mapKey) { atsrMapText = mapKey; atsrMap = AtsrBridge.ParseMap(usb.AtsrMap, ActiveModel.LedCount, out _); }
                     // No device picked yet: take ATSR-Hub's only published device (checked every 3 s).
                     if (string.IsNullOrEmpty(usb.AtsrDevice) && DateTime.UtcNow >= nextAtsrPickUtc)
                     {
@@ -505,6 +508,50 @@ namespace User.FXProRpmSync
         // ---------- Mode ----------
 
         public bool Unlocked => Settings.Mode == WheelMode.Unlocked;
+
+        // ---------- Which wheel ----------
+
+        /// <summary>The wheel the settings pages and USB mode are for (docs/gt-neo-plan.md).</summary>
+        public WheelModel ActiveModel => Settings.Usb.Model;
+
+        /// <summary>The wheels connected now (empty until the first check, or outside SimHub).</summary>
+        public IReadOnlyList<DetectedWheel> ConnectedWheels => Detector?.Wheels ?? (IReadOnlyList<DetectedWheel>)new DetectedWheel[0];
+
+        /// <summary>Detection changed: follow the wheel that's there (WheelDetector.Choose).</summary>
+        private void OnWheelsDetected()
+        {
+            var pick = WheelDetector.Choose(Detector.Wheels, ActiveModel);
+            if (pick != ActiveModel)
+            {
+                SimHub.Logging.Current.Info("[FXProRpmSync] wheel detected: " + string.Join(", ", Detector.Wheels.Select(w => w.Describe())));
+                SwitchWheel(pick);
+            }
+        }
+
+        /// <summary>
+        /// Makes `m` the active wheel: its own lights, bindings and button map come in (UsbSettings.SwapWheel), USB mode
+        /// lets go of the old wheel and looks for this one, and the settings page rebuilds for it (it polls ActiveModel).
+        /// </summary>
+        public void SwitchWheel(WheelModel m)
+        {
+            lock (sync) // the per-car/game light maps are swapped too (QuickControls reads them under this lock)
+            {
+                if (m == null || m == ActiveModel) return;
+                Settings.Usb.SwapWheel(m);
+                DefaultDashButton();
+                SaveSettings();
+            }
+            Usb?.SettingsChanged();
+            SimHub.Logging.Current.Info("[FXProRpmSync] wheel: " + m.Name);
+        }
+
+        /// <summary>The FX Pro's dash button (build 5) steps through the dashes unless the user bound it or "next" elsewhere.</summary>
+        private void DefaultDashButton()
+        {
+            var b = Settings.Usb.WheelButtons;
+            if (ActiveModel != WheelModel.FxPro || b == null) return;
+            if (!b.ContainsKey("next") && !b.ContainsValue(WheelButtons.DashButton)) b["next"] = WheelButtons.DashButton;
+        }
 
         /// <summary>
         /// Switches between the stock wheel (SimPro drives lights and dashes) and the flashed wheel (USB). Going unlocked
@@ -886,6 +933,7 @@ namespace User.FXProRpmSync
             try { worker?.Wait(2000); } catch { }
             try { Designer?.Dispose(); } catch { }
             try { Buttons?.Dispose(); } catch { }
+            try { Detector?.Dispose(); } catch { }
             SimHubLedDevice.Sink = null; SimHubLedDevice.IsConnected = null;
             try { Usb?.Dispose(); } catch { } // gives the screen and LEDs back to the wheel
 

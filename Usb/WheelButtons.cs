@@ -5,7 +5,8 @@ using Microsoft.Win32.SafeHandles;
 namespace User.FXProRpmSync
 {
     /// <summary>
-    /// The FX Pro's own buttons, read straight from its USB input report (report 01: two axes, then 40 button bits),
+    /// The active wheel's own buttons, read straight from its USB input report (report 01: two bytes, then 40 button
+    /// bits in bytes 3-7, on the FX Pro and the GT Neo alike),
     /// on a thread of their own. Bound buttons run the plugin's actions (next / previous dash, sleep) without going
     /// through SimHub's Controls and events, which can lose this controller (seen 2026-09-27: its joystick manager
     /// reported "device lost" and didn't find it again until a restart). Windows' joystick API only shows the first 32
@@ -47,8 +48,10 @@ namespace User.FXProRpmSync
         /// <summary>Buttons held now (bit n = button n+1).</summary>
         public ulong Down => last;
 
-        /// <summary>A button's name on the settings page.</summary>
-        public static string Name(int button) => button == DashButton ? "Dash button" : "Wheel button " + button;
+        /// <summary>A button's name on the settings page (the dash button is the FX Pro's).</summary>
+        public static string Name(int button) => Name(button, WheelModel.FxPro);
+
+        public static string Name(int button, WheelModel m) => button == DashButton && m == WheelModel.FxPro ? "Dash button" : "Wheel button " + button;
 
         /// <summary>Calls `pressed` (on the reader's thread) with the next button pressed, instead of running its action.</summary>
         public void Learn(Action<int> pressed) => learner = pressed;
@@ -62,14 +65,15 @@ namespace User.FXProRpmSync
             {
                 try
                 {
-                    string path = plugin.Unlocked ? FxUsb.FindPath() : null;
+                    var model = plugin.ActiveModel;
+                    string path = plugin.Unlocked ? FxUsb.FindPath(model.UsbFilter) : null;
                     if (path == null) { Thread.Sleep(2000); continue; }
                     using (var h = FxUsb.CreateFile(path, 0x80000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero)) // GENERIC_READ, shared
                     {
                         if (h.IsInvalid) { Thread.Sleep(2000); continue; }
                         handle = h;
                         last = 0;
-                        while (!stop && plugin.Unlocked)
+                        while (!stop && plugin.Unlocked && plugin.ActiveModel == model)
                         {
                             if (!FxUsb.ReadFile(h, buf, buf.Length, out int n, IntPtr.Zero)) break; // unplugged, or closed by Dispose
                             if (n >= 8 && buf[0] == 1) Report(buf);

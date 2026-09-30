@@ -1,6 +1,13 @@
 # GT Neo support: plan
 
-Written 2026-09-29. The plugin stays built around the FX Pro, and supports the Simagic **GT Neo** as a second wheel:
+Written 2026-09-29. **Status (2026-09-29): phases 1-4 built** (not yet tried on the wheel): wheel models, detection and
+the switch, model-driven lights (FX Pro frames checked byte-identical against the code before), the GT Neo USB link,
+its pages and presets, the SimHub-device switch. Phase 0 was done offline from SimHub's own GT Neo driver (LED order
+and protocol), so no mapping session was needed; where the button lights and rings sit on the wheel is still to be
+checked against the drawing. Per-wheel settings are traded in place (`UsbSettings.SwapWheel`) instead of moved into
+buckets, so no settings migration was needed. Reference: docs/usb-mode.md "GT Neo".
+
+The plugin stays built around the FX Pro, and supports the Simagic **GT Neo** as a second wheel:
 in standard mode (SimPro, already works for rev lights) and in Unleashed mode (every light, over the GT Neo's own
 USB). The plugin detects which wheel is connected and shapes its pages to that wheel. With both connected, a switch
 button picks which one the pages are for.

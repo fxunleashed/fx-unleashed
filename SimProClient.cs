@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -49,18 +50,19 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>First connected device of type "wheel" (e.g. FX PRO), or null.</summary>
-        public async Task<Wheel> FindWheel()
+        public async Task<Wheel> FindWheel() => (await FindWheels().ConfigureAwait(false)).FirstOrDefault();
+
+        /// <summary>Every connected device of type "wheel", in SimPro's order.</summary>
+        public async Task<List<Wheel>> FindWheels()
         {
             var list = await Call("get_device_list", new { }).ConfigureAwait(false) as JArray;
-            var w = list?.FirstOrDefault(d => (string)d["product_type"] == "wheel");
-            if (w == null) return null;
-            return new Wheel
+            return (list ?? new JArray()).Where(d => (string)d["product_type"] == "wheel").Select(w => new Wheel
             {
                 DeviceUuid = (string)w["device_uuid"],
                 ProductUuid = (string)w["product_uuid"],
                 Name = (string)w["product_name"],
                 OldDevice = (bool?)w["old_device"] ?? true,
-            };
+            }).ToList();
         }
 
         /// <summary>

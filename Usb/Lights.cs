@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace User.FXProRpmSync
 {
-    /// <summary>The FX Pro's LEDs in groups (renderer indices, FXProDashes docs/firmware-notes.md).</summary>
+    /// <summary>A wheel's LEDs in groups; which LEDs each is on which wheel comes from its WheelModel.</summary>
     [JsonConverter(typeof(StringEnumConverter))]
     public enum LedGroup { Buttons, Encoders, SideLeft, SideRight, Rev }
 
@@ -218,7 +218,15 @@ namespace User.FXProRpmSync
 
         public static bool IsBuiltIn(string id) => All.Any(p => p.Id == id);
 
-        public static readonly LightProfile[] All =
+        /// <summary>The built-in presets for a wheel (the gallery, the first-time default), in order.</summary>
+        public static LightProfile[] For(WheelModel m) => m == WheelModel.GtNeo ? GtNeo : FxPro;
+
+        /// <summary>Every built-in preset, both wheels (ids are unique across them).</summary>
+        public static readonly LightProfile[] All;
+
+        static LightPresets() { All = FxPro.Concat(GtNeo).ToArray(); }
+
+        public static readonly LightProfile[] FxPro =
         {
             Make("mustang", "Prism", "A rainbow drifting over the buttons and encoders, breathing slowly.",
                 (LedGroup.Buttons, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
@@ -267,6 +275,43 @@ namespace User.FXProRpmSync
                 (LedGroup.SideRight, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" })),
         };
 
+        /// <summary>
+        /// The GT Neo's: its 10 button lights, four encoder rings of 12 (each ring runs its effect on its own, so waves
+        /// and rainbows go round the rings) and the rev bar. Alerts for the side lights use the ends of the rev bar.
+        /// </summary>
+        public static readonly LightProfile[] GtNeo =
+        {
+            Make("neo-prism", "Prism", "A rainbow turning slowly around every ring, the buttons breathing through the colours.",
+                (LedGroup.Buttons, LightEffect.RainbowBreathe, 4, 100, new[] { "#FFFFFF" }),
+                (LedGroup.Encoders, LightEffect.Rainbow, 6, 100, new[] { "#FFFFFF" })),
+            Make("neo-aurora", "Aurora", "Teal, blue and violet drifting round the rings; the buttons breathe teal and violet.",
+                (LedGroup.Buttons, LightEffect.Breathe, 6, 100, new[] { "#00FFA3", "#7B2FFF" }),
+                (LedGroup.Encoders, LightEffect.Wave, 9, 100, new[] { "#00FFA3", "#00B3FF", "#7B2FFF" }),
+                rev: ("#00FFA3", "#00B3FF", "#7B2FFF", "#FFFFFF")),
+            Make("neo-synthwave", "Synthwave", "Hot pink, purple and cyan flowing round the rings, neon buttons.",
+                (LedGroup.Buttons, LightEffect.Wave, 6, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }),
+                (LedGroup.Encoders, LightEffect.Wave, 5, 100, new[] { "#FF2E97", "#9D4EDD", "#00F0FF" }),
+                rev: ("#00F0FF", "#9D4EDD", "#FF2E97", "#FFFFFF")),
+            Make("neo-ember", "Ember", "Glowing embers: orange and red sparks on the buttons, the rings breathing red.",
+                (LedGroup.Buttons, LightEffect.Sparkle, 5, 100, new[] { "#FF3D00", "#FFB000" }),
+                (LedGroup.Encoders, LightEffect.Breathe, 5, 100, new[] { "#FF5A00", "#FF1E00" }),
+                rev: ("#FFD000", "#FF7A00", "#FF1E00", "#FFFFFF")),
+            Make("neo-ice", "Glacier", "Cold white and ice blue flowing slowly round the rings; calm at night.",
+                (LedGroup.Buttons, LightEffect.Solid, 4, 50, new[] { "#7FDBFF" }),
+                (LedGroup.Encoders, LightEffect.Wave, 12, 70, new[] { "#FFFFFF", "#7FDBFF", "#0060FF" }),
+                rev: ("#FFFFFF", "#7FDBFF", "#0060FF", "#FF0020")),
+            Make("neo-chaser", "Chaser", "A red light chasing round each ring, the buttons dim red.",
+                (LedGroup.Buttons, LightEffect.Solid, 4, 25, new[] { "#FF0010" }),
+                (LedGroup.Encoders, LightEffect.Scanner, 1.2, 100, new[] { "#FF0010" }),
+                rev: ("#FF0010", "#FF0010", "#FF0010", "#FFFFFF")),
+            Make("neo-stealth", "Stealth", "Dim white buttons and nothing else, until something needs your attention.",
+                (LedGroup.Buttons, LightEffect.Solid, 4, 18, new[] { "#FFFFFF" }),
+                (LedGroup.Encoders, LightEffect.Off, 4, 100, new[] { "#000000" })),
+            Make("neo-rainbow", "Full Rainbow", "Every light a flowing rainbow; the rev lights stay shift lights.",
+                (LedGroup.Buttons, LightEffect.Rainbow, 5, 100, new[] { "#FFFFFF" }),
+                (LedGroup.Encoders, LightEffect.Rainbow, 3, 100, new[] { "#FFFFFF" })),
+        };
+
         public static LightProfile Find(string id) => All.FirstOrDefault(p => p.Id == id);
 
         private static LightProfile Make(string id, string name, string description,
@@ -274,10 +319,19 @@ namespace User.FXProRpmSync
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) b,
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) c,
             (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) d,
-            (string Low, string Mid, string High, string Flash)? rev = null)
+            (string Low, string Mid, string High, string Flash)? rev = null) => Make(id, name, description, new[] { a, b, c, d }, rev);
+
+        private static LightProfile Make(string id, string name, string description,
+            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) a,
+            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors) b,
+            (string Low, string Mid, string High, string Flash)? rev = null) => Make(id, name, description, new[] { a, b }, rev);
+
+        private static LightProfile Make(string id, string name, string description,
+            (LedGroup G, LightEffect E, double Period, int Brightness, string[] Colors)[] groups,
+            (string Low, string Mid, string High, string Flash)? rev)
         {
             var p = new LightProfile { Id = id, Name = name, Description = description };
-            foreach (var g in new[] { a, b, c, d })
+            foreach (var g in groups)
                 p.Groups[g.G] = new GroupLighting { Effect = g.E, Period = g.Period, Brightness = g.Brightness, Colors = g.Colors.ToList() };
             p.Groups[LedGroup.Rev] = new GroupLighting { Effect = LightEffect.Rpm };
             if (rev.HasValue)
@@ -378,39 +432,50 @@ namespace User.FXProRpmSync
     /// <summary>Renders a LightProfile for a moment in time. Used for the wheel and the settings page's preview.</summary>
     public sealed class LightEngine
     {
-        public const int Count = 38;
         private readonly Random rng = new Random(); // per engine: the wheel and the preview render on different threads
-        private readonly double[] sparkle = new double[Count];
+        private readonly double[] sparkle;
 
-        public static int[] Leds(LedGroup g)
+        /// <summary>The wheel this engine renders for.</summary>
+        public WheelModel Model { get; }
+
+        /// <summary>LEDs in a frame (the wheel's count).</summary>
+        public int Count => Model.LedCount;
+
+        /// <summary>An engine for the FX Pro.</summary>
+        public LightEngine() : this(WheelModel.FxPro) { }
+
+        public LightEngine(WheelModel model)
         {
-            switch (g)
-            {
-                case LedGroup.Buttons: return Enumerable.Range(0, 12).ToArray();
-                case LedGroup.Encoders: return Enumerable.Range(12, 5).ToArray();
-                case LedGroup.SideLeft: return new[] { 17, 18, 19 };
-                case LedGroup.SideRight: return new[] { 20, 21, 22 };
-                default: return Enumerable.Range(23, 15).ToArray();
-            }
+            Model = model ?? WheelModel.FxPro;
+            sparkle = new double[Model.LedCount];
         }
 
         /// <param name="carLayout">The car's rev lights in real RPM (null = use the profile's colours).</param>
-        /// <param name="reverseRev">Rev LED 23 is the rightmost.</param>
+        /// <param name="reverseRev">The rev bar's first LED is the rightmost.</param>
         public LedColor[] Render(LightProfile p, DashValues v, RpmLayout carLayout, double now, bool reverseRev)
         {
             var frame = new LedColor[Count];
             byte max = (byte)Math.Max(1, Math.Min(90, p.MaxBrightness));
-            foreach (LedGroup g in Enum.GetValues(typeof(LedGroup)))
+            foreach (LedGroup g in Model.Groups)
             {
                 var l = p.Group(g);
-                var leds = Leds(g);
-                if (g == LedGroup.Rev && reverseRev) leds = leds.Reverse().ToArray();
                 byte bright = (byte)Math.Max(1, Math.Round(max * Math.Max(0, Math.Min(100, l.Brightness)) / 100.0));
-                if (l.Effect == LightEffect.Rpm) RenderRpm(frame, leds, p.Rev, v, carLayout, now, bright);
-                else if (l.Effect == LightEffect.Levels) RenderLevels(frame, leds, l, v, now, bright);
+                if (l.Effect == LightEffect.Rpm)
+                {
+                    var leds = Model.Leds(g);
+                    if (g == LedGroup.Rev && reverseRev) leds = leds.Reverse().ToArray();
+                    RenderRpm(frame, leds, p.Rev, v, carLayout, now, bright);
+                }
+                else if (l.Effect == LightEffect.Levels && Model.HasLevels) RenderLevels(frame, Model.Leds(g), l, v, now, bright);
                 else
-                    for (int i = 0; i < leds.Length; i++)
-                        frame[leds[i]] = Ambient(l, i, leds.Length, leds[i], now, bright);
+                {
+                    // effects run along each segment (the GT Neo's encoder rings each get their own); Levels on a wheel
+                    // without level lights shows its colours steady
+                    var ambient = l.Effect == LightEffect.Levels ? new GroupLighting { Effect = LightEffect.Solid, Colors = l.Colors, Period = l.Period } : l;
+                    foreach (var leds in Model.Segments(g))
+                        for (int i = 0; i < leds.Length; i++)
+                            frame[leds[i]] = Ambient(ambient, i, leds.Length, leds[i], now, bright);
+                }
             }
 
             // Alerts: first active rule wins for a LED.
@@ -419,7 +484,7 @@ namespace User.FXProRpmSync
             {
                 if (!a.Enabled || !Active(a, v)) continue;
                 var (r, g, b) = Rgb(a.Color);
-                var leds = a.Groups.SelectMany(Leds).Distinct().ToArray();
+                var leds = a.Groups.SelectMany(Model.AlertLeds).Distinct().ToArray();
                 for (int i = 0; i < leds.Length; i++)
                 {
                     int led = leds[i];
@@ -498,7 +563,7 @@ namespace User.FXProRpmSync
         // ---------- Encoder levels ----------
 
         /// <summary>
-        /// What each encoder light (12-16: ABS, TC, BB, DIFF, MAP) shows with the Levels effect: its value key and the
+        /// What each encoder light (FX Pro 12-16: ABS, TC, BB, DIFF, MAP) shows with the Levels effect: its value key and the
         /// range its colours span (levels outside it are clamped). Brake bias is a % around the middle of the car's range.
         /// </summary>
         public static readonly (string Name, string Key, double Low, double High)[] EncoderLevels =

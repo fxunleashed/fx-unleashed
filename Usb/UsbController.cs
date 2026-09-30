@@ -82,7 +82,7 @@ namespace User.FXProRpmSync
         /// <summary>The last session driven (pit board screensaver).</summary>
         public LastSession LastSession;
 
-        /// <summary>FX Pro buttons bound to actions: "next" / "prev" / "sleep" -> button number (1-32). See WheelButtons.</summary>
+        /// <summary>Wheel buttons bound to actions: "next" / "prev" / "sleep" -> button number (1-40). See WheelButtons.</summary>
         public Dictionary<string, int> WheelButtons = new Dictionary<string, int>();
 
         /// <summary>The screen's backlight, 5-100 (the plugin sends it on connect, on change and after sleep).</summary>
@@ -130,19 +130,104 @@ namespace User.FXProRpmSync
         /// <summary>Light a button's LED while it's held (any lights source; needs ButtonLeds).</summary>
         public bool PressLights = false;
         public string PressColor = "#FFFFFF";
-        /// <summary>Which LED (0-11) sits under each wheel button (1-40), from the guided "press each button" step.</summary>
+        /// <summary>Which LED (one of the wheel's button lights) sits under each wheel button (1-40), from the guided "press each button" step.</summary>
         public Dictionary<int, int> ButtonLeds = new Dictionary<int, int>();
 
         /// <summary>The global preset (what cars and games without their own use).</summary>
-        public LightProfile ActiveLights => FindLights(LightPreset) ?? LightPresets.All[0];
+        public LightProfile ActiveLights => FindLights(LightPreset) ?? LightPresets.For(Model)[0];
 
         /// <summary>A preset or the user's own lights by id; null if there's none.</summary>
         public LightProfile FindLights(string id) =>
             id == null ? null :
             UserLights?.FirstOrDefault(p => p.Id == id) ?? (id == LightPresets.CustomId ? CustomLights : null) ?? LightPresets.Find(id);
 
-        /// <summary>Every preset the user can pick, built-in first (ids).</summary>
-        public List<string> AllLightIds() => LightPresets.All.Select(p => p.Id).Concat((UserLights ?? new List<LightProfile>()).Select(p => p.Id)).ToList();
+        /// <summary>Every preset the user can pick on this wheel, built-in first (ids).</summary>
+        public List<string> AllLightIds() => LightPresets.For(Model).Select(p => p.Id).Concat((UserLights ?? new List<LightProfile>()).Select(p => p.Id)).ToList();
+
+        // ---------- Per wheel ----------
+
+        /// <summary>
+        /// The wheel the settings pages (and USB mode) are for (WheelModel id). Set by FXProRpmSyncPlugin.SwitchWheel,
+        /// which also swaps the settings tied to a wheel's LEDs and buttons (WheelSettings).
+        /// </summary>
+        public string ActiveWheel = WheelModel.FxPro.Id;
+
+        [Newtonsoft.Json.JsonIgnore]
+        public WheelModel Model => WheelModel.Find(ActiveWheel);
+
+        /// <summary>
+        /// The other wheels' settings that belong to a wheel's LEDs and buttons, by wheel id. The active wheel's are the
+        /// fields above (so everything reading them works unchanged); SwapWheel trades them when the wheel changes.
+        /// </summary>
+        public Dictionary<string, WheelSettings> Wheels = new Dictionary<string, WheelSettings>();
+
+        /// <summary>Makes `to` the active wheel: the current wheel's LED/button settings go into Wheels, `to`'s come out.</summary>
+        public void SwapWheel(WheelModel to)
+        {
+            if (to == null || to.Id == Model.Id) return;
+            if (Wheels == null) Wheels = new Dictionary<string, WheelSettings>();
+            Wheels[Model.Id] = Take();
+            Put(Wheels.TryGetValue(to.Id, out var w) && w != null ? w : WheelSettings.Defaults(to));
+            Wheels.Remove(to.Id);
+            ActiveWheel = to.Id;
+        }
+
+        /// <summary>Adds a copy of a light profile to another wheel's own lights (the "Copy to" button); the copy's id.</summary>
+        public string CopyLightsTo(WheelModel wheel, LightProfile p)
+        {
+            var copy = p.Clone();
+            copy.Id = LightPresets.NewUserId();
+            copy.Name = p.Name + (LightPresets.IsBuiltIn(p.Id) ? " (copy)" : "");
+            if (wheel.Id == Model.Id) { (UserLights ?? (UserLights = new List<LightProfile>())).Add(copy); return copy.Id; }
+            if (Wheels == null) Wheels = new Dictionary<string, WheelSettings>();
+            if (!Wheels.TryGetValue(wheel.Id, out var w) || w == null) Wheels[wheel.Id] = w = WheelSettings.Defaults(wheel);
+            (w.UserLights ?? (w.UserLights = new List<LightProfile>())).Add(copy);
+            return copy.Id;
+        }
+
+        private WheelSettings Take() => new WheelSettings
+        {
+            LightPreset = LightPreset, CustomLights = CustomLights, UserLights = UserLights, CarLights = CarLights, GameLights = GameLights,
+            ButtonLeds = ButtonLeds, WheelButtons = WheelButtons, PressLights = PressLights, PressColor = PressColor,
+            LightsFrom = LightsFrom, AtsrDevice = AtsrDevice, AtsrMap = AtsrMap, AtsrBrightness = AtsrBrightness,
+            TurnedOffSimHubDevice = TurnedOffSimHubDevice,
+        };
+
+        private void Put(WheelSettings w)
+        {
+            LightPreset = w.LightPreset; CustomLights = w.CustomLights; UserLights = w.UserLights ?? new List<LightProfile>();
+            CarLights = w.CarLights ?? new Dictionary<string, string>();
+            GameLights = new Dictionary<string, string>(w.GameLights ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+            ButtonLeds = w.ButtonLeds ?? new Dictionary<int, int>(); WheelButtons = w.WheelButtons ?? new Dictionary<string, int>();
+            PressLights = w.PressLights; PressColor = w.PressColor ?? "#FFFFFF";
+            LightsFrom = w.LightsFrom; AtsrDevice = w.AtsrDevice; AtsrMap = w.AtsrMap ?? ""; AtsrBrightness = w.AtsrBrightness;
+            TurnedOffSimHubDevice = w.TurnedOffSimHubDevice;
+        }
+
+        /// <summary>The plugin turned SimHub's own device for this wheel off (GT Neo), so it can offer to turn it back on.</summary>
+        public bool TurnedOffSimHubDevice;
+    }
+
+    /// <summary>A wheel's own LED and button settings while another wheel is active (UsbSettings.Wheels).</summary>
+    public class WheelSettings
+    {
+        public string LightPreset;
+        public LightProfile CustomLights;
+        public List<LightProfile> UserLights = new List<LightProfile>();
+        public Dictionary<string, string> CarLights = new Dictionary<string, string>();
+        public Dictionary<string, string> GameLights = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<int, int> ButtonLeds = new Dictionary<int, int>();
+        public Dictionary<string, int> WheelButtons = new Dictionary<string, int>();
+        public bool PressLights;
+        public string PressColor = "#FFFFFF";
+        public LightsSource LightsFrom = LightsSource.BuiltIn;
+        public string AtsrDevice;
+        public string AtsrMap = "";
+        public bool AtsrBrightness = true;
+        public bool TurnedOffSimHubDevice;
+
+        /// <summary>A wheel's settings the first time it's used: its first preset, nothing bound or mapped yet.</summary>
+        public static WheelSettings Defaults(WheelModel m) => new WheelSettings { LightPreset = LightPresets.For(m)[0].Id };
     }
 
     /// <summary>
@@ -175,13 +260,17 @@ namespace User.FXProRpmSync
         private long externalTicks;
 
         // Active session
-        private FxConnection conn;
+        private FxConnection conn;            // FX Pro session (screen, RAM, LEDs)
+        private NeoLedLink neo;               // GT Neo session (LEDs only)
         private FxHostScreen screen;
-        private FxLedWriter leds;
+        private ILedLink leds;
         private DashRenderer renderer;
         private DashDefinition dash;
         private IAnimatedSaver saver;
-        private readonly LightEngine engine = new LightEngine();
+        private LightEngine engine = new LightEngine();
+        /// <summary>The wheel this thread is set up for (probing, session, engine); follows UsbSettings.Model.</summary>
+        private WheelModel model = WheelModel.FxPro;
+        private string neoSerial;
         private LightProfile lights;          // this thread's copy (the settings page edits the original)
         private bool reverseRev;
         private int dashReloads;
@@ -197,9 +286,11 @@ namespace User.FXProRpmSync
         public string State { get; private set; } = "Off";
         public string Detail { get; private set; } = "";
         public bool WheelFound => path != null;
-        public string WheelVersion => status?.VersionText;
+        public string WheelVersion => model == WheelModel.GtNeo ? NeoUsb.VersionText(neoSerial) : status?.VersionText;
         public bool SupportedApp => status?.IsSupportedApp == true;
-        public bool Active => conn != null;
+        public bool Active => conn != null || neo != null;
+        /// <summary>The wheel USB mode is set up for now.</summary>
+        public WheelModel Model => model;
         /// <summary>The custom dash is on the wheel's screen now.</summary>
         public bool DashActive => screen != null && renderer != null;
         /// <summary>The logo is on the wheel's screen now.</summary>
@@ -362,8 +453,9 @@ namespace User.FXProRpmSync
                         wake.WaitOne(500);
                         continue;
                     }
+                    if (s.Model != model) SwitchModel(s.Model);
                     Probe(force: false);
-                    bool allowed = path != null && status?.IsSupportedApp == true && (Patched(s) || testing);
+                    bool allowed = Allowed(s, testing);
                     bool preview = PreviewActive;
                     if (!preview && previewDash != null) previewDash = null; // timed out
                     bool source = testing || demoOn || preview || LiveFresh;
@@ -372,7 +464,7 @@ namespace User.FXProRpmSync
                     bool sleeping = !source && (sleepNow || (s.SleepEnabled && now - lastActive >= Math.Max(1, s.SleepMinutes) * 60));
                     SleepIn = s.SleepEnabled && !source && !sleeping ? Math.Max(1, s.SleepMinutes) * 60 - (now - lastActive) : (double?)null;
                     Sleeping = sleeping && allowed;
-                    bool idle = (s.LightsEnabled && s.IdleLights) || s.ScreenSaver || s.ScreenOff || sleeping;
+                    bool idle = (s.LightsEnabled && s.IdleLights) || (model.HasScreen && (s.ScreenSaver || s.ScreenOff)) || sleeping;
                     if (!allowed || (!source && !idle))
                     {
                         Deactivate();
@@ -380,7 +472,7 @@ namespace User.FXProRpmSync
                         wake.WaitOne(250);
                         continue;
                     }
-                    if (conn == null) Open();
+                    if (conn == null && neo == null) Open();
                     RunFrame(s, source, testing, sleeping);
                     wake.WaitOne(15); // a settings change wakes it early, so the wheel shows it at once
                 }
@@ -397,12 +489,40 @@ namespace User.FXProRpmSync
             Deactivate();
         }
 
+        /// <summary>USB mode may take the wheel: FX Pro with the patched app (confirmed or reported); GT Neo when it's on USB
+        /// and the plugin drives its lights (with "SimHub device" as the source, SimHub's own GT Neo device does).</summary>
+        private bool Allowed(UsbSettings s, bool testing)
+        {
+            if (path == null) return false;
+            if (model == WheelModel.GtNeo) return testing || s.LightsFrom != LightsSource.SimHubDevice;
+            return status?.IsSupportedApp == true && (Patched(s) || testing);
+        }
+
+        /// <summary>The active wheel changed (the settings page's switch, or detection): let go of the old one and start
+        /// over with the new one.</summary>
+        private void SwitchModel(WheelModel to)
+        {
+            Deactivate();
+            model = to;
+            engine = new LightEngine(to);
+            path = null; status = null; neoSerial = null; build = -1;
+            nextProbe = DateTime.MinValue;
+            Setup.Reset();
+            appliedVersion = -1;
+            SimHub.Logging.Current.Info("[FXProRpmSync] USB mode: now for the " + to.Name);
+        }
+
         private void SetIdleState(UsbSettings s, bool allowed)
         {
             if (path == null)
             {
-                var (state, detail) = Setup.Describe();
+                var (state, detail) = Setup.Describe(model);
                 State = state; Detail = detail;
+            }
+            else if (model == WheelModel.GtNeo)
+            {
+                if (!allowed) { State = "SimHub drives the lights"; Detail = "Lights come from SimHub's own GT Neo device (Lights tab)."; }
+                else { State = "Ready"; Detail = "Takes over the lights when a game runs."; }
             }
             else if (status == null && DateTime.UtcNow - appearedAt < BootGrace) { State = "Wheel found"; Detail = "Letting it finish starting up."; }
             else if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
@@ -414,9 +534,17 @@ namespace User.FXProRpmSync
         private void Probe(bool force)
         {
             if (!force && DateTime.UtcNow < nextProbe && (conn != null || path != null)) return;
-            if (conn != null) return; // an open session finds out by failing writes
+            if (conn != null || neo != null) return; // an open session finds out by failing writes
             nextProbe = DateTime.UtcNow.AddSeconds(2);
-            var p = FxUsb.FindPath();
+            var p = plugin.Detector?.PathOf(model) ?? FxUsb.FindPath(model.UsbFilter);
+            if (model == WheelModel.GtNeo)
+            {
+                // stock firmware: nothing to check but that it's there
+                if (p == null) { path = null; neoSerial = null; Setup.Poll(); return; }
+                Setup.Reset();
+                if (p != path) { path = p; neoSerial = NeoUsb.Serial(p); SimHub.Logging.Current.Info("[FXProRpmSync] USB mode: GT Neo found (" + (neoSerial ?? "no serial") + ")"); }
+                return;
+            }
             if (p == null) { path = null; status = null; Setup.Poll(); return; }
             Setup.Reset();
             // A wheel that just appeared may still be booting: talking to it then (even reading its status) can
@@ -450,6 +578,15 @@ namespace User.FXProRpmSync
 
         private void Open()
         {
+            if (model == WheelModel.GtNeo)
+            {
+                neo = new NeoLedLink(path);
+                appliedVersion = -1;
+                screenKey = null;
+                lastDash = lastDemo = clock.Elapsed.TotalSeconds;
+                SimHub.Logging.Current.Info("[FXProRpmSync] USB mode connected to the GT Neo");
+                return;
+            }
             conn = new FxConnection(path);
             sentBrightness = -1; // sent with the first settings pass
             // Wheel app build 5: the dash button becomes controller button 40 and stops switching the wheel's own
@@ -477,18 +614,18 @@ namespace User.FXProRpmSync
             {
                 appliedVersion = version;
                 lightsCar = car;
-                try { lights = plugin.ActiveLightsFor(plugin.DashCarKey).Clone(); } catch { lights = lights ?? LightPresets.All[0].Clone(); }
+                try { lights = plugin.ActiveLightsFor(plugin.DashCarKey).Clone(); } catch { lights = lights ?? LightPresets.For(model)[0].Clone(); }
                 reverseRev = false; // the LED order is mapped (WheelView); the old "fill from the right" is gone
                 lightProps = lights.Bindings().Where(b => b.StartsWith("prop:", StringComparison.OrdinalIgnoreCase) || SimHubFormulas.IsFormula(b)).ToArray();
                 UpdateProps();
             }
             // checked every frame: night mode can start or end on its schedule without a settings change
-            if (!sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
+            if (model.HasScreen && !sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
             // Idle with "keep the lights on between sessions" off: SimPro's lights, even while a screensaver holds the screen
             bool wantLeds = sleeping || (s.LightsEnabled && (source || s.IdleLights));
-            if (wantLeds && leds == null) { leds = new FxLedWriter(conn); leds.Enable(); }
+            if (wantLeds && leds == null) { leds = neo ?? (ILedLink)new FxLedLink(conn); leds.Enable(); }
             else if (!wantLeds && leds != null) { leds.Disable(); leds = null; LastFrame = null; ScreenMirror.Leds(null); }
-
+            if (!model.HasScreen) return; // the rest is the screen
             // What the screen should show
             string key = null;
             DashDefinition pd = previewDash, want = null;
@@ -739,7 +876,7 @@ namespace User.FXProRpmSync
                 lastDemo = now;
                 Volatile.Write(ref latest, v);
                 State = testing ? "Test" : previewDemo ? "Designer preview" : "Demo";
-                Detail = testing ? "Showing the demo for a few seconds: the dash should be steady, with no stock dash flickering through."
+                Detail = testing ? (model.HasScreen ? "Showing the demo for a few seconds: the dash should be steady, with no stock dash flickering through." : "Showing the lights on a simulated lap for a few seconds.")
                        : previewDemo ? "Showing the dash from the designer with the simulated lap." : "Running a simulated lap on the wheel.";
             }
             else if (source)
@@ -747,13 +884,13 @@ namespace User.FXProRpmSync
                 v = latest;
                 RememberSession(s, v, now);
                 State = previewDash != null ? "Designer preview" : "Active";
-                Detail = previewDash != null ? "Showing the dash from the designer with live data." : "Driving the dash and lights from SimHub.";
+                Detail = previewDash != null ? "Showing the dash from the designer with live data." : model.HasScreen ? "Driving the dash and lights from SimHub." : "Driving the lights from SimHub.";
             }
             else if (sleeping)
             {
                 v = new DashValues();
                 State = "Sleeping";
-                Detail = "Lights and screen off. Starting a game wakes the wheel.";
+                Detail = (model.HasScreen ? "Lights and screen off." : "Lights off.") + " Starting a game wakes the wheel.";
             }
             else
             {
@@ -764,8 +901,8 @@ namespace User.FXProRpmSync
                 Detail = (onScreen ? "Showing the screensaver" + (leds != null ? " and your lights" : "") : "Showing your lights") +
                          ". The dash takes over the screen when a game runs.";
             }
-            if (source && screen == null) Detail += " This car uses the wheel's own dash.";
-            if (s.ScreenOff && !sleeping) Detail += " Screen off (the lights keep running).";
+            if (model.HasScreen && source && screen == null) Detail += " This car uses the wheel's own dash.";
+            if (model.HasScreen && s.ScreenOff && !sleeping) Detail += " Screen off (the lights keep running).";
 
             frameS = s; frameV = v; frameSource = source; frameTesting = testing; frameSleeping = sleeping;
             FeedWheelDash(now, demoOn || testing);
@@ -793,7 +930,7 @@ namespace User.FXProRpmSync
                 lastLed = now;
                 LedColor[] frame = null;
                 if (TestingLeds) { frame = Volatile.Read(ref testLeds); LightsState = "test frame"; }
-                else if (frameSleeping) { frame = new LedColor[LightEngine.Count]; LightsState = "off (sleeping)"; }
+                else if (frameSleeping) { frame = new LedColor[engine.Count]; LightsState = "off (sleeping)"; }
                 else if (s.LightsFrom == LightsSource.AtsrHub && !testing)
                 {
                     if (ExternalFresh) { frame = Volatile.Read(ref external); LightsState = "ATSR-Hub"; }
@@ -805,14 +942,13 @@ namespace User.FXProRpmSync
                     else LightsState = "no data from SimHub's device \"FX Pro wheel (USB mode)\" (add it in SimHub > Devices), showing the built-in lights";
                 }
                 else LightsState = testing && s.LightsFrom != LightsSource.BuiltIn ? "built-in (test)" : "built-in";
-                if (frame == null) frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
+                if (frame == null || frame.Length != engine.Count) frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev);
                 if (s.PressLights && !frameSleeping && !TestingLeds) frame = PressOverlay(frame, s);
                 // every frame passes here (presets, ATSR-Hub, alerts, idle, tests, the API), so the ceiling holds for all
                 byte ceiling = s.LedCeilingNow(plugin.NightActive);
-                for (int i = 0; i < frame.Length; i++) leds.Set(i, frame[i].R, frame[i].G, frame[i].B, Math.Min(ceiling, Math.Max((byte)1, frame[i].Brightness)));
-                leds.Send();
+                leds.Send(frame, ceiling);
                 LastFrame = frame;
-                ScreenMirror.Leds(frame);
+                ScreenMirror.Leds(model.HasScreen ? frame : null);
             }
         }
 
@@ -833,6 +969,14 @@ namespace User.FXProRpmSync
         /// <summary>Gives the screen back (stock dash) and the LEDs (SimPro's colours).</summary>
         private void Deactivate(bool quiet = false)
         {
+            if (neo != null)
+            {
+                try { leds?.Disable(); } catch { }
+                neo.Dispose();
+                neo = null; leds = null; demo = null; LastFrame = null;
+                if (!quiet) SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the GT Neo");
+                return;
+            }
             if (conn == null) return;
             try { leds?.Disable(); } catch { }
             try { screen?.Release(); } catch { }

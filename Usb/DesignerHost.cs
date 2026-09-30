@@ -57,7 +57,7 @@ namespace User.FXProRpmSync
         public void TestLeds(string[] colours, int brightness, double seconds)
         {
             var u = Usb ?? throw new Exception("USB mode isn't running");
-            var frame = new LedColor[LightEngine.Count];
+            var frame = new LedColor[plugin.ActiveModel.LedCount];
             byte b = (byte)Math.Max(1, Math.Min(90, brightness));
             for (int i = 0; i < frame.Length && i < (colours?.Length ?? 0); i++)
             {

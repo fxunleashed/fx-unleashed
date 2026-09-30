@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="*.cs" />
+    <None Include="golden-fxpro.txt" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\..\*.cs" />
     <Compile Include="..\..\Usb\*.cs" />
     <Compile Include="..\..\Ui\*.cs" />

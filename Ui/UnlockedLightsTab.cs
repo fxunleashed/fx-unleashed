@@ -13,7 +13,8 @@ namespace User.FXProRpmSync
 {
     /// <summary>
     /// Unlocked mode, lights: where they come from (the plugin's effects or ATSR-Hub), the presets shown on the wheel
-    /// itself, and your own lights edited group by group: click a part of the wheel (or its chip) to edit it.
+    /// itself, and your own lights edited group by group: click a part of the wheel (or its chip) to edit it. Built for
+    /// the active wheel (FX Pro or GT Neo): its drawing, groups and presets; the settings page rebuilds it on a switch.
     /// </summary>
     public class UnlockedLightsTab : StackPanel
     {
@@ -21,8 +22,13 @@ namespace User.FXProRpmSync
         private UsbSettings S => plugin.Settings.Usb;
         private UsbController Usb => plugin.Usb;
 
-        private readonly WheelView big = new WheelView { Width = 600 };
-        private readonly LightEngine bigEngine = new LightEngine();
+        private readonly WheelModel model;
+        private readonly WheelView big;
+        private readonly LightEngine bigEngine;
+        private readonly Border simHubCard;
+        private readonly TextBlock simHubText;
+        private readonly Button simHubOff, simHubUse, simHubOn;
+        private Button copyTo;
         private readonly TextBlock bigName, bigText, liveNote;
         private readonly StackPanel builtIn, atsrPanel, editor, groupEditor;
         private readonly WrapPanel gallery, groupChips;
@@ -46,6 +52,10 @@ namespace User.FXProRpmSync
         public UnlockedLightsTab(FXProRpmSyncPlugin plugin)
         {
             this.plugin = plugin;
+            model = plugin.ActiveModel;
+            big = new WheelView(model) { Width = 600 };
+            bigEngine = new LightEngine(model);
+            bool neo = model == WheelModel.GtNeo;
 
             // ----- Source -----
             var src = new StackPanel();
@@ -58,7 +68,7 @@ namespace User.FXProRpmSync
             srcText.Children.Add(Theme.Eyebrow("Lights come from"));
             srcHead.Children.Add(srcText);
             src.Children.Add(srcHead);
-            var seg = Theme.Segmented(new[] { "FX Unleashed", "ATSR-Hub", "SimHub device" }, (int)S.LightsFrom, i =>
+            var seg = Theme.Segmented(new[] { "FX Unleashed", "ATSR-Hub", neo ? "SimHub's GT Neo device" : "SimHub device" }, (int)S.LightsFrom, i =>
             {
                 S.LightsFrom = (LightsSource)i;
                 Changed(); ShowSource();
@@ -67,7 +77,8 @@ namespace User.FXProRpmSync
             seg.Margin = new Thickness(0, 4, 0, 14);
             src.Children.Add(seg);
             var opts = new WrapPanel();
-            var idle = Theme.Switch("Keep them on between sessions", S.IdleLights, v => { S.IdleLights = v; Changed(); }, "Off: SimPro's lights while no game runs.");
+            var idle = Theme.Switch("Keep them on between sessions", S.IdleLights, v => { S.IdleLights = v; Changed(); },
+                neo ? "Off: the wheel's own lights while no game runs." : "Off: SimPro's lights while no game runs.");
             idle.Margin = new Thickness(0, 0, 40, 6);
             opts.Children.Add(idle);
             src.Children.Add(opts);
@@ -75,11 +86,28 @@ namespace User.FXProRpmSync
             src.Children.Add(liveNote);
             Children.Add(Theme.CardBox(src));
 
+            // ----- SimHub's own GT Neo device (it fights our lights while both drive the wheel) -----
+            var sh = new StackPanel();
+            sh.Children.Add(Theme.Eyebrow("SimHub's GT Neo device", Theme.Amber));
+            simHubText = Theme.Note("");
+            sh.Children.Add(simHubText);
+            var shButtons = new WrapPanel();
+            simHubOff = Theme.Btn("Turn it off", () => SetSimHubDevice(false), primary: true, icon: "");
+            simHubUse = Theme.Btn("Use SimHub's device instead", () => { S.LightsFrom = LightsSource.SimHubDevice; Changed(); Rebuild(); }, icon: "");
+            simHubOn = Theme.Btn("Turn SimHub's device back on", () => SetSimHubDevice(true), icon: "");
+            shButtons.Children.Add(simHubOff); shButtons.Children.Add(simHubUse); shButtons.Children.Add(simHubOn);
+            sh.Children.Add(shButtons);
+            simHubCard = Theme.CardBox(sh);
+            simHubCard.BorderBrush = Theme.Amber;
+            simHubCard.Visibility = Visibility.Collapsed;
+            Children.Add(simHubCard);
+
             // ----- ATSR-Hub -----
             atsrPanel = new StackPanel();
             atsrPanel.Children.Add(Theme.Eyebrow("ATSR-Hub"));
             atsrPanel.Children.Add(Theme.Note("ATSR-Hub works out every light (shift lights, flags, spotter, TC/ABS, animations); the plugin sends them to the wheel. " +
-                "Add the FX Pro in ATSR-Hub as a steering wheel (VID 0483, PID 0529) numbered like the wheel view here: hover an LED to see its number. " +
+                (neo ? "Pick ATSR-Hub's GT Neo setup: its LEDs are numbered like the wheel view here (hover an LED to see its number). "
+                     : "Add the FX Pro in ATSR-Hub as a steering wheel (VID 0483, PID 0529) numbered like the wheel view here: hover an LED to see its number. ") +
                 "While ATSR-Hub sends nothing, the plugin's own lights stay on."));
             atsrDevice = new ComboBox { Width = 300, IsEditable = true, Text = S.AtsrDevice ?? "" };
             atsrDevice.LostFocus += (s, e) => SetAtsrDevice(atsrDevice.Text);
@@ -93,11 +121,11 @@ namespace User.FXProRpmSync
             var nm = Theme.Switch("Follow ATSR-Hub's brightness (night mode)", S.AtsrBrightness, v => { S.AtsrBrightness = v; Changed(); });
             nm.Margin = new Thickness(130, 0, 0, 12);
             atsrPanel.Children.Add(nm);
-            var map = new TextBox { Width = 520, Text = S.AtsrMap ?? "", ToolTip = "38 ATSR-Hub LED numbers, one per FX Pro LED in FX Pro order, -1 = off. Empty = same numbers." };
+            var map = new TextBox { Width = 520, Text = S.AtsrMap ?? "", ToolTip = $"{model.LedCount} ATSR-Hub LED numbers, one per {model.Name} LED in its order, -1 = off. Empty = same numbers." };
             atsrMapError = new TextBlock { Foreground = Theme.Amber, Margin = new Thickness(130, -6, 0, 10), TextWrapping = TextWrapping.Wrap };
             map.LostFocus += (s, e) =>
             {
-                AtsrBridge.ParseMap(map.Text, out var err);
+                AtsrBridge.ParseMap(map.Text, model.LedCount, out var err);
                 atsrMapError.Text = err == null ? "" : "Map not used: " + err;
                 if (err == null) { S.AtsrMap = map.Text.Trim(); Changed(); }
             };
@@ -120,7 +148,7 @@ namespace User.FXProRpmSync
                 Background = new RadialGradientBrush(Color.FromRgb(0x17, 0x0A, 0x0D), Color.FromRgb(0x07, 0x08, 0x0A)) { RadiusX = 0.7, RadiusY = 0.8 },
                 BorderBrush = Theme.Line, BorderThickness = new Thickness(1), Child = big,
             });
-            big.LedClicked += led => { if (Mine != null) { group = WheelView.GroupOf(led); ShowEditor(); } };
+            big.LedClicked += led => { if (Mine != null) { group = big.GroupOf(led); ShowEditor(); } };
             var side = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             side.Children.Add(Theme.Eyebrow("Preview"));
             bigName = Theme.Title("", 24);
@@ -139,6 +167,10 @@ namespace User.FXProRpmSync
             delete = Theme.Btn("Delete", Delete, icon: "\uE74D");
             presetButtons.Children.Add(duplicate);
             presetButtons.Children.Add(delete);
+            var other = neo ? WheelModel.FxPro : WheelModel.GtNeo;
+            copyTo = Theme.Btn("Copy to the " + other.Name, () => CopyTo(other), icon: "\uE8C8");
+            copyTo.ToolTip = $"Adds a copy of these lights to the {other.Name}'s own lights (they show there the next time it's the wheel in use)";
+            presetButtons.Children.Add(copyTo);
             side.Children.Add(presetButtons);
             side.Children.Add(new TextBlock { Text = "The preview revs up and down and triggers ABS and TC now and then. While the plugin drives the wheel, it shows the wheel's lights.", TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text3, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0) });
             Grid.SetColumn(side, 1);
@@ -174,6 +206,7 @@ namespace User.FXProRpmSync
             Loaded += (s, e) =>
             {
                 frameTimer.Start(); slowTimer.Start();
+                if (!model.HasScreen) return;
                 var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
                 big.Screen.Source = wheelDash ? null : DashPictures.Still(DashCache.Find(id) ?? BuiltInDashes.MustangGt3());
             };
@@ -182,6 +215,31 @@ namespace User.FXProRpmSync
             ShowSource();
             BuildGallery();
             if (S.LightsFrom == LightsSource.AtsrHub) RefreshAtsrDevices();
+        }
+
+        /// <summary>Everything shown depends on the source (the SimHub card, the lights state): redraw what's cheap.</summary>
+        private void Rebuild() { ShowSource(); RefreshPresets(); }
+
+        private void CopyTo(WheelModel other)
+        {
+            var from = S.ActiveLights;
+            S.CopyLightsTo(other, from);
+            plugin.SaveSettings();
+            copyTo.Content = "Copied to the " + other.Name + " ✓";
+        }
+
+        private void SetSimHubDevice(bool on)
+        {
+            if (!SimHubGtNeoDevice.SetEnabled(plugin.PluginManager, on))
+            {
+                MessageBox.Show(Window.GetWindow(this), "SimHub didn't let the plugin switch its GT Neo device " + (on ? "on" : "off") + ". Do it in SimHub > Devices > Simagic GT Neo.",
+                    "FX Unleashed", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            S.TurnedOffSimHubDevice = !on;
+            if (on && S.LightsFrom != LightsSource.SimHubDevice) { S.LightsFrom = LightsSource.SimHubDevice; Usb?.SettingsChanged(); }
+            plugin.SaveSettings();
+            RefreshState();
         }
 
         private void Changed()
@@ -207,10 +265,28 @@ namespace User.FXProRpmSync
             liveNote.Text = !S.LightsEnabled ? "The wheel shows SimPro's lights."
                           : u?.Active == true ? "On the wheel now: " + u.LightsState + "."
                           : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub's lights show while the plugin drives the wheel; the preset below fills in while it sends nothing."
+                          : S.LightsFrom == LightsSource.SimHubDevice && model == WheelModel.GtNeo ? "SimHub's own GT Neo device drives the lights (SimHub > Devices > Simagic GT Neo); the plugin leaves them alone. " +
+                                                                        "Sleep and the brightness limit don't apply to it."
                           : S.LightsFrom == LightsSource.SimHubDevice ? "SimHub's LED profile shows while the plugin drives the wheel: add \"FX Pro wheel (USB mode)\" (brand FX Unleashed) in SimHub > Devices " +
                                                                         "and set up its lights there (21 side + rev lights, 12 buttons, 5 encoders, or 38 individual LEDs). The preset below fills in while it sends nothing." : "";
+            RefreshSimHubCard();
             if (S.LightsFrom == LightsSource.AtsrHub)
                 atsrState.Text = u?.Active != true ? "Not sending: the plugin isn't driving the wheel now." : "Lights now: " + u.LightsState + ".";
+        }
+
+        /// <summary>GT Neo: offer to turn SimHub's own device off while it would fight our lights, and back on after.</summary>
+        private void RefreshSimHubCard()
+        {
+            if (model != WheelModel.GtNeo) return;
+            bool? on = SimHubGtNeoDevice.Enabled(plugin.PluginManager);
+            bool ours = S.LightsEnabled && S.LightsFrom != LightsSource.SimHubDevice;
+            bool fight = ours && on == true;
+            bool offerOn = !ours && S.TurnedOffSimHubDevice && on == false;
+            simHubCard.Visibility = fight || offerOn ? Visibility.Visible : Visibility.Collapsed;
+            simHubText.Text = fight ? "SimHub's own GT Neo device is on as well, so the lights flicker between its colours and these. Turn it off, or let it drive the lights instead."
+                                    : "The plugin turned SimHub's own GT Neo device off. Turn it back on to let SimHub drive the lights.";
+            simHubOff.Visibility = simHubUse.Visibility = fight ? Visibility.Visible : Visibility.Collapsed;
+            simHubOn.Visibility = offerOn ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // ---------- Presets ----------
@@ -222,7 +298,7 @@ namespace User.FXProRpmSync
         {
             gallery.Children.Clear();
             presets.Clear();
-            foreach (var p in LightPresets.All) AddPreset(p);
+            foreach (var p in LightPresets.For(model)) AddPreset(p);
             foreach (var p in S.UserLights) AddPreset(p);
             // "+": a new one, from the selected lights
             var plus = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -237,7 +313,7 @@ namespace User.FXProRpmSync
 
         private void AddPreset(LightProfile p)
         {
-            var view = new WheelView(glow: false) { Width = 196 };
+            var view = new WheelView(model, glow: false) { Width = 196 };
             var body = new StackPanel();
             body.Children.Add(new Border { Background = Theme.B("#07080A"), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 10, 8, 8), Child = view });
             var name = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
@@ -251,7 +327,7 @@ namespace User.FXProRpmSync
             body.Children.Add(name);
             var id = p.Id;
             var tile = Theme.Tile(body, 222, () => { S.LightPreset = id; Changed(); RefreshPresets(); }, p.Description);
-            presets.Add((id, tile, view, new LightEngine()));
+            presets.Add((id, tile, view, new LightEngine(model)));
             gallery.Children.Add(tile);
         }
 
@@ -278,7 +354,7 @@ namespace User.FXProRpmSync
             if (MessageBox.Show(Window.GetWindow(this), $"Delete \"{mine.Name}\"?", "FX Unleashed", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             int at = S.UserLights.IndexOf(mine);
             S.UserLights.Remove(mine);
-            S.LightPreset = at > 0 ? S.UserLights[at - 1].Id : LightPresets.All[0].Id;
+            S.LightPreset = at > 0 ? S.UserLights[at - 1].Id : LightPresets.For(model)[0].Id;
             Changed();
             BuildGallery();
         }
@@ -304,6 +380,7 @@ namespace User.FXProRpmSync
             nameBox.Text = mine?.Name ?? "";
             delete.Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
             duplicate.Content = mine != null ? "Duplicate" : "Duplicate to edit";
+            copyTo.Content = "Copy to the " + (model == WheelModel.GtNeo ? WheelModel.FxPro : WheelModel.GtNeo).Name;
             ((Border)editor.Tag).Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
             if (mine != null) ShowEditor(); else big.Highlight(null);
             perCar?.Refresh(force: true);
@@ -334,8 +411,9 @@ namespace User.FXProRpmSync
 
         // ---------- Editor ----------
 
-        private static string GroupName(LedGroup g)
+        private string GroupName(LedGroup g)
         {
+            if (model != WheelModel.FxPro) return model.GroupName(g);
             switch (g)
             {
                 case LedGroup.Buttons: return "Buttons";
@@ -350,9 +428,10 @@ namespace User.FXProRpmSync
         {
             var p = Mine;
             if (p == null) return;
-            big.Highlight(WheelView.LedsOf(group));
+            if (!model.Has(group)) group = model.Groups[0];
+            big.Highlight(big.LedsOf(group));
             groupChips.Children.Clear();
-            foreach (LedGroup g in Enum.GetValues(typeof(LedGroup)))
+            foreach (LedGroup g in model.Groups)
             {
                 var gg = g;
                 var chip = new Border
@@ -372,7 +451,7 @@ namespace User.FXProRpmSync
             var effect = new ComboBox { Width = 240 };
             // shift lights only on the rev bar, setting levels only on the encoders
             var effects = Enum.GetValues(typeof(LightEffect)).Cast<LightEffect>()
-                .Where(x => (x != LightEffect.Rpm || group == LedGroup.Rev) && (x != LightEffect.Levels || group == LedGroup.Encoders));
+                .Where(x => (x != LightEffect.Rpm || group == LedGroup.Rev) && (x != LightEffect.Levels || (group == LedGroup.Encoders && model.HasLevels)));
             foreach (var x in effects) effect.Items.Add(new ComboBoxItem { Content = EffectName(x), Tag = x });
             effect.SelectedItem = effect.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (LightEffect)i.Tag == l.Effect) ?? effect.Items[0];
             var details = new StackPanel();
@@ -451,7 +530,7 @@ namespace User.FXProRpmSync
             on.Width = 190; on.Margin = new Thickness(4, 4, 0, 0);
             row.Children.Add(on);
             row.Children.Add(new ColourField(a.Color, hex => { a.Color = hex; Changed(); }) { Margin = new Thickness(0, 0, 14, 0) });
-            foreach (LedGroup g in Enum.GetValues(typeof(LedGroup)))
+            foreach (LedGroup g in model.AlertGroups)
             {
                 var gg = g;
                 var chip = new ToggleButton

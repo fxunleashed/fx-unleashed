@@ -52,7 +52,7 @@ never contains Simagic's firmware or its key.
 
 | | |
 |---|---|
-| Wheel | Simagic **FX Pro**, wheel app 1.3.11 (tested on an Alpha EVO base). In standard mode the **GT Neo**'s rev lights work too. |
+| Wheel | Simagic **FX Pro**, wheel app 1.3.11 (tested on an Alpha EVO base). The **GT Neo** too: its rev lights in standard mode, and every light in USB mode (hold button 3 while the base powers up). |
 | SimPro Manager | **SimPro Manager 3** (tested with V3.2.2), running while you drive. |
 | SimHub | Tested with 9.11. The free version is fine. |
 | Unleashed mode | the modified wheel app, and the wheel's USB cable to the PC (best: data only, the base powers the wheel). |

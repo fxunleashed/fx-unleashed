@@ -25,6 +25,7 @@ namespace User.FXProRpmSync
         public QuickControlsCard(FXProRpmSyncPlugin plugin)
         {
             this.plugin = plugin;
+            bool hasScreen = plugin.ActiveModel.HasScreen; // the GT Neo has only lights
             var body = new StackPanel();
             body.Children.Add(Theme.Eyebrow("Quick controls"));
 
@@ -36,11 +37,11 @@ namespace User.FXProRpmSync
             var day = new StackPanel();
             screenOn = Theme.Switch("Screen on", !S.ScreenOff, v => { if (!refreshing) plugin.SetScreenOff(!v); },
                 "Off: the screen goes dark and the lights keep running.");
-            day.Children.Add(screenOn);
-            day.Children.Add(SliderRow("Screen brightness", 5, 100, S.ScreenBrightness, 5, v => $"{v:0}%", v => { S.ScreenBrightness = (int)v; Changed(); }, out screen));
+            var screenRow = SliderRow("Screen brightness", 5, 100, S.ScreenBrightness, 5, v => $"{v:0}%", v => { S.ScreenBrightness = (int)v; Changed(); }, out screen);
+            if (hasScreen) { day.Children.Add(screenOn); day.Children.Add(screenRow); }
             day.Children.Add(SliderRow("Brightest light", 1, 90, S.LedCeiling, 1, v => $"{Math.Round(v / 0.9):0}%", v => { S.LedCeiling = (int)v; Changed(); }, out ceiling));
-            day.Children.Add(Theme.Note("A cap on every light the plugin drives: presets, your own lights, ATSR-Hub, alerts. SimPro's own lights " +
-                                        "(when the plugin isn't driving the LEDs) aren't affected.", new Thickness(0, -4, 0, 0)));
+            day.Children.Add(Theme.Note("A cap on every light the plugin drives: presets, your own lights, ATSR-Hub, alerts. " +
+                                        (hasScreen ? "SimPro's own lights" : "The wheel's own lights") + " (when the plugin isn't driving the LEDs) aren't affected.", new Thickness(0, -4, 0, 0)));
             cols.Children.Add(day);
 
             var nightPanel = new StackPanel();
@@ -48,10 +49,11 @@ namespace User.FXProRpmSync
             nightState = new TextBlock { Foreground = Theme.Text3, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(8, 2, 0, 0) };
             DockPanel.SetDock(nightState, Dock.Right);
             nightHead.Children.Add(nightState);
-            night = Theme.Switch("Night mode", S.NightMode, v => { if (!refreshing) plugin.SetNightMode(v); }, "A dimmer screen and lights, for racing in the dark.");
+            night = Theme.Switch("Night mode", S.NightMode, v => { if (!refreshing) plugin.SetNightMode(v); }, hasScreen ? "A dimmer screen and lights, for racing in the dark." : "Dimmer lights, for racing in the dark.");
             nightHead.Children.Add(night);
             nightPanel.Children.Add(nightHead);
-            nightPanel.Children.Add(SliderRow("Screen at night", 5, 100, S.NightScreenBrightness, 5, v => $"{v:0}%", v => { S.NightScreenBrightness = (int)v; Changed(); }, out nightScreen));
+            var nightScreenRow = SliderRow("Screen at night", 5, 100, S.NightScreenBrightness, 5, v => $"{v:0}%", v => { S.NightScreenBrightness = (int)v; Changed(); }, out nightScreen);
+            if (hasScreen) nightPanel.Children.Add(nightScreenRow);
             nightPanel.Children.Add(SliderRow("Brightest light at night", 1, 90, S.NightLedCeiling, 1, v => $"{Math.Round(v / 0.9):0}%", v => { S.NightLedCeiling = (int)v; Changed(); }, out nightCeiling));
             var sched = new StackPanel { Orientation = Orientation.Horizontal };
             schedule = Theme.Switch("On a schedule, from", S.NightSchedule, v => { S.NightSchedule = v; Changed(); });
@@ -83,6 +85,7 @@ namespace User.FXProRpmSync
                 ("wheeldash", "Custom / wheel's own dash", "UsbWheelDashToggle"),
             })
             {
+                if (!hasScreen && (id.StartsWith("screen") || id == "wheeldash")) continue;
                 buttons.Children.Add(new WheelButtonBinding(plugin, id, name));
                 keys.Children.Add(Theme.Binding(name, action));
             }

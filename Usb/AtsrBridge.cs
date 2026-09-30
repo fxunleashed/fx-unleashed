@@ -36,26 +36,28 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>
-        /// "" = LED N of ATSR-Hub's layout goes to FX Pro LED N. Otherwise 38 comma-separated ATSR-Hub indexes, one per
-        /// FX Pro LED (0-11 buttons, 12-16 encoders, 17-22 side lights, 23-37 rev lights); -1 = off.
+        /// "" = LED N of ATSR-Hub's layout goes to the wheel's LED N. Otherwise one comma-separated ATSR-Hub index per
+        /// wheel LED (FX Pro: 38, 0-11 buttons, 12-16 encoders, 17-22 side lights, 23-37 rev lights; GT Neo: 73); -1 = off.
         /// </summary>
-        public static int[] ParseMap(string map, out string error)
+        public static int[] ParseMap(string map, out string error) => ParseMap(map, WheelModel.FxPro.LedCount, out error);
+
+        public static int[] ParseMap(string map, int count, out string error)
         {
             error = null;
-            var result = Enumerable.Range(0, LightEngine.Count).ToArray();
+            var result = Enumerable.Range(0, count).ToArray();
             if (string.IsNullOrWhiteSpace(map)) return result;
             var parts = map.Split(new[] { ',', ' ', ';', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length != LightEngine.Count) { error = $"needs {LightEngine.Count} numbers, has {parts.Length}"; return result; }
+            if (parts.Length != count) { error = $"needs {count} numbers, has {parts.Length}"; return result; }
             for (int i = 0; i < parts.Length; i++)
                 if (!int.TryParse(parts[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out result[i]) || result[i] < -1)
                 {
                     error = $"\"{parts[i]}\" isn't an LED index";
-                    return Enumerable.Range(0, LightEngine.Count).ToArray();
+                    return Enumerable.Range(0, count).ToArray();
                 }
             return result;
         }
 
-        /// <summary>One frame for the FX Pro, or null when ATSR-Hub isn't publishing this device.</summary>
+        /// <summary>One frame for the wheel (the map's length), or null when ATSR-Hub isn't publishing this device.</summary>
         public static LedColor[] Read(PluginManager pm, string device, int[] map, bool useBrightness)
         {
             if (string.IsNullOrEmpty(device)) return null;
@@ -79,10 +81,10 @@ namespace User.FXProRpmSync
             return Compose(layers, map, brightness);
         }
 
-        /// <summary>The layers drawn in order, each over the last by its alpha, onto black; mapped to the FX Pro's LEDs.</summary>
+        /// <summary>The layers drawn in order, each over the last by its alpha, onto black; mapped to the wheel's LEDs.</summary>
         public static LedColor[] Compose(List<IList> layers, int[] map, byte brightness)
         {
-            var frame = new LedColor[LightEngine.Count];
+            var frame = new LedColor[map.Length];
             for (int led = 0; led < frame.Length; led++)
             {
                 int src = map[led];

@@ -8,7 +8,7 @@ SimPro (which keeps doing force feedback and settings). It needs the wheel's app
 build 4 image; on stock firmware nothing here works (and nothing breaks either, see [Firmware](#firmware)).
 
 Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) · [Dash file format](#dash-file-format) ·
-[Lights](#lights) · [ATSR-Hub](#atsr-hub) · [Dash designer](dash-designer.md) · [How it talks to the wheel](#how-it-talks-to-the-wheel) ·
+[Lights](#lights) · [ATSR-Hub](#atsr-hub) · [Dash designer](dash-designer.md) · [How it talks to the wheel](#how-it-talks-to-the-wheel) · [GT Neo](#gt-neo) ·
 [Checking without the wheel](#checking-without-the-wheel) · [Troubleshooting](#troubleshooting) ·
 [Before publishing](#before-publishing)
 
@@ -172,6 +172,43 @@ Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, 
 - USB limit: ~500 reports/s in total. Typical load: LEDs 90 reports/s (38 LEDs, 30 frames/s), dash ~40/s.
 - If SimHub dies: the screen returns to the wheel within a second (keepalive gate) but stays on page 0 until the next
   page change; the LEDs stay in all-LEDs mode until a power cycle.
+
+## GT Neo
+
+Added 2026-09-29 (plan and decisions: [gt-neo-plan.md](gt-neo-plan.md)). The GT Neo has no screen and needs no
+firmware: its USB mode is stock. The settings page calls it **"USB"** and never mentions firmware on the GT Neo's pages.
+
+- **Which wheel:** `Usb/WheelDetector.cs` checks every 2 s for each wheel's own USB device (FX Pro `VID_0483&PID_0529`,
+  GT Neo `VID_3670&PID_0805`) and asks SimPro (`get_device_list`) which wheels are on the base (product ids
+  `0000000002030000` / `0000000002060000`). The only wheel found becomes the active one (`UsbSettings.ActiveWheel`);
+  with none found the pages keep their wheel; with both, the header chip turns into a switch ("GT Neo · switch to FX
+  Pro"). `FXProRpmSyncPlugin.SwitchWheel` does the switch.
+- **Per wheel:** `Usb/WheelModels.cs` holds everything that differs (LED count, groups, rings, screen, names).
+  `LightEngine`, `WheelView`, the Lights and Wheel tabs, `ButtonLightsCard`, the ATSR-Hub map and the controller all
+  take the active model. Settings tied to a wheel's LEDs and buttons (light preset, own lights, per-car/game lights,
+  button map and bindings, lights source, ATSR-Hub device and map) stay in their usual `UsbSettings` fields for the
+  active wheel; the other wheel's are kept in `UsbSettings.Wheels` and traded on a switch (`SwapWheel`). Old settings
+  files load as the FX Pro's, unchanged. "Copy to the GT Neo / FX Pro" on the Lights tab copies a profile across.
+- **Connecting:** switch the base off and on while holding **button 3** on the wheel (about 2 s). It then shows up on
+  USB through the quick release until the base is switched off. SimHub's own GT Neo device uses the same mode.
+- **LEDs** (`Usb/NeoTransport.cs`, same order as SimHub's own GT Neo driver): 73, ids 0-9 button lights, 10-57 four
+  rings of 12 around the encoders (10, 22, 34, 46 first), 58-72 rev lights left to right. Feature report `F0`, 64
+  bytes, byte 6 `EC`: `EC 02 01/00` takes/releases the LEDs, `EC 03 n` + n x (id, R, G, B), 13 per report. Only
+  changed LEDs are sent, plus a keepalive every 2 s (the wheel takes its LEDs back after 5 s without an `EC` packet).
+  Brightness is applied on the PC; the wheel also scales by its own brightness from SimPro (SimHub asks for 100%
+  there). Never sent: `F0 [6]=00 [7]=CA` (hangs the wheel) or `F1` (update).
+- **Effects** run per segment: each ring on its own, so rainbows and chasers go round the rings. Presets:
+  `LightPresets.GtNeo` (ids `neo-...`). The GT Neo has no side lights; alerts on them use the ends of the rev bar (4
+  LEDs each side). The Levels effect is FX Pro only (its encoders sit on ABS/TC/BB/DIFF/MAP).
+- **SimHub's own GT Neo device** (SimHub > Devices > Simagic GT Neo) drives the same LEDs, so both at once flicker.
+  The Lights tab offers **Turn it off** or **Use SimHub's device instead**, and **Turn it back on** later
+  (`Usb/SimHubDevices.cs`: SimHub's `DevicesPlugin`, `DeviceInstance.Enabled`, then `DevicesPlugin.SaveSettings`). With
+  "SimHub's GT Neo device" as the source the plugin sends no LED frames.
+- **Buttons:** report 01, bits in bytes 3-7, as on the FX Pro (`WheelButtons` reads the active wheel's device).
+- **Drawing:** our own schematic (`WheelView.BuildGtNeo`); where each button light and ring sits is still to be checked
+  on the wheel.
+- **Not yet tried on the wheel:** the plugin driving it (presets, alerts, sleep), the SimHub device switch, button
+  bindings. Offline checks: `tools/UsbTest` `features` ("GT Neo ..."), `UI_WHEEL=gtneo UsbTest.exe OUT ui`.
 
 ## Library, screen mirror, wheel dash values, base per car
 

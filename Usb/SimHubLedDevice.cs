@@ -67,7 +67,7 @@ namespace User.FXProRpmSync
             DefaultButtonsColor = Enumerable.Repeat(Color.White, 12).ToArray(),
             EncodersCount = 5,
             DefaultEncodersColor = Enumerable.Repeat(Color.White, 5).ToArray(),
-            RawLedCount = LightEngine.Count,
+            RawLedCount = WheelModel.FxPro.LedCount,
             TelemetryLedsLabel = "Side lights + rev lights",
             ButtonsColorLabel = "Buttons",
             EncodersColorLabel = "Encoders (ABS, TC, BB, DIFF, MAP)",
@@ -135,7 +135,7 @@ namespace User.FXProRpmSync
         public static LedColor[] ToFrame(Color[] leds, Color[] buttons, Color[] encoders, Color[] raw, Color[] over,
                                          double rpmBrightness, double buttonsBrightness, double encodersBrightness)
         {
-            var f = new LedColor[LightEngine.Count];
+            var f = new LedColor[WheelModel.FxPro.LedCount];
             void Set(int i, Color c, double brightness)
             {
                 if (i < 0 || i >= f.Length || c.A == 0 || (c.R | c.G | c.B) == 0) return;
