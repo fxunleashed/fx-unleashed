@@ -91,8 +91,13 @@ namespace User.FXProRpmSync
         public int DashSlot = 36;
 
         /// <summary>Wheel app build 8+: report the two upper paddles (analogue channels 4/5, which stock never sends over
-        /// USB) as the buttons SimPro's map gives logical inputs 24 and 27 (24 and 27 by default; not in clutch mode 2).</summary>
+        /// USB) as buttons UpperPaddleA / UpperPaddleB.</summary>
         public bool UpperPaddles = true;
+
+        /// <summary>Wheel app build 8+: the controller buttons (1-40) for the two upper paddles. 24/27 by default: the clutch
+        /// paddles' button-mode buttons, always free while the clutch paddles are axes. With the clutch paddles in button
+        /// mode, pick two buttons no control uses (a button capture shows which).</summary>
+        public int UpperPaddleA = 24, UpperPaddleB = 27;
 
         /// <summary>The screen's backlight, 5-100 (the plugin sends it on connect, on change and after sleep).</summary>
         public int ScreenBrightness = 100;
@@ -617,10 +622,16 @@ namespace User.FXProRpmSync
             }
             conn = new FxConnection(path);
             sentBrightness = -1; // sent with the first settings pass
-            // Wheel app build 8: where the dash button reports (CTRL+0x168, 0-39) and whether the upper paddles are
-            // sent (CTRL+0x169 bit 0); written before the button mode that enables them. Unused RAM on older builds.
+            // Wheel app build 8: where the dash button reports (CTRL+0x168, 0-39), whether the upper paddles are sent
+            // (CTRL+0x169 bit 0) and as which buttons (CTRL+0x16A/0x16B); written before the button mode that enables
+            // them. Unused RAM on older builds.
             var slot = Math.Max(1, Math.Min(40, S.DashSlot));
-            try { conn.WriteRam(FxConnection.Ctrl + 0x168, new[] { (byte)(slot - 1), (byte)(S.UpperPaddles ? 1 : 0) }); } catch { }
+            byte Out(int button) => (byte)(Math.Max(1, Math.Min(40, button)) - 1);
+            try
+            {
+                conn.WriteRam(FxConnection.Ctrl + 0x168, new[] { Out(slot), (byte)(S.UpperPaddles ? 1 : 0), Out(S.UpperPaddleA), Out(S.UpperPaddleB) });
+            }
+            catch { }
             WheelButtons.DashButton = build >= 8 ? slot : WheelButtons.LegacyDashButton;
             if (build >= 8 && S.WheelButtons != null && S.WheelButtons.TryGetValue("next", out var next) && next == WheelButtons.LegacyDashButton)
                 S.WheelButtons["next"] = slot; // the default binding followed the dash button; on build 8, 40 is a stock control again
