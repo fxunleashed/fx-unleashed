@@ -26,6 +26,7 @@
     <Compile Include="..\..\Ui\*.cs" />
     <EmbeddedResource Include="..\..\assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
     <EmbeddedResource Include="..\..\assets\fxpro-outline.svg" LogicalName="User.FXProRpmSync.fxpro-outline.svg" />
+    <EmbeddedResource Include="..\..\assets\gtneo-outline.svg" LogicalName="User.FXProRpmSync.gtneo-outline.svg" />
     <EmbeddedResource Include="..\..\docs\legal\*.md" LogicalName="User.FXProRpmSync.Legal.%(Filename)%(Extension)" />
     <Reference Include="GameReaderCommon"><HintPath>$(SimHubPath)GameReaderCommon.dll</HintPath></Reference>
     <Reference Include="SimHub.Plugins"><HintPath>$(SimHubPath)SimHub.Plugins.dll</HintPath></Reference>

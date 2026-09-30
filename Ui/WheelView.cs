@@ -14,9 +14,9 @@ using System.Windows.Shapes;
 namespace User.FXProRpmSync
 {
     /// <summary>
-    /// A wheel drawn from the front with its LEDs (WheelModel). The GT Neo is our own schematic drawing: rev bar, 10 button
-    /// lights and four rings of 12 around the encoders, in the order its LEDs are numbered (positions to be checked on the
-    /// wheel). The FX Pro, with all 38 LEDs where they are on the wheel: the outline is traced from
+    /// A wheel drawn from the front with its LEDs (WheelModel). The GT Neo is traced from SimPro's front picture of it
+    /// (assets/gtneo-outline.svg, tools/brand/trace_gtneo.py): its outline and grip openings, rev slats, ring segments and
+    /// buttons measured from the picture's LED cut-outs. The FX Pro, with all 38 LEDs where they are on the wheel: the outline is traced from
     /// Simagic's front photo (assets/fxpro-outline.svg, 663x396), the LED positions measured on the same photo.
     /// Shows an LED frame (colour x brightness, with a glow), optionally a picture in the screen (the dash preview).
     /// LED numbers as the firmware counts them (mapped with a camera): buttons 0-5 left / 6-11 right (see LeftButtons),
@@ -28,7 +28,7 @@ namespace User.FXProRpmSync
         public const double W = 663, H = 396;
         private const double Mid = 331.5;
 
-        private enum Kind { Rev, Side, Button, Encoder, Ring }
+        private enum Kind { Rev, Side, Button, Encoder, Ring, Slat }
 
         // Where each LED is (mapped on the wheel with a camera, 2026-09-27): per side, the lower cluster (outer-high,
         // inner-high, middle, bottom) and the top pair (outer, inner). Left: 0-3 = lower cluster bottom-up, 4 = top outer
@@ -43,8 +43,7 @@ namespace User.FXProRpmSync
             (260.8, 287.6, "ABS"), (402.2, 287.6, "TC"), (Mid, 239.7, "BB"), (251.9, 217.5, "DIFF"), (411.1, 217.5, "MAP"),
         };
 
-        private static Geometry outline;
-        private static readonly Dictionary<int, (Brush Core, Brush Halo, Brush Rim)> brushes = new Dictionary<int, (Brush, Brush, Brush)>();
+                private static readonly Dictionary<int, (Brush Core, Brush Halo, Brush Rim)> brushes = new Dictionary<int, (Brush, Brush, Brush)>();
 
         private readonly Canvas canvas = new Canvas { Width = W, Height = H };
         private readonly Shape[] cores;
@@ -78,7 +77,7 @@ namespace User.FXProRpmSync
             Child = canvas;
             for (int i = 0; i < shown.Length; i++) shown[i] = -1;
 
-            var geo = Model == WheelModel.GtNeo ? NeoOutline() : Outline();
+            var geo = Outline(Model == WheelModel.GtNeo ? "gtneo-outline.svg" : "fxpro-outline.svg");
             if (geo != null)
             {
                 if (glow)
@@ -130,56 +129,50 @@ namespace User.FXProRpmSync
 
         private static double RevX(int i) => Mid - 101 + i * (202.0 / 14);
 
-        // ---------- GT Neo (our own drawing) ----------
+        // ---------- GT Neo ----------
+        // Traced from SimPro's front picture of the wheel by tools/brand/trace_gtneo.py (assets/gtneo-outline.svg), like
+        // the FX Pro's outline. The picture's LEDs are cut-outs, so these positions are measured. Which LED number sits
+        // where follows SimHub's GT Neo layout; the order within each group is still to be checked on the wheel.
 
-        /// <summary>Button lights 0-9: five down each side of the centre panel (left top to bottom, then right).</summary>
-        private static readonly (double X, double Y)[] NeoButtons =
+        /// <summary>Rev slats 58-72, left to right (centres; all at NeoRevY).</summary>
+        private static readonly double[] NeoRevX =
         {
-            (196, 118), (176, 162), (168, 208), (176, 254), (196, 298),
-            (2 * Mid - 196, 118), (2 * Mid - 176, 162), (2 * Mid - 168, 208), (2 * Mid - 176, 254), (2 * Mid - 196, 298),
+            235.6, 248.8, 262.5, 276.6, 290.2, 304.0, 317.9, 332.1, 345.6, 359.5, 373.6, 387.4, 401.5, 415.2, 428.2,
         };
 
-        /// <summary>The four encoders whose rings are LEDs 10-21, 22-33, 34-45, 46-57.</summary>
-        private static readonly (double X, double Y)[] NeoRings = { (266, 176), (266, 266), (2 * Mid - 266, 176), (2 * Mid - 266, 266) };
+        private const double NeoRevY = 92.8;
 
-        private const double NeoRingR = 25;
+        /// <summary>Button lights 0-9: the left grip top to bottom (three along its top, two lower), then the right.</summary>
+        private static readonly (double X, double Y)[] NeoButtons =
+        {
+            (101.1, 51.7), (142.1, 68.3), (167.9, 106.7), (167.7, 197.5), (180.5, 252.3),
+            (562.3, 52.4), (522.0, 68.6), (496.1, 106.8), (496.2, 197.4), (483.7, 252.3),
+        };
+
+        /// <summary>The encoders whose rings are LEDs 10-21, 22-33, 34-45, 46-57: upper left, upper right, lower left, lower right.</summary>
+        private static readonly (double X, double Y)[] NeoRings = { (273.6, 155.8), (391.0, 155.9), (283.1, 274.7), (380.9, 274.6) };
+
+        private const double NeoRingR = 26.6;
 
         private void BuildGtNeo()
         {
-            // centre panel
-            Add(new Rectangle { Width = 250, Height = 250, RadiusX = 26, RadiusY = 26, Fill = Theme.B("#0B0C0F"), Stroke = Theme.B("#2A2E35"), StrokeThickness = 1.5 }, Mid - 125, 92);
-            // rev bar
-            Add(new Rectangle { Width = 300, Height = 26, RadiusX = 13, RadiusY = 13, Fill = Theme.B("#050607"), Stroke = Theme.B("#30343C"), StrokeThickness = 1.5 }, Mid - 150, 44);
-            for (int i = 0; i < 15; i++) Led(58 + i, Kind.Rev, Mid - 133 + i * 19, 57, 5, $"Rev light {i + 1}");
-            // encoders: a knob with its ring of 12 LEDs, the first at the top, clockwise
-            string[] where = { "left, upper", "left, lower", "right, upper", "right, lower" };
+            // the rev bar's housing
+            Add(new Rectangle { Width = 214, Height = 16, RadiusX = 4, RadiusY = 4, Fill = Theme.B("#050607"), Stroke = Theme.B("#30343C"), StrokeThickness = 1 }, 225, NeoRevY - 8);
+            for (int i = 0; i < 15; i++) Led(58 + i, Kind.Slat, NeoRevX[i], NeoRevY, 6, $"Rev light {i + 1}");
+            // encoders: a knob inside its ring of 12 segments, the first at the top, clockwise
+            string[] where = { "upper left", "upper right", "lower left", "lower right" };
             for (int k = 0; k < 4; k++)
             {
                 var (cx, cy) = NeoRings[k];
-                Add(new Ellipse { Width = 34, Height = 34, Fill = KnobFill, Stroke = UnlitRim, StrokeThickness = 2 }, cx - 17, cy - 17);
+                Add(new Ellipse { Width = 36, Height = 36, Fill = KnobFill, Stroke = UnlitRim, StrokeThickness = 2 }, cx - 18, cy - 18);
                 for (int j = 0; j < 12; j++)
                 {
-                    double a = -Math.PI / 2 + j * Math.PI / 6;
-                    Led(10 + 12 * k + j, Kind.Ring, cx + NeoRingR * Math.Cos(a), cy + NeoRingR * Math.Sin(a), 3.4, $"Encoder ring {k + 1} ({where[k]}), light {j + 1}");
+                    double a = -90 + j * 30;
+                    double rad = a * Math.PI / 180;
+                    Led(10 + 12 * k + j, Kind.Ring, cx + NeoRingR * Math.Cos(rad), cy + NeoRingR * Math.Sin(rad), 5, $"Encoder ring {k + 1} ({where[k]}), segment {j + 1}", a + 90);
                 }
             }
-            for (int i = 0; i < 10; i++) Led(i, Kind.Button, NeoButtons[i].X, NeoButtons[i].Y, 12, $"{(i < 5 ? "Left" : "Right")} button {i % 5 + 1}");
-        }
-
-        private static Geometry neoOutline;
-
-        /// <summary>A round GT wheel with a flat bottom and open grips (drawn for this plugin).</summary>
-        private static Geometry NeoOutline()
-        {
-            if (neoOutline != null) return neoOutline;
-            var g = Geometry.Parse("M 331.5,12 C 470,12 590,70 628,170 C 650,232 640,300 606,344 C 590,366 560,380 526,380 L 470,380 " +
-                                   "C 450,380 440,366 440,350 L 440,336 C 440,318 426,306 406,306 L 257,306 C 237,306 223,318 223,336 L 223,350 " +
-                                   "C 223,366 213,380 193,380 L 137,380 C 103,380 73,366 57,344 C 23,300 13,232 35,170 C 73,70 193,12 331.5,12 Z " +
-                                   "M 331.5,40 C 216,40 116,90 84,176 C 66,228 74,282 100,318 C 110,332 126,340 146,340 L 170,340 " +
-                                   "C 184,340 190,332 190,320 L 190,110 C 230,84 280,72 331.5,72 C 383,72 433,84 473,110 L 473,320 " +
-                                   "C 473,332 479,340 493,340 L 517,340 C 537,340 553,332 563,318 C 589,282 597,228 579,176 C 547,90 447,40 331.5,40 Z");
-            g.Freeze();
-            return neoOutline = g;
+            for (int i = 0; i < 10; i++) Led(i, Kind.Button, NeoButtons[i].X, NeoButtons[i].Y, 14, $"{(i < 5 ? "Left" : "Right")} button {i % 5 + 1}");
         }
 
         /// <summary>Rev LED 23 on the right (the plugin's "fill from the right").</summary>
@@ -209,22 +202,26 @@ namespace User.FXProRpmSync
             canvas.Children.Add(e);
         }
 
-        private void Led(int index, Kind kind, double cx, double cy, double r, string name)
+        /// <param name="angle">Ring segments: turned by this many degrees (along the ring).</param>
+        private void Led(int index, Kind kind, double cx, double cy, double r, string name, double angle = 0)
         {
             kinds[index] = kind;
             if (glow)
             {
-                double hr = kind == Kind.Rev || kind == Kind.Side ? r * 3.2 : kind == Kind.Ring ? r * 2.6 : r * 2.1;
+                double hr = kind == Kind.Rev || kind == Kind.Side || kind == Kind.Slat ? r * 3.2 : kind == Kind.Ring ? r * 2.2 : r * 2.1;
                 var halo = new Ellipse { Width = hr * 2, Height = hr * 2, IsHitTestVisible = false, Visibility = Visibility.Hidden };
                 Add(halo, cx - hr, cy - hr);
                 halos[index] = halo;
             }
             Shape core;
             if (kind == Kind.Side) core = new Rectangle { Width = r * 1.6, Height = r * 2.6, RadiusX = 2, RadiusY = 2 };
+            else if (kind == Kind.Slat) core = new Rectangle { Width = r * 2, Height = r, RadiusX = 1.5, RadiusY = 1.5 };
+            else if (kind == Kind.Ring)
+                core = new Rectangle { Width = r * 2.1, Height = r, RadiusX = 1.5, RadiusY = 1.5, RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new RotateTransform(angle) };
             else core = new Ellipse { Width = r * 2, Height = r * 2 };
             core.Fill = kind == Kind.Encoder ? KnobFill : Unlit;
             core.Stroke = UnlitRim;
-            core.StrokeThickness = kind == Kind.Encoder ? 3.5 : kind == Kind.Button ? 2 : kind == Kind.Ring ? 0.6 : 1;
+            core.StrokeThickness = kind == Kind.Encoder ? 3.5 : kind == Kind.Button ? 2 : kind == Kind.Ring || kind == Kind.Slat ? 0.6 : 1;
             core.ToolTip = name + $"  (LED {index})";
             core.Cursor = Cursors.Hand;
             core.MouseLeftButtonUp += (s, e) => LedClicked?.Invoke(index);
@@ -296,22 +293,28 @@ namespace User.FXProRpmSync
             }
         }
 
-        /// <summary>The outline from the embedded SVG's path (M/L points).</summary>
-        private static Geometry Outline()
+        private static readonly Dictionary<string, Geometry> outlines = new Dictionary<string, Geometry>();
+
+        /// <summary>A wheel's outline from its embedded SVG's path (M/L points; several subpaths = openings, even-odd).</summary>
+        private static Geometry Outline(string resource)
         {
-            if (outline != null) return outline;
-            try
+            lock (outlines)
             {
-                using (var s = typeof(WheelView).Assembly.GetManifestResourceStream("User.FXProRpmSync.fxpro-outline.svg"))
-                using (var r = new StreamReader(s))
+                if (outlines.TryGetValue(resource, out var cached)) return cached;
+                Geometry g = null;
+                try
                 {
-                    var m = Regex.Match(r.ReadToEnd(), "\\sd=\"([^\"]+)\"");
-                    var g = Geometry.Parse(m.Groups[1].Value + (m.Groups[1].Value.TrimEnd().EndsWith("Z") ? "" : " Z"));
-                    g.Freeze();
-                    return outline = g;
+                    using (var st = typeof(WheelView).Assembly.GetManifestResourceStream("User.FXProRpmSync." + resource))
+                    using (var r = new StreamReader(st))
+                    {
+                        var m = Regex.Match(r.ReadToEnd(), "\\sd=\"([^\"]+)\"");
+                        g = Geometry.Parse(m.Groups[1].Value + (m.Groups[1].Value.TrimEnd().EndsWith("Z") ? "" : " Z"));
+                        g.Freeze();
+                    }
                 }
+                catch { }
+                return outlines[resource] = g;
             }
-            catch { return null; }
         }
 
         /// <summary>The LEDs of a group on this wheel, in the engine's order.</summary>

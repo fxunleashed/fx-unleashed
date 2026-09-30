@@ -207,8 +207,10 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
   (`Usb/SimHubDevices.cs`: SimHub's `DevicesPlugin`, `DeviceInstance.Enabled`, then `DevicesPlugin.SaveSettings`). With
   "SimHub's GT Neo device" as the source the plugin sends no LED frames.
 - **Buttons:** report 01, bits in bytes 3-7, as on the FX Pro (`WheelButtons` reads the active wheel's device).
-- **Drawing:** our own schematic (`WheelView.BuildGtNeo`); where each button light and ring sits is still to be checked
-  on the wheel.
+- **Drawing:** traced from SimPro's front picture of the GT Neo (`tools/brand/trace_gtneo.py` -> `assets/gtneo-outline.svg`,
+  positions in `WheelView.BuildGtNeo`), like the FX Pro's. The picture's LEDs are transparent cut-outs, so the rev slats,
+  ring segments and buttons are measured. Still to check on the wheel: which LED number is which button, which ring
+  is which (10/22/34/46 drawn upper left, upper right, lower left, lower right), and where each ring starts.
 - **Not yet tried on the wheel:** the plugin driving it (presets, alerts, sleep), the SimHub device switch, button
   bindings. Offline checks: `tools/UsbTest` `features` ("GT Neo ..."), `UI_WHEEL=gtneo UsbTest.exe OUT ui`.
 
