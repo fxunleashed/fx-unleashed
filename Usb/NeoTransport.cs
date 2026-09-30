@@ -82,20 +82,23 @@ namespace User.FXProRpmSync
 
     /// <summary>
     /// The GT Neo's LEDs through its stock host RGB command. Colours are scaled by brightness on the PC (the wheel has
-    /// one brightness for all, set in SimPro). Only LEDs that changed are sent, 13 per report, and at least one report
-    /// every 2 s keeps the wheel from taking its LEDs back (it does after 5 s).
+    /// one brightness for all, set in SimPro). Only LEDs that changed are sent, 13 per report. Every second the link
+    /// sends "host mode on" again and the whole frame: anything else that talks to the wheel (SimHub's own GT Neo device
+    /// sends `EC 02 00` when it's switched off, after which the wheel ignores every `EC 03`) or leaves its colours behind
+    /// is overruled within a second. That refresh also keeps the wheel from taking its LEDs back (it does after 5 s).
     /// </summary>
     internal sealed class NeoLedLink : ILedLink, IDisposable
     {
         public const int LedCount = 73;
         public const int PerReport = 13;
-        public static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(2);
+        /// <summary>How often "host mode on" and the whole frame go out again.</summary>
+        public static readonly TimeSpan Refresh = TimeSpan.FromSeconds(1);
 
         /// <summary>Sends one feature report (64 bytes, id F0 first). Swapped for a fake in the offline tests.</summary>
         private readonly Func<byte[], bool> write;
         private readonly IDisposable handle;
         private readonly int[] sent = new int[LedCount];
-        private DateTime lastWrite = DateTime.MinValue;
+        private DateTime lastRefresh = DateTime.MinValue;
         private readonly Func<DateTime> clock;
 
         public NeoLedLink(string path)
@@ -128,13 +131,13 @@ namespace User.FXProRpmSync
         private void Write(byte[] r)
         {
             if (!write(r)) throw new Exception("the GT Neo didn't take a report (" + Marshal.GetLastWin32Error() + ")");
-            lastWrite = clock();
         }
 
         public void Enable()
         {
             var r = Report(2); r[8] = 1;
             Write(r);
+            lastRefresh = clock();
             Forget(); // the first frame goes out whole
         }
 
@@ -147,6 +150,14 @@ namespace User.FXProRpmSync
 
         public void Send(LedColor[] frame, byte ceiling)
         {
+            if (clock() - lastRefresh >= Refresh)
+            {
+                // host mode on again (something may have switched it off) and every LED again (something may have changed them)
+                var on = Report(2); on[8] = 1;
+                Write(on);
+                lastRefresh = clock();
+                Forget();
+            }
             var changed = new List<(int Id, int Rgb)>();
             for (int i = 0; i < LedCount; i++)
             {
@@ -154,8 +165,6 @@ namespace User.FXProRpmSync
                 int rgb = Scale(c, ceiling);
                 if (rgb != sent[i]) changed.Add((i, rgb));
             }
-            // nothing changed: a keepalive now and then (the first LED again) so the wheel keeps the LEDs ours
-            if (changed.Count == 0 && clock() - lastWrite >= KeepAlive) changed.Add((0, Math.Max(0, sent[0])));
             for (int start = 0; start < changed.Count; start += PerReport)
             {
                 var r = Report(3);

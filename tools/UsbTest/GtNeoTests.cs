@@ -113,9 +113,10 @@ static class GtNeoTests
         reports.Clear();
         link.Send(frame, 90);
         Check("GT Neo link: nothing sent when nothing changed", reports.Count == 0);
-        now = now.AddSeconds(2.1);
+        now = now.AddSeconds(1.1);
         link.Send(frame, 90);
-        Check("GT Neo link: a keepalive every 2 s (under the wheel's 5 s)", reports.Count == 1 && reports[0][8] == 1);
+        Check("GT Neo link: every second, host mode on again and the whole frame (SimHub's device switches host mode off when it stops)",
+              reports.Count == 7 && reports[0][7] == 2 && reports[0][8] == 1 && reports.Skip(1).Sum(r => r[8]) == 73);
 
         reports.Clear();
         frame[40] = new LedColor(255, 0, 0, 90);

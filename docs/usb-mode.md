@@ -194,7 +194,9 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
 - **LEDs** (`Usb/NeoTransport.cs`, same order as SimHub's own GT Neo driver): 73, ids 0-9 button lights, 10-57 four
   rings of 12 around the encoders (10, 22, 34, 46 first), 58-72 rev lights left to right. Feature report `F0`, 64
   bytes, byte 6 `EC`: `EC 02 01/00` takes/releases the LEDs, `EC 03 n` + n x (id, R, G, B), 13 per report. Only
-  changed LEDs are sent, plus a keepalive every 2 s (the wheel takes its LEDs back after 5 s without an `EC` packet).
+  changed LEDs are sent; every second "host mode on" and the whole frame go out again. That overrules SimHub's own GT
+  Neo device, which sends `EC 02 00` when it's switched off (the wheel then ignores `EC 03` until the next `EC 02 01`;
+  seen 2026-09-29), and keeps the wheel from taking its LEDs back (it does after 5 s without an `EC` packet).
   Brightness is applied on the PC; the wheel also scales by its own brightness from SimPro (SimHub asks for 100%
   there). Never sent: `F0 [6]=00 [7]=CA` (hangs the wheel) or `F1` (update).
 - **Effects** run per segment: each ring on its own, so rainbows and chasers go round the rings. Presets:
