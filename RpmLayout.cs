@@ -192,7 +192,7 @@ namespace User.FXProRpmSync
         public GearCurve Clone() => new GearCurve { Rpm = (int[])Rpm.Clone(), FlashRpm = FlashRpm };
     }
 
-    public enum OverrideKind { Offset, Custom, Pattern }
+    public enum OverrideKind { Offset, Custom, Pattern, Calibrated }
 
     /// <summary>A saved per-car adjustment, keyed by "Game | CarId".</summary>
     public class CarOverride
@@ -206,6 +206,8 @@ namespace User.FXProRpmSync
         public RpmLayout Custom;
         /// <summary>For Pattern overrides: the pattern/colors to use instead of the car's own lights.</summary>
         public FallbackStyle Style;
+        /// <summary>Calibrated: the measured best upshift per gear ("1", "2", ...; ShiftCalibrator).</summary>
+        public Dictionary<string, int> ShiftByGear;
         public DateTime UpdatedUtc = DateTime.UtcNow;
 
         /// <param name="baseLayout">The car's own lights (database or fallback); null when unknown.</param>
@@ -219,6 +221,8 @@ namespace User.FXProRpmSync
                 case OverrideKind.Pattern when Style != null && baseLayout != null:
                     // Same shift point as the car's own lights, different look.
                     return RpmLightsMapper.FromStyle(Style, presetTemplate, baseLayout.ShiftRpm);
+                case OverrideKind.Calibrated when ShiftByGear != null && ShiftByGear.Count > 0 && baseLayout != null:
+                    return Calibrate(baseLayout, ShiftByGear);
                 default:
                     return baseLayout?.Offset(OffsetRpm);
             }
@@ -234,6 +238,8 @@ namespace User.FXProRpmSync
                         return $"Custom lights, shift at {Custom.ShiftRpm} rpm";
                     case OverrideKind.Pattern when Style != null:
                         return "Pattern: " + LedPatterns.Catalog.First(c => c.Kind == Style.Pattern).Title;
+                    case OverrideKind.Calibrated when ShiftByGear != null && ShiftByGear.Count > 0:
+                        return "Calibrated shift points: " + string.Join(", ", ShiftByGear.OrderBy(g => g.Key).Select(g => $"{g.Key}→ {g.Value}"));
                     default:
                         return OffsetRpm == 0 ? "Offset 0 rpm (no change)" : $"Offset {OffsetRpm:+0;-0} rpm";
                 }
@@ -245,7 +251,34 @@ namespace User.FXProRpmSync
             var c = (CarOverride)MemberwiseClone();
             c.Custom = Custom?.Clone();
             c.Style = Style?.Clone();
+            c.ShiftByGear = ShiftByGear == null ? null : new Dictionary<string, int>(ShiftByGear);
             return c;
+        }
+
+        /// <summary>
+        /// The car's own lights moved gear by gear so each gear's shift point (the flash, or the last light) lands on the
+        /// measured one; the pattern's spacing stays the car's. Gears without a measurement take the nearest measured
+        /// gear's move (the top gear the one below it; R and N first gear's); the default curve the middle one.
+        /// </summary>
+        public static RpmLayout Calibrate(RpmLayout baseLayout, Dictionary<string, int> shiftByGear)
+        {
+            var measured = shiftByGear.Where(kv => int.TryParse(kv.Key, out _)).ToDictionary(kv => int.Parse(kv.Key), kv => kv.Value);
+            if (measured.Count == 0) return baseLayout.Clone();
+            int Move(string gear)
+            {
+                int n = int.TryParse(gear, out var g) ? g : 1;
+                int nearest = measured.Keys.OrderBy(k => Math.Abs(k - n)).ThenByDescending(k => k).First();
+                return measured[nearest] - baseLayout.ForGear(gear).ShiftRpm;
+            }
+            var moves = measured.Keys.OrderBy(k => k).Select(k => Move(k.ToString(System.Globalization.CultureInfo.InvariantCulture))).ToList();
+            var result = baseLayout.Offset(moves[moves.Count / 2]);
+            result.Gears = new Dictionary<string, GearCurve>();
+            foreach (var gear in RpmLightsMapper.SimProGears)
+            {
+                var one = baseLayout.ForGear(gear).Offset(Move(gear));
+                result.Gears[gear] = new GearCurve { Rpm = one.Rpm, FlashRpm = one.FlashRpm };
+            }
+            return result;
         }
     }
 }

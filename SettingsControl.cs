@@ -285,6 +285,7 @@ namespace User.FXProRpmSync
         private FrameworkElement CarTuning()
         {
             var p = new StackPanel();
+            p.Children.Add(new CalibrationCard(plugin));
             p.Children.Add(new BaseCard(plugin));
             p.Children.Add(Wrap(new OverridesSection(plugin)));
             return p;

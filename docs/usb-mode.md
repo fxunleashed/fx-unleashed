@@ -178,6 +178,24 @@ Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, 
 - If SimHub dies: the screen returns to the wheel within a second (keepalive gate) but stays on page 0 until the next
   page change; the LEDs stay in all-LEDs mode until a power cycle.
 
+## Auto calibration (shift points)
+
+Added 2026-09-29. Car tuning > "Find this car's shift points" (`ShiftCalibrator.cs`, `Ui/CalibrationCard.cs`; both
+modes, any wheel). Not learned from when the driver shifts (that learns habits, or the lights' own point back): from
+the car's telemetry while calibrating (DataUpdate, flat out = throttle ≥ 95%, no brake or clutch, 0.3 s after a
+shift):
+- each gear's ratio (RPM per km/h) and its pull (m/s², from speed over 0.25 s) in 100-RPM buckets; the limiter = the
+  highest RPM at full throttle;
+- the best upshift from gear g: where the next gear, at the RPM it lands on (x ratio), pulls harder. Measured directly
+  where the next gear has data there; otherwise from the engine's torque curve (pull ÷ ratio, each RPM from the lowest
+  gear that covered it), comparing both gears' force at the same speed so air resistance drops out. Flat-out pulls
+  only enter a gear partway up its revs, so for gears above first this is the usual way. No crossing before the
+  limiter = shift at the limiter;
+- Apply saves a `Calibrated` override (`CarOverride.ShiftByGear`): the car's own light pattern moved per gear so it
+  flashes at the measured point (spacing kept); unmeasured gears take the nearest measured one.
+- Checked against a simulated car (`tools/UsbTest/CalibrationTests.cs`): within 80 RPM of the physics answer.
+- It finds the fastest shift point, which isn't always where a game's own dash flashes (some flash at the limiter).
+
 ## GT Neo
 
 Added 2026-09-29 (plan and decisions: [gt-neo-plan.md](gt-neo-plan.md)). The GT Neo has no screen and needs no

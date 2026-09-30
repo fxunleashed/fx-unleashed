@@ -178,6 +178,53 @@ namespace User.FXProRpmSync
         internal UsbController Usb { get; private set; }
         /// <summary>The active wheel's buttons read directly (bindings for next/previous dash, sleep).</summary>
         internal WheelButtons Buttons { get; private set; }
+        /// <summary>
+        /// Auto calibration of the current car's shift points (ShiftCalibrator): fed from DataUpdate while on, for the car
+        /// it was started on (another car stops it). The Car tuning tab shows it and applies the result as an override.
+        /// </summary>
+        internal ShiftCalibrator Calibrator { get; private set; }
+        internal string CalibratingCar { get; private set; }
+        private readonly System.Diagnostics.Stopwatch calibrationClock = System.Diagnostics.Stopwatch.StartNew();
+
+        public void StartCalibration()
+        {
+            if (CurrentCarKey == null) return;
+            Calibrator = new ShiftCalibrator();
+            CalibratingCar = CurrentCarKey;
+            SimHub.Logging.Current.Info("[FXProRpmSync] calibrating shift points: " + CurrentCarKey);
+        }
+
+        public void StopCalibration() { Calibrator = null; CalibratingCar = null; }
+
+        /// <summary>Saves the measured shift points as the car's override (replacing any other kind).</summary>
+        public bool ApplyCalibration()
+        {
+            var c = Calibrator;
+            var key = CalibratingCar;
+            var shifts = c?.ShiftByGear();
+            if (key == null || shifts == null || shifts.Count == 0) return false;
+            var o = GetOverride(key) ?? NewOverrideForCurrentCar(OverrideKind.Calibrated);
+            if (o == null) return false;
+            o.Kind = OverrideKind.Calibrated;
+            o.ShiftByGear = shifts;
+            SaveOverride(o);
+            SimHub.Logging.Current.Info("[FXProRpmSync] calibrated " + key + ": " + o.Summary);
+            return true;
+        }
+
+        private void FeedCalibration(GameData data)
+        {
+            var c = Calibrator;
+            if (c == null || data?.NewData == null || !data.GameRunning) return;
+            if (CurrentCarKey != CalibratingCar) { StopCalibration(); return; } // another car
+            var d = data.NewData;
+            c.Add(new ShiftCalibrator.Sample
+            {
+                Time = calibrationClock.Elapsed.TotalSeconds, Gear = SimHubFeedMapper.ParseGear(d.Gear), Rpm = d.Rpms, SpeedKmh = d.SpeedKmh,
+                Throttle = d.Throttle, Brake = d.Brake, Clutch = d.Clutch,
+            });
+        }
+
         /// <summary>Which wheels are connected (their own USB, or SimPro listing them on the base), every 2 s.</summary>
         internal WheelDetector Detector { get; private set; }
         private long lastUsbPublishTicks, lastAtsrTicks, lastFormulaTicks, lastWheelTeleTicks;
@@ -373,6 +420,7 @@ namespace User.FXProRpmSync
         {
             if (InitError != null) return;
             if (feedOn) WriteFeed(pluginManager, data);
+            if (Calibrator != null) try { FeedCalibration(data); } catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] calibration: " + ex.Message); }
             if (Settings.Usb.Enabled && Usb != null && DateTime.UtcNow.Ticks - lastUsbPublishTicks >= TimeSpan.FromMilliseconds(30).Ticks)
             {
                 lastUsbPublishTicks = DateTime.UtcNow.Ticks;
