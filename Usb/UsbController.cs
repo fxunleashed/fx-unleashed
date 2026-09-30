@@ -972,6 +972,7 @@ namespace User.FXProRpmSync
                     bool parked = st == CarState.Idle || st == CarState.Menu || st == CarState.EngineOff;
                     var moment = LightMoment.Of(parked && now < previewLightsUntil ? CarState.Driving : st, carState.Progress(now), plugin.LimiterFor(plugin.DashCarKey));
                     frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev, moment);
+                    LightsState += " · " + CarStateTracker.Name(moment.State).ToLowerInvariant();
                 }
                 if (s.PressLights && !frameSleeping && !TestingLeds) frame = PressOverlay(frame, s);
                 // every frame passes here (presets, ATSR-Hub, alerts, idle, tests, the API), so the ceiling holds for all

@@ -1,6 +1,25 @@
 # Lights that know what the car is doing: plan
 
-Written 2026-09-29. Status: **proposal, nothing built.** Both wheels (FX Pro and GT Neo).
+Written 2026-09-29. Status: **built 2026-09-29** (steps 1-5 and 7, plus per-car pit limiter lights and six new
+presets per wheel); step 6 (GT Neo ring gauges) not yet. Not yet tried on a wheel in a game. Both wheels.
+
+**As built:**
+- `Usb/LightStates.cs`: `CarStateTracker` (engine on = `EngineStarted` or revs above 300, debounced 0.4 s; start-up
+  1.6 s, shutdown 1.4 s; joining with the engine running goes straight to Driving), `StateLook`, `StartupStyle`
+  (Sweep, SelfTest, Ignite), `ShutdownStyle` (Fade, Collapse), `LimiterLook` (Alternate, Ends, Blink, Sweep, Chase,
+  CentreFill, Checker, Solid; colours, speed, whole wheel), `LightMoment`.
+- `LightEngine.Render(..., LightMoment)`: theme with the state's look, rev bar (shift lights, optional `RevTint`), pit
+  limiter, start-up / shutdown, alerts on top (the old pit limiter alert gives way to the limiter lights). New effects:
+  Comet, Heartbeat, Fire, Twinkle, Ripple, Plasma, Strobe (deterministic); `GroupLighting.Stagger`.
+- **Pit limiter per car:** no sim publishes it, so it's saved per car (`UsbSettings.CarLimiters`, "Game | CarId", the
+  same on both wheels) from the Lights tab card "Pit limiter lights for this car": pick, preview (and see it on the
+  wheel in the pit lane), **Save for this car**. A car's own comes before the preset's.
+- **Presets:** Prism replaced (saved choices move to Full Rainbow). New on both wheels: Neon Tokyo (the new default),
+  Hyperspace, Le Mans Night, Inferno, Abyss, Heartbeat (resting 40 bpm when idle, 80 driving). Every built-in has
+  idle / engine-off looks, a start-up, a shutdown and limiter lights; rev colours stay standard.
+- Lights tab: "Preview as" chips (every state, on the big wheel and every preset tile); your own lights edit the
+  parked looks, start/stop, limiter and rev tint. The USB loop previews a newly picked preset for 3 s while parked.
+- Tests: `tools/UsbTest/LightStateTests.cs`.
 
 ## What ATSR-Hub does (studied from its GT-Neo profile, V3.5.0)
 

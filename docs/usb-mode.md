@@ -69,6 +69,11 @@ formula bindings). Designing, importing SimHub dashes, the HTTP API and `fxdash`
 
 ## Lights
 
+**Per car state** (2026-09-29, [light-states-plan.md](light-states-plan.md)): the lights follow what the car is
+doing (no game, menu, engine off, engine start, driving, pit limiter, engine stop). Each preset has its own look when
+parked, a start-up and shutdown animation, and pit limiter lights; a car's own pit limiter lights can be saved from the
+Lights tab ("Pit limiter lights for this car", `UsbSettings.CarLimiters`). The Lights tab previews every state.
+
 LED numbering (the firmware's renderer order), **mapped with a camera on the wheel (2026-09-27)**, as the driver sees it:
 
 | LEDs | Where |

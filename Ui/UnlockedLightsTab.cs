@@ -43,6 +43,16 @@ namespace User.FXProRpmSync
         private bool loading;
         private readonly LightsForCarPanel perCar;
 
+        // the state the previews play (docs/light-states-plan.md); Driving shows the wheel's own frame while it's driven
+        private CarState previewState = CarState.Driving;
+        private WrapPanel stateChips;
+        private static readonly CarState[] PreviewStates =
+            { CarState.Driving, CarState.PitLimiter, CarState.Starting, CarState.Idle, CarState.Menu, CarState.EngineOff, CarState.Stopping };
+        // the per-car pit limiter card: what's being set up, shown on the previews while it's edited
+        private LimiterLook carLimiterDraft;
+        private StackPanel carLimiterPanel;
+        private CarState lookState = CarState.Idle;
+
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private readonly DispatcherTimer frameTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         private readonly DispatcherTimer slowTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -155,6 +165,10 @@ namespace User.FXProRpmSync
             side.Children.Add(bigName);
             bigText = Theme.Note("", new Thickness(0, 6, 0, 14));
             side.Children.Add(bigText);
+            side.Children.Add(Theme.Eyebrow("Preview as"));
+            stateChips = new WrapPanel { Margin = new Thickness(0, 2, 0, 12) };
+            side.Children.Add(stateChips);
+            BuildStateChips();
             nameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
             nameBox = new TextBox { Width = 240 };
             nameBox.LostFocus += (s, e) => Rename();
@@ -184,6 +198,11 @@ namespace User.FXProRpmSync
             builtIn.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 14, 0, 16) });
             builtIn.Children.Add(perCar = new LightsForCarPanel(plugin));
             Children.Add(Theme.CardBox(builtIn));
+
+            // ----- Pit limiter lights for this car (no sim publishes them, so they're set up here once) -----
+            carLimiterPanel = new StackPanel();
+            Children.Add(Theme.CardBox(carLimiterPanel));
+            BuildCarLimiter();
 
             // ----- Editor (your own) -----
             editor = new StackPanel();
@@ -259,8 +278,12 @@ namespace User.FXProRpmSync
             RefreshState();
         }
 
+        private string limiterCar = "";
+
         private void RefreshState()
         {
+            // the per-car limiter card follows the car being driven (not while something is being edited)
+            if (carLimiterDraft == null && (plugin.DashCarKey ?? "") != limiterCar) { limiterCar = plugin.DashCarKey ?? ""; BuildCarLimiter(); }
             var u = Usb;
             liveNote.Text = !S.LightsEnabled ? "The wheel shows SimPro's lights."
                           : u?.Active == true ? "On the wheel now: " + u.LightsState + "."
@@ -390,8 +413,9 @@ namespace User.FXProRpmSync
         {
             double t = clock.Elapsed.TotalSeconds;
             var sim = SimLap.Values(t);
-            var live = Usb?.Active == true && S.LightsEnabled ? Usb.LastFrame : null;
-            big.Show(live ?? bigEngine.Render(S.ActiveLights, sim, null, t, false));
+            var live = previewState == CarState.Driving && carLimiterDraft == null && Usb?.Active == true && S.LightsEnabled ? Usb.LastFrame : null;
+            var (pv, moment) = PreviewMoment(t, sim);
+            big.Show(live ?? bigEngine.Render(S.ActiveLights, pv, null, t, false, moment));
             // the pattern previews: a sweep up to the shift point in the preset's colours
             bool blinkOn = (int)(t * 8) % 2 == 0;
             foreach (var (strip, kind, rev) in patternStrips)
@@ -405,8 +429,117 @@ namespace User.FXProRpmSync
             foreach (var (id, _, view, engine) in presets)
             {
                 var p = S.UserLights.FirstOrDefault(x => x.Id == id) ?? LightPresets.Find(id);
-                view.Show(p == null ? null : engine.Render(p, sim, null, t, false));
+                view.Show(p == null ? null : engine.Render(p, pv, null, t, false, moment));
             }
+        }
+
+        /// <summary>The simulated values and moment for the state being previewed (the start-up and shutdown loop).</summary>
+        private (DashValues, LightMoment) PreviewMoment(double t, DashValues sim)
+        {
+            var state = carLimiterDraft != null ? CarState.PitLimiter : previewState;
+            double progress = 0;
+            if (state == CarState.Starting || state == CarState.Stopping)
+            {
+                // play it, hold the end for a moment, again
+                double len = state == CarState.Starting ? CarStateTracker.StartSeconds : CarStateTracker.StopSeconds;
+                progress = Math.Min(1, t % (len + 1.2) / len);
+            }
+            DashValues v = sim;
+            if (state == CarState.Idle) v = new DashValues();
+            else if (state == CarState.Menu || state == CarState.EngineOff) { v = SimLap.Values(0); v.Rpm = 0; v.AbsActive = v.TcActive = v.SpotterLeft = v.SpotterRight = false; v.InMenu = state == CarState.Menu; }
+            else if (state == CarState.PitLimiter) { v.Rpm = 3400; v.PitLimiter = true; v.AbsActive = v.TcActive = false; }
+            else if (state == CarState.Starting) v.Rpm = 900;
+            return (v, LightMoment.Of(state, progress, carLimiterDraft ?? plugin.LimiterFor(plugin.DashCarKey)));
+        }
+
+        private void BuildStateChips()
+        {
+            stateChips.Children.Clear();
+            foreach (var st in PreviewStates)
+            {
+                var ss = st;
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 3, 10, 4), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand,
+                    BorderThickness = new Thickness(1), BorderBrush = st == previewState ? Theme.Red : Theme.Line2, Background = st == previewState ? Theme.RedWash : Theme.Raised,
+                    Child = new TextBlock { Text = CarStateTracker.Name(st), FontSize = 11.5, Foreground = st == previewState ? Theme.Text : Theme.Text2 },
+                };
+                chip.MouseLeftButtonUp += (s2, e2) =>
+                {
+                    previewState = ss;
+                    if (ss == CarState.Idle || ss == CarState.Menu || ss == CarState.EngineOff) lookState = ss;
+                    BuildStateChips();
+                    if (Mine != null) ShowEditor();
+                };
+                stateChips.Children.Add(chip);
+            }
+        }
+
+        // ---------- Pit limiter lights per car ----------
+
+        private void BuildCarLimiter()
+        {
+            var panel = carLimiterPanel;
+            panel.Children.Clear();
+            panel.Children.Add(Theme.Eyebrow("Pit limiter lights for this car"));
+            string key = plugin.DashCarKey, name = plugin.CurrentCarNameForDash;
+            panel.Children.Add(Theme.Note("No sim tells us what a car's own dash does with the pit limiter on, so set it up once for the cars you know: " +
+                "pick the pattern and colours, check it on the wheel above (and on the real wheel in the pit lane), then save it for the car. " +
+                "Cars without their own use the light preset's. The same on both wheels."));
+            var saved = plugin.LimiterFor(key);
+            if (key == null)
+                panel.Children.Add(new TextBlock { Text = "Start a game to set up the car you're driving.", Foreground = Theme.Text2, Margin = new Thickness(0, 4, 0, 10) });
+            else
+            {
+                var look = carLimiterDraft ?? (saved ?? S.ActiveLights.Limiter ?? new LimiterLook()).Clone();
+                panel.Children.Add(Theme.Title((name ?? key) + (saved != null ? "  ·  saved" : ""), 16));
+                panel.Children.Add(new Border { Height = 8 });
+                panel.Children.Add(LimiterEditor(look, () => { carLimiterDraft = look; }));
+                var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 6) };
+                row.Children.Add(Theme.Btn("Save for this car", () => { plugin.SetCarLimiter(key, look); carLimiterDraft = null; BuildCarLimiter(); }, primary: true));
+                if (carLimiterDraft != null) row.Children.Add(Theme.Btn("Undo changes", () => { carLimiterDraft = null; BuildCarLimiter(); }));
+                if (saved != null) row.Children.Add(Theme.Btn("Remove this car's", () => { plugin.SetCarLimiter(key, null); carLimiterDraft = null; BuildCarLimiter(); }));
+                panel.Children.Add(row);
+                panel.Children.Add(Theme.Note(carLimiterDraft != null ? "The previews above show it while you edit." : "Change anything above to preview it."));
+            }
+            var all = S.CarLimiters ?? new Dictionary<string, LimiterLook>();
+            if (all.Count > 0)
+            {
+                var list = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+                foreach (var kv in all.OrderBy(k => k.Key))
+                {
+                    var carKey = kv.Key;
+                    var line = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+                    var remove = Theme.Btn("Remove", () => { plugin.SetCarLimiter(carKey, null); BuildCarLimiter(); });
+                    DockPanel.SetDock(remove, Dock.Right);
+                    line.Children.Add(remove);
+                    line.Children.Add(new TextBlock { Text = carKey + "  ·  " + LimiterLook.StyleName(kv.Value.Style), Foreground = Theme.Text2, VerticalAlignment = VerticalAlignment.Center });
+                    list.Children.Add(line);
+                }
+                panel.Children.Add(new Expander { Header = $"Every car with its own ({all.Count})", Content = list, Margin = new Thickness(0, 6, 0, 0) });
+            }
+        }
+
+        /// <summary>Style, colours, speed and "whole wheel" for a limiter look; `changed` after each edit.</summary>
+        private FrameworkElement LimiterEditor(LimiterLook look, Action changed)
+        {
+            var box = new StackPanel();
+            var style = new ComboBox { Width = 240 };
+            foreach (LimiterStyle st in Enum.GetValues(typeof(LimiterStyle))) style.Items.Add(new ComboBoxItem { Content = LimiterLook.StyleName(st), Tag = st });
+            style.SelectedItem = style.Items.Cast<ComboBoxItem>().First(i => (LimiterStyle)i.Tag == look.Style);
+            style.SelectionChanged += (s2, e2) => { if (style.SelectedItem is ComboBoxItem i) { look.Style = (LimiterStyle)i.Tag; changed(); } };
+            box.Children.Add(Theme.Field("Pattern", style));
+            if (look.Colors == null || look.Colors.Count == 0) look.Colors = new List<string> { "#0040FF", "#000000" };
+            if (look.Colors.Count < 2) look.Colors.Add("#000000");
+            var cols = new WrapPanel();
+            cols.Children.Add(new ColourField(look.Colors[0], hex => { look.Colors[0] = hex; changed(); }) { Margin = new Thickness(0, 0, 10, 4) });
+            cols.Children.Add(new ColourField(look.Colors[1], hex => { look.Colors[1] = hex; changed(); }) { Margin = new Thickness(0, 0, 10, 4), ToolTip = "The second colour (halves / chequered). Black = dark." });
+            box.Children.Add(Theme.Field("Colours", cols));
+            box.Children.Add(Theme.Field("Speed", Theme.SliderField(0.5, 8, look.Hz, 0.1, v => $"{v:0.0} per second", v => { look.Hz = v; changed(); })));
+            var whole = Theme.Switch("Over the whole wheel, not just the rev bar", look.WholeWheel, v => { look.WholeWheel = v; changed(); });
+            whole.Margin = new Thickness(170, 0, 0, 8);
+            box.Children.Add(whole);
+            return box;
         }
 
         // ---------- Editor ----------
@@ -477,6 +610,8 @@ namespace User.FXProRpmSync
             // Global brightness + alerts
             groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 10, 0, 16) });
             groupEditor.Children.Add(Theme.Field("All lights", Theme.SliderField(1, 90, p.MaxBrightness, 1, v => $"{v:0} / 90", v => { if (!loading) { p.MaxBrightness = (int)v; Changed(); } })));
+            BuildStateEditor(p);
+            groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 10, 0, 16) });
             groupEditor.Children.Add(Theme.Eyebrow("Alerts"));
             groupEditor.Children.Add(Theme.Note("While one is on, its lights show it over everything else. Higher in the list wins a light: use the arrows to reorder."));
             if (p.AddMissingAlerts()) { saveTimer.Stop(); saveTimer.Start(); } // alerts added since these lights were saved
@@ -495,6 +630,84 @@ namespace User.FXProRpmSync
         }
 
         private StackPanel alertList;
+
+        /// <summary>
+        /// Your own lights per car state: how they look with no game, in a menu, with the engine off; the engine start and
+        /// stop animations; the pit limiter lights; the rev bar tint while driving.
+        /// </summary>
+        private void BuildStateEditor(LightProfile p)
+        {
+            groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 10, 0, 16) });
+            groupEditor.Children.Add(Theme.Eyebrow("When the car isn't driving"));
+            groupEditor.Children.Add(Theme.Note("Pick the moment; the preview above plays it."));
+            var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+            foreach (var st in new[] { CarState.Idle, CarState.Menu, CarState.EngineOff })
+            {
+                var ss = st;
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 5, 14, 6), Margin = new Thickness(0, 0, 8, 8), Cursor = Cursors.Hand,
+                    BorderThickness = new Thickness(1), BorderBrush = st == lookState ? Theme.Red : Theme.Line2, Background = st == lookState ? Theme.RedWash : Theme.Raised,
+                    Child = new TextBlock { Text = CarStateTracker.Name(st), FontFamily = Theme.Display, FontSize = 13, Foreground = st == lookState ? Theme.Text : Theme.Text2 },
+                };
+                chip.MouseLeftButtonUp += (s2, e2) => { lookState = ss; previewState = ss; BuildStateChips(); ShowEditor(); };
+                chips.Children.Add(chip);
+            }
+            groupEditor.Children.Add(chips);
+
+            // edits go into the profile's own look for the state (created from the default on the first change)
+            StateLook Look() { if (p.Looks == null) p.Looks = new Dictionary<CarState, StateLook>(); if (!p.Looks.TryGetValue(lookState, out var l) || l == null) p.Looks[lookState] = l = p.LookFor(lookState).Clone(); return l; }
+            var look = p.LookFor(lookState);
+            groupEditor.Children.Add(Theme.Field("Brightness", Theme.SliderField(0, 100, look.Brightness, 1, v => v < 0.5 ? "dark" : $"{v:0}% of the lights", v => { if (!loading) { Look().Brightness = (int)v; Changed(); } })));
+            var effect = new ComboBox { Width = 240 };
+            effect.Items.Add(new ComboBoxItem { Content = "As they are while driving", Tag = null });
+            foreach (var x in Enum.GetValues(typeof(LightEffect)).Cast<LightEffect>().Where(x => x != LightEffect.Rpm && x != LightEffect.Levels && x != LightEffect.Off))
+                effect.Items.Add(new ComboBoxItem { Content = EffectName(x), Tag = x });
+            effect.SelectedItem = effect.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (LightEffect?)i.Tag == look.Effect) ?? effect.Items[0];
+            var lookDetails = new StackPanel();
+            Action fillLook = () =>
+            {
+                lookDetails.Children.Clear();
+                var l = p.LookFor(lookState);
+                if (l.Effect == null) return;
+                if (l.Colors == null || l.Colors.Count == 0) Look().Colors = (p.Groups.Values.FirstOrDefault(g => g.Effect != LightEffect.Off && g.Effect != LightEffect.Rpm)?.Colors ?? new List<string> { "#FFFFFF" }).ToList();
+                if (l.Effect != LightEffect.Rainbow && l.Effect != LightEffect.RainbowBreathe)
+                    lookDetails.Children.Add(Theme.Field("Colours", ColourList(Look().Colors, 1, 4)));
+                lookDetails.Children.Add(Theme.Field("Speed", Theme.SliderField(0.5, 20, l.Period, 0.1, v => $"{v:0.0} s per cycle", v => { if (!loading) { Look().Period = v; Changed(); } })));
+            };
+            effect.SelectionChanged += (s2, e2) => { if (effect.SelectedItem is ComboBoxItem i) { Look().Effect = (LightEffect?)i.Tag; Changed(); fillLook(); } };
+            groupEditor.Children.Add(Theme.Field("Effect", effect));
+            groupEditor.Children.Add(lookDetails);
+            fillLook();
+            var rev = Theme.Switch("The rev bar joins in", look.RevBar, v => { Look().RevBar = v; Changed(); }, "Off: the rev bar stays dark until you drive.");
+            rev.Margin = new Thickness(170, 0, 0, 10);
+            groupEditor.Children.Add(rev);
+
+            groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 6, 0, 16) });
+            groupEditor.Children.Add(Theme.Eyebrow("Engine start and stop"));
+            var start = new ComboBox { Width = 240 };
+            foreach (var (st, label) in new[] { (StartupStyle.None, "Nothing"), (StartupStyle.Sweep, "A wave from the middle"), (StartupStyle.SelfTest, "Rev bar self-test"), (StartupStyle.Ignite, "Double flash") })
+                start.Items.Add(new ComboBoxItem { Content = label, Tag = st });
+            start.SelectedItem = start.Items.Cast<ComboBoxItem>().First(i => (StartupStyle)i.Tag == p.Startup);
+            start.SelectionChanged += (s2, e2) => { if (start.SelectedItem is ComboBoxItem i) { p.Startup = (StartupStyle)i.Tag; Changed(); previewState = CarState.Starting; BuildStateChips(); } };
+            groupEditor.Children.Add(Theme.Field("Engine start", start));
+            var stop = new ComboBox { Width = 240 };
+            foreach (var (st, label) in new[] { (ShutdownStyle.None, "Nothing"), (ShutdownStyle.Fade, "Fade out"), (ShutdownStyle.Collapse, "Close in to the middle") })
+                stop.Items.Add(new ComboBoxItem { Content = label, Tag = st });
+            stop.SelectedItem = stop.Items.Cast<ComboBoxItem>().First(i => (ShutdownStyle)i.Tag == p.Shutdown);
+            stop.SelectionChanged += (s2, e2) => { if (stop.SelectedItem is ComboBoxItem i) { p.Shutdown = (ShutdownStyle)i.Tag; Changed(); previewState = CarState.Stopping; BuildStateChips(); } };
+            groupEditor.Children.Add(Theme.Field("Engine stop", stop));
+
+            groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 6, 0, 16) });
+            groupEditor.Children.Add(Theme.Eyebrow("Pit limiter"));
+            groupEditor.Children.Add(Theme.Note("For cars without their own (set in the card for this car above)."));
+            if (p.Limiter == null) p.Limiter = new LimiterLook();
+            groupEditor.Children.Add(LimiterEditor(p.Limiter, () => { if (!loading) { Changed(); previewState = CarState.PitLimiter; BuildStateChips(); } }));
+
+            groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 6, 0, 16) });
+            groupEditor.Children.Add(Theme.Field("Rev bar tint", Theme.SliderField(0, 30, p.RevTint, 1, v => v < 0.5 ? "off" : $"{v:0}% glow in the theme colour",
+                v => { if (!loading) { p.RevTint = (int)v; Changed(); } })));
+        }
 
         private void BuildAlerts(LightProfile p)
         {
@@ -717,6 +930,13 @@ namespace User.FXProRpmSync
                 case LightEffect.Scanner: return "Scanner";
                 case LightEffect.Sparkle: return "Sparkle";
                 case LightEffect.Levels: return "Setting levels";
+                case LightEffect.Comet: return "Comet";
+                case LightEffect.Heartbeat: return "Heartbeat";
+                case LightEffect.Fire: return "Fire";
+                case LightEffect.Twinkle: return "Twinkling stars";
+                case LightEffect.Ripple: return "Ripples";
+                case LightEffect.Plasma: return "Plasma";
+                case LightEffect.Strobe: return "Strobes";
                 default: return "Shift lights (RPM)";
             }
         }

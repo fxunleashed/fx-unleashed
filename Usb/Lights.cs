@@ -983,7 +983,8 @@ namespace User.FXProRpmSync
                     double c = now / period * rate + Hash(led * 5.7 + 1);
                     double f = c - Math.Floor(c);
                     double k = Hash(led * 13.7 + Math.Floor(c) * 3.1) > 0.45 ? Math.Pow(Math.Sin(Math.PI * f), 3) : 0;
-                    return Scale(Mix(Scale01(Rgb(colours[0]), 0.35), Rgb(star), k), Math.Max(0.12, k), bright);
+                    // the base glows softly (a night sky, not off), stars flare over it
+                    return Scale(Mix(Rgb(colours[0]), Rgb(star), k), 0.3 + 0.7 * k, bright);
                 }
                 case LightEffect.Ripple:
                 {
