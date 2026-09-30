@@ -109,18 +109,24 @@ static class GtNeoTests
 
         var frame = Enumerable.Range(0, 73).Select(i => new LedColor((byte)i, 0x40, 0x80, 90)).ToArray();
         link.Send(frame, 90);
-        var ids = reports.SelectMany(r => Enumerable.Range(0, r[8]).Select(k => r[9 + 4 * k])).ToList();
-        Check("GT Neo link: a first frame is every LED in 13s (6 reports)", reports.Count == 6 && reports.All(r => r[7] == 3 && r[8] <= 13) && ids.SequenceEqual(Enumerable.Range(0, 73).Select(i => (byte)i)));
-        Check("GT Neo link: colours as R G B", reports[0][9] == 0 && reports[0][10] == 0 && reports[0][11] == 0x40 && reports[0][12] == 0x80 && reports[1][9] == 13 && reports[1][10] == 13);
+        var first = reports.SelectMany(r => Enumerable.Range(0, r[8]).Select(k => (int)r[9 + 4 * k])).ToList();
+        Check("GT Neo link: at most 3 reports a frame, the rev bar first", reports.Count == 3 && reports.All(r => r[7] == 3 && r[8] <= 13)
+              && first.Take(15).SequenceEqual(Enumerable.Range(58, 15)) && first.Count == 39);
+        Check("GT Neo link: colours as R G B", reports[0][9] == 58 && reports[0][10] == 58 && reports[0][11] == 0x40 && reports[0][12] == 0x80);
         Check("GT Neo link: never the hang or update reports", reports.All(r => r[0] == 0xF0 && r[6] == 0xEC));
+        reports.Clear();
+        link.Send(frame, 90);
+        var second = reports.SelectMany(r => Enumerable.Range(0, r[8]).Select(k => (int)r[9 + 4 * k])).ToList();
+        Check("GT Neo link: the rest follows next frame", first.Concat(second).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, 73)) && reports.Count == 3);
 
         reports.Clear();
         link.Send(frame, 90);
         Check("GT Neo link: nothing sent when nothing changed", reports.Count == 0);
         now = now.AddSeconds(1.1);
         link.Send(frame, 90);
-        Check("GT Neo link: every second, host mode on again and the whole frame (SimHub's device switches host mode off when it stops)",
-              reports.Count == 7 && reports[0][7] == 2 && reports[0][8] == 1 && reports.Skip(1).Sum(r => r[8]) == 73);
+        Check("GT Neo link: every second, host mode on again and the frame again (within the budget; SimHub's device switches host mode off when it stops)",
+              reports.Count == 3 && reports[0][7] == 2 && reports[0][8] == 1 && reports[1][9] == 58);
+        for (int k = 0; k < 3; k++) link.Send(frame, 90);
 
         reports.Clear();
         frame[40] = new LedColor(255, 0, 0, 90);
@@ -128,9 +134,34 @@ static class GtNeoTests
         Check("GT Neo link: one LED changed, one short report", reports.Count == 1 && reports[0][8] == 1 && reports[0][9] == 40 && reports[0][10] == 255);
 
         reports.Clear();
-        link.Send(frame, 45);
+        for (int k = 0; k < 3; k++) link.Send(frame, 45);
         Check("GT Neo link: the brightness limit scales colours", reports.Count > 0 && reports.SelectMany(r => Enumerable.Range(0, r[8]).Where(k => r[9 + 4 * k] == 40).Select(k => r[10 + 4 * k])).First() == 128);
         Check("GT Neo link: brightness scaling", NeoLedLink.Scale(new LedColor(200, 100, 0, 45), 90) == (100 << 16 | 50 << 8) && NeoLedLink.Scale(new LedColor(255, 255, 255, 1), 90) > 0);
+
+        // a busy animation: every LED changes every frame, the rev bar still goes out every frame
+        bool revEveryFrame = true;
+        for (int f = 0; f < 10; f++)
+        {
+            reports.Clear();
+            var busy = Enumerable.Range(0, 73).Select(i => new LedColor((byte)(i + f * 7), (byte)f, 0, 90)).ToArray();
+            link.Send(busy, 90);
+            var ids = reports.Where(r => r[7] == 3).SelectMany(r => Enumerable.Range(0, r[8]).Select(k => (int)r[9 + 4 * k])).ToList();
+            revEveryFrame &= Enumerable.Range(58, 15).All(ids.Contains) && reports.Count <= 3;
+        }
+        Check("GT Neo link: a busy animation stays within the budget, the rev bar every frame", revEveryFrame);
+
+        // refused reports: tried again next frame; five in a row drop the link
+        int refuse = 2;
+        var flaky = new NeoLedLink(r => { if (refuse > 0) { refuse--; return false; } reports.Add((byte[])r.Clone()); return true; }, () => now);
+        reports.Clear();
+        flaky.Send(frame, 90);
+        flaky.Send(frame, 90);
+        flaky.Send(frame, 90);
+        Check("GT Neo link: a refused report is sent again next frame", flaky.Refused == 2 && reports.Any(r => r[7] == 3 && r[9] == 58));
+        var dead = new NeoLedLink(r => false, () => now);
+        bool threw = false;
+        try { for (int k = 0; k < 10; k++) dead.Send(frame, 90); } catch { threw = true; }
+        Check("GT Neo link: five refusals in a row drop the link", threw && dead.Refused == 5);
 
         reports.Clear();
         link.Disable();

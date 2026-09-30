@@ -86,11 +86,20 @@ namespace User.FXProRpmSync
     /// sends "host mode on" again and the whole frame: anything else that talks to the wheel (SimHub's own GT Neo device
     /// sends `EC 02 00` when it's switched off, after which the wheel ignores every `EC 03`) or leaves its colours behind
     /// is overruled within a second. That refresh also keeps the wheel from taking its LEDs back (it does after 5 s).
+    /// The wheel refuses reports when they come too fast (errors 31 / 995 while every LED changed each frame, seen
+    /// 2026-09-29), so each frame sends at most MaxReportsPerFrame: the rev bar first (it's what the driver reads), then
+    /// the other LEDs round-robin, so a busy animation only updates them a little slower. A refused report is tried again
+    /// next frame; only MaxFailures in a row drop the link.
     /// </summary>
     internal sealed class NeoLedLink : ILedLink, IDisposable
     {
         public const int LedCount = 73;
         public const int PerReport = 13;
+        /// <summary>Reports per frame (30 frames/s: about 90 a second).</summary>
+        public const int MaxReportsPerFrame = 3;
+        public const int MaxFailures = 5;
+        /// <summary>The rev bar's LED ids (58-72): sent before anything else.</summary>
+        private static readonly int RevFirst = 58;
         /// <summary>How often "host mode on" and the whole frame go out again.</summary>
         public static readonly TimeSpan Refresh = TimeSpan.FromSeconds(1);
 
@@ -99,6 +108,10 @@ namespace User.FXProRpmSync
         private readonly IDisposable handle;
         private readonly int[] sent = new int[LedCount];
         private DateTime lastRefresh = DateTime.MinValue;
+        private int failures, cursor;
+
+        /// <summary>Reports refused so far (for the log).</summary>
+        public int Refused { get; private set; }
         private readonly Func<DateTime> clock;
 
         public NeoLedLink(string path)
@@ -133,6 +146,16 @@ namespace User.FXProRpmSync
             if (!write(r)) throw new Exception("the GT Neo didn't take a report (" + Marshal.GetLastWin32Error() + ")");
         }
 
+        /// <summary>One report; a refusal counts towards MaxFailures (then it throws, and USB mode reconnects). False = refused.</summary>
+        private bool TryWrite(byte[] r)
+        {
+            if (write(r)) { failures = 0; return true; }
+            int err = Marshal.GetLastWin32Error();
+            Refused++;
+            if (++failures >= MaxFailures) throw new Exception($"the GT Neo refused {failures} reports in a row ({err})");
+            return false;
+        }
+
         public void Enable()
         {
             var r = Report(2); r[8] = 1;
@@ -150,21 +173,30 @@ namespace User.FXProRpmSync
 
         public void Send(LedColor[] frame, byte ceiling)
         {
+            int budget = MaxReportsPerFrame;
             if (clock() - lastRefresh >= Refresh)
             {
                 // host mode on again (something may have switched it off) and every LED again (something may have changed them)
                 var on = Report(2); on[8] = 1;
-                Write(on);
                 lastRefresh = clock();
+                if (!TryWrite(on)) return;
+                budget--;
                 Forget();
             }
+            // what changed: the rev bar first, then the rest from where the last frame stopped
             var changed = new List<(int Id, int Rgb)>();
-            for (int i = 0; i < LedCount; i++)
+            void Consider(int i)
             {
                 var c = frame != null && i < frame.Length ? frame[i] : default(LedColor);
                 int rgb = Scale(c, ceiling);
                 if (rgb != sent[i]) changed.Add((i, rgb));
             }
+            for (int i = RevFirst; i < LedCount; i++) Consider(i);
+            int revCount = changed.Count;
+            for (int k = 0; k < RevFirst; k++) Consider((cursor + k) % RevFirst);
+            int take = Math.Min(changed.Count, budget * PerReport);
+            if (take < changed.Count) changed.RemoveRange(take, changed.Count - take);
+            if (changed.Count > revCount) cursor = (changed[changed.Count - 1].Id + 1) % RevFirst;
             for (int start = 0; start < changed.Count; start += PerReport)
             {
                 var r = Report(3);
@@ -176,7 +208,7 @@ namespace User.FXProRpmSync
                     int o = 9 + 4 * k;
                     r[o] = (byte)id; r[o + 1] = (byte)(rgb >> 16); r[o + 2] = (byte)(rgb >> 8); r[o + 3] = (byte)rgb;
                 }
-                Write(r);
+                if (!TryWrite(r)) return; // tried again next frame (they're still unsent)
                 for (int k = 0; k < n; k++) sent[changed[start + k].Id] = changed[start + k].Rgb;
             }
         }

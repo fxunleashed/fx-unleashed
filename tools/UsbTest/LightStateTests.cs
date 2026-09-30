@@ -12,6 +12,7 @@ static class LightStateTests
 {
     public static void Run()
     {
+        CarData();
         Tracker();
         Gauges();
         Looks();
@@ -58,6 +59,31 @@ static class LightStateTests
         // a game that never reports ignition: revs up = engine on (DashValues.FromSimHub sets EngineOn from the revs)
         var g = new CarStateTracker();
         Check("state: from the menu into a running car", g.Update(Car(false, menu: true), 0) == CarState.Menu && g.Update(Car(true, 850), 0.1) == CarState.Driving);
+    }
+
+    /// <summary>The AMS2 BMW M4 GT3 from Lovely Car Data: 12 LEDs with a gap each side, outside in.</summary>
+    static CarLedProfile M4()
+    {
+        var curve = new[] { 6800, 4800, 5200, 0, 5600, 6000, 6400, 6400, 6000, 5600, 0, 5200, 4800 };
+        return new CarLedProfile
+        {
+            CarName = "BMW M4 GT3", LedNumber = 12,
+            Colors = new[] { "#FFFF0000", "#FF00FF00", "#FF00FF00", "#00000000", "#FFFFFF00", "#FFFFFF00", "#FFFF0000", "#FFFF0000", "#FFFFFF00", "#FFFFFF00", "#00000000", "#FF00FF00", "#FF00FF00" },
+            GearRpm = new Dictionary<string, int[]> { ["N"] = curve, ["1"] = curve, ["2"] = curve },
+        };
+    }
+
+    static void CarData()
+    {
+        var usb = RpmLayout.FromProfile(M4(), includeGears: false, exactColours: true);
+        Check("car data: 12 LEDs on 15 keep one-LED gaps (G G G . Y Y R R R Y Y . G G G)",
+              usb.Rpm.SequenceEqual(new[] { 4800, 5200, 5200, 0, 5600, 6000, 6400, 6400, 6400, 6000, 5600, 0, 5200, 5200, 4800 }));
+        Check("car data: USB mode keeps the car's own colours", usb.Colors[0] == "#00FF00" && usb.Colors[4] == "#FFFF00" && usb.Colors[7] == "#FF0000" && usb.FlashColor == "#FF0000" && usb.FlashRpm == 6800);
+        var simpro = RpmLayout.FromProfile(M4(), includeGears: false);
+        Check("car data: SimPro still gets its palette", simpro.Colors[7] == RpmLightsMapper.ToSimProColor("#FFFF0000") && simpro.Rpm.SequenceEqual(usb.Rpm));
+        // a car with as many LEDs as the wheel, and one with more, are unchanged by the stretch
+        var fifteen = new CarLedProfile { LedNumber = 15, Colors = Enumerable.Repeat("#FF00FF00", 16).ToArray(), GearRpm = new Dictionary<string, int[]> { ["N"] = Enumerable.Range(0, 16).Select(i => 4000 + i * 100).ToArray() } };
+        Check("car data: 15 LEDs map one to one", RpmLayout.FromProfile(fifteen, false).Rpm.SequenceEqual(Enumerable.Range(1, 15).Select(i => 4000 + i * 100)));
     }
 
     static void Gauges()

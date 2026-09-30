@@ -1147,7 +1147,8 @@ namespace User.FXProRpmSync
             string source;
             if (profile != null)
             {
-                layout = RpmLayout.FromProfile(profile, includeGears: !w.OldDevice || Settings.LiveGearCurves);
+                // USB mode shows the car's own colours; SimPro only takes its palette
+                layout = RpmLayout.FromProfile(profile, includeGears: !w.OldDevice || Settings.LiveGearCurves, exactColours: unlocked);
                 source = $"car database, {profile.MatchedBy} ({profile.LedNumber} LEDs" + (layout.Gears != null ? ", per gear)" : ")");
             }
             else if (t.Redline > 0)

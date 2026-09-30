@@ -84,18 +84,21 @@ namespace User.FXProRpmSync
         // ---------- Builders ----------
 
         /// <summary>From a car's real shift lights: its N LEDs stretched over the wheel's 15, colors snapped to the palette.</summary>
-        public static RpmLayout FromProfile(CarLedProfile car, bool includeGears)
+        /// <param name="exactColours">The car's own colours (USB mode drives any RGB); else snapped to SimPro's palette.</param>
+        public static RpmLayout FromProfile(CarLedProfile car, bool includeGears, bool exactColours = false)
         {
             // Most common curve = the "default" curve (also used for gears the car data doesn't list).
             var defaultCurve = car.GearRpm.Values
                 .GroupBy(v => string.Join(",", v)).OrderByDescending(g => g.Count()).First().First();
 
+            string Colour(string c) => exactColours ? ExactColour(c) : RpmLightsMapper.ToSimProColor(c);
+            var map = SourceMap(car, defaultCurve);
             var layout = new RpmLayout();
-            var redColor = RpmLightsMapper.ToSimProColor(car.Colors[0]);
+            var redColor = Colour(car.Colors[0]);
             for (int j = 0; j < RpmLightsMapper.WheelLeds; j++)
             {
-                int src = SourceLed(car, j);
-                var color = RpmLightsMapper.ToSimProColor(car.Colors[src]);
+                int src = map[j];
+                var color = Colour(car.Colors[src]);
                 bool off = color == null || defaultCurve[src] <= 0;
                 layout.Rpm[j] = off ? 0 : defaultCurve[src];
                 layout.Colors[j] = off ? LedPalette.Off : color;
@@ -114,16 +117,53 @@ namespace User.FXProRpmSync
                     var gc = new GearCurve { FlashRpm = layout.FlashRpm > 0 ? curve[0] : 0 };
                     for (int j = 0; j < RpmLightsMapper.WheelLeds; j++)
                         // 0 in a gear's curve = lit from idle (e.g. the Porsche Cup's 1st gear), not unused.
-                        gc.Rpm[j] = layout.Rpm[j] > 0 ? Math.Max(1, curve[SourceLed(car, j)]) : 0;
+                        gc.Rpm[j] = layout.Rpm[j] > 0 ? Math.Max(1, curve[map[j]]) : 0;
                     layout.Gears[gear] = gc;
                 }
             }
             return layout;
         }
 
-        // Stretch the car's N LEDs across the wheel's 15, keeping order (so symmetric patterns stay symmetric).
-        private static int SourceLed(CarLedProfile car, int j) =>
-            1 + (car.LedNumber == 1 ? 0 : (int)Math.Round(j * (car.LedNumber - 1) / (double)(RpmLightsMapper.WheelLeds - 1)));
+        /// <summary>
+        /// Which of the car's LEDs (1..N in its data) each of the wheel's 15 shows, keeping order so symmetric patterns
+        /// stay symmetric. A car with fewer LEDs is stretched by giving the extra slots to lit LEDs only: an unused LED
+        /// (a gap in the pattern) stays one slot wide, as on the real car (the BMW M4 GT3's 12, with a gap each side,
+        /// becomes G G G · Y Y R R R Y Y · G G G, not G G · · Y Y R R R Y Y · · G G). More LEDs than 15 are sampled evenly.
+        /// </summary>
+        internal static int[] SourceMap(CarLedProfile car, int[] curve)
+        {
+            int n = car.LedNumber, w = RpmLightsMapper.WheelLeds;
+            var map = new int[w];
+            if (n <= 1) { for (int j = 0; j < w; j++) map[j] = 1; return map; }
+            bool Off(int src) => src >= curve.Length || curve[src] <= 0 || RpmLightsMapper.ToSimProColor(car.Colors[src]) == null;
+            int offCount = Enumerable.Range(1, n).Count(Off), lit = n - offCount;
+            if (n >= w || lit == 0 || offCount >= w)
+            {
+                for (int j = 0; j < w; j++) map[j] = 1 + (int)Math.Round(j * (n - 1) / (double)(w - 1));
+                return map;
+            }
+            // each unused LED takes one slot, the lit ones share the rest; slot j shows the LED whose span holds its middle
+            double litWidth = (w - offCount) / (double)lit;
+            var ends = new double[n];
+            double at = 0;
+            for (int i = 0; i < n; i++) { at += Off(i + 1) ? 1 : litWidth; ends[i] = at; }
+            for (int j = 0; j < w; j++)
+            {
+                double mid = j + 0.5;
+                int i = 0;
+                while (i < n - 1 && mid >= ends[i] - 1e-9) i++;
+                map[j] = i + 1;
+            }
+            return map;
+        }
+
+        /// <summary>A car data colour ("#AARRGGBB", "#RRGGBB" or a name) as "#RRGGBB"; null when transparent or near black (off).</summary>
+        internal static string ExactColour(string s)
+        {
+            if (RpmLightsMapper.ToSimProColor(s) == null) return null;
+            var c = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(s.Trim());
+            return $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+        }
 
         /// <summary>From a pattern (fractions of the shift point), with the shift point at shiftRpm.</summary>
         public static RpmLayout FromPattern(LedLayout pattern, double shiftRpm, int flashBlinkUnits)
