@@ -26,8 +26,8 @@ Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) 
 1. Flash the FXProDashes build 4 wheel app through SimPro (FXProDashes `docs/firmware-plan.md`, `firmware-rebuild.md`).
 2. Plug the wheel's USB cable into the PC (the wheel stays on the base as usual). The wheel only picks USB mode when it
    powers up with the cable in: one that started on the base ignores a cable plugged in later (the PC sees no
-   device), so power it up with the cable in. Build 6 (FXProDashes `firmware-rebuild.md` "Build 6", not flashed
-   yet) restarts it into USB mode on its own when the cable goes in; the plugin then waits `BootGrace` (6 s) before
+   device), so power it up with the cable in. Build 6 and later (FXProDashes `firmware-rebuild.md` "Build 6")
+   restart it into USB mode on its own when the cable goes in; the plugin then waits `BootGrace` (6 s) before
    talking to it.
 3. SimHub → FXPro RPM Sync → **USB mode**: tick **Use USB mode**, press **Test on the wheel (8 s)**. With the patched
    firmware the demo dash shows steadily; with stock firmware the wheel's own dash flickers through it.
