@@ -84,6 +84,27 @@ namespace User.FXProRpmSync
             }
         }
 
+        /// <summary>
+        /// App 1.3.11's "last input report collected" flag (byte 0x200002B8, bit 0; FXProDashes docs/firmware-notes.md
+        /// "Buttons stop after a USB reconnect"). The main loop sends a report only while it is 1 and clears it on
+        /// sending; only the EP2 IN "collected" callback sets it again, and nothing resets it on a USB bus reset. So when
+        /// the link drops while the wheel stays powered (by the base) with a report pending, the wheel never sends
+        /// buttons again. Its word: the flag, an unused byte, and a button scratch halfword the scan clears and rebuilds
+        /// every pass, so writing 1 is safe. On a healthy link the flag is 1 already.
+        /// </summary>
+        public const uint InputReadyWord = 0x200002B8;
+
+        /// <summary>Lets a wheel whose button reports are stuck send again (see InputReadyWord). App 1.3.11 only.</summary>
+        public static void ReleaseInputReports(FxConnection c)
+        {
+            try { c.WriteRam(InputReadyWord, BitConverter.GetBytes(1u)); } catch { }
+        }
+
+        public static void ReleaseInputReports(string path)
+        {
+            try { using (var c = new FxConnection(path)) ReleaseInputReports(c); } catch { }
+        }
+
         public const uint MarkerWord = 0x20000850;     // echoed by the status report at bytes 0x20-0x23
         public const uint MarkerQuery = 0x46585131;    // 'FXQ1' at Ctrl+0x178
 

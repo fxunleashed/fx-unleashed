@@ -428,6 +428,7 @@ namespace User.FXProRpmSync
                 status = FxUsb.ReadStatus(p);
                 build = (status?.IsSupportedApp == true ? FxUsb.QueryBuild(p) : null) ?? -1;
                 if (build > 0) SimHub.Logging.Current.Info($"[FXProRpmSync] USB mode: the wheel runs patch build {build}");
+                if (status?.IsSupportedApp == true) FxUsb.ReleaseInputReports(p);
             }
         }
 
@@ -442,7 +443,9 @@ namespace User.FXProRpmSync
         /// <summary>The wheel runs the patch (reported by the wheel or confirmed by the user).</summary>
         public bool FirmwarePatched => Patched(S);
 
-        private static readonly TimeSpan BootGrace = TimeSpan.FromSeconds(6);
+        // Was 6 s: a wheel talked to while still booting froze its screen once (build 4 era). Zero while the user tests
+        // connecting straight away (2026-09-29); put it back if the screen freezes after a restart.
+        private static readonly TimeSpan BootGrace = TimeSpan.Zero;
         private DateTime appearedAt;
 
         private void Open()
@@ -452,6 +455,8 @@ namespace User.FXProRpmSync
             // Wheel app build 5: the dash button becomes controller button 40 and stops switching the wheel's own
             // pages (no flash save). Harmless on older builds (unused RAM). Cleared again in Deactivate.
             try { conn.WriteRam(FxConnection.Ctrl + 0x160, BitConverter.GetBytes(ButtonMagic)); } catch { }
+            // A reconnect after the link dropped (wheel kept powered by the base) can leave its button reports stuck.
+            if (status?.IsSupportedApp == true) FxUsb.ReleaseInputReports(conn);
             appliedVersion = -1;
             screenKey = null;
             lastDash = lastDemo = clock.Elapsed.TotalSeconds;
