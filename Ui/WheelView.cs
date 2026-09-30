@@ -132,7 +132,7 @@ namespace User.FXProRpmSync
         // ---------- GT Neo ----------
         // Traced from SimPro's front picture of the wheel by tools/brand/trace_gtneo.py (assets/gtneo-outline.svg), like
         // the FX Pro's outline. The picture's LEDs are cut-outs, so these positions are measured. Which LED number sits
-        // where follows SimHub's GT Neo layout; the order within each group is still to be checked on the wheel.
+        // where was checked on the user's wheel with colour patterns (2026-09-29).
 
         /// <summary>Rev slats 58-72, left to right (centres; all at NeoRevY).</summary>
         private static readonly double[] NeoRevX =
@@ -142,11 +142,14 @@ namespace User.FXProRpmSync
 
         private const double NeoRevY = 92.8;
 
-        /// <summary>Button lights 0-9: the left grip top to bottom (three along its top, two lower), then the right.</summary>
+        /// <summary>
+        /// Button lights 0-9, anticlockwise round the wheel: 0-4 the right grip from the bottom up (two lower, then three
+        /// along its top, 4 = outermost), 5-9 the left grip from the top down (5 = outermost).
+        /// </summary>
         private static readonly (double X, double Y)[] NeoButtons =
         {
+            (483.7, 252.3), (496.2, 197.4), (496.1, 106.8), (522.0, 68.6), (562.3, 52.4),
             (101.1, 51.7), (142.1, 68.3), (167.9, 106.7), (167.7, 197.5), (180.5, 252.3),
-            (562.3, 52.4), (522.0, 68.6), (496.1, 106.8), (496.2, 197.4), (483.7, 252.3),
         };
 
         /// <summary>The encoders whose rings are LEDs 10-21, 22-33, 34-45, 46-57: upper left, upper right, lower left, lower right.</summary>
@@ -172,7 +175,7 @@ namespace User.FXProRpmSync
                     Led(10 + 12 * k + j, Kind.Ring, cx + NeoRingR * Math.Cos(rad), cy + NeoRingR * Math.Sin(rad), 5, $"Encoder ring {k + 1} ({where[k]}), segment {j + 1}", a + 90);
                 }
             }
-            for (int i = 0; i < 10; i++) Led(i, Kind.Button, NeoButtons[i].X, NeoButtons[i].Y, 14, $"{(i < 5 ? "Left" : "Right")} button {i % 5 + 1}");
+            for (int i = 0; i < 10; i++) Led(i, Kind.Button, NeoButtons[i].X, NeoButtons[i].Y, 14, i < 5 ? $"Right button {5 - i} from the top" : $"Left button {i - 4} from the top");
         }
 
         /// <summary>Rev LED 23 on the right (the plugin's "fill from the right").</summary>

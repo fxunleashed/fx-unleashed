@@ -89,8 +89,10 @@ namespace User.FXProRpmSync
 
         /// <summary>
         /// GT Neo on its own USB (powered up holding button 3), 73 LEDs as its host RGB command numbers them (the same
-        /// order SimHub's own GT Neo device uses): 10 button lights 0-9, four rings of 12 around the encoders 10-21,
-        /// 22-33, 34-45, 46-57, rev lights 58-72 (left to right). FXProDashes docs/gt-neo-firmware.md.
+        /// order SimHub's own GT Neo device uses): 10 button lights 0-9 (0-4 the right grip from the bottom up, 5-9 the
+        /// left grip from the top down), four rings of 12 around the encoders 10-21 upper left, 22-33 upper right, 34-45
+        /// lower left, 46-57 lower right (each from 12 o'clock, clockwise), rev lights 58-72 (left to right). Checked on
+        /// the user's wheel 2026-09-29. FXProDashes docs/gt-neo-firmware.md.
         /// </summary>
         public static readonly WheelModel GtNeo = new WheelModel
         {
