@@ -319,6 +319,36 @@ namespace User.FXProRpmSync
 
         public void Flush() { lock (lk) if (count > 0) SendNow(count); }
 
+        /// <summary>
+        /// Bytes to the screen as they are (no terminators), paced like commands: a file's data while the screen is in
+        /// its upload mode (twfile). Not mirrored. Pending commands go first.
+        /// </summary>
+        public void Raw(byte[] data)
+        {
+            lock (lk)
+            {
+                if (count > 0) SendNow(count);
+                for (int o = 0; o < data.Length; o += 61)
+                {
+                    int n = Math.Min(61, data.Length - o);
+                    Array.Copy(data, o, pending, 0, n);
+                    SendNow(n);
+                }
+            }
+        }
+
+        /// <summary>Waits `ms` with nothing sent to the screen (it is busy, e.g. writing a file), the lights kept going.</summary>
+        public void Pause(int ms)
+        {
+            Flush();
+            var until = pace.Elapsed.TotalMilliseconds + ms;
+            while (pace.Elapsed.TotalMilliseconds < until)
+            {
+                try { Waiting?.Invoke(); } catch { }
+                Thread.Sleep(Math.Max(1, Math.Min(10, (int)(until - pace.Elapsed.TotalMilliseconds))));
+            }
+        }
+
         private void SendNow(int n)
         {
             if (n > 0)

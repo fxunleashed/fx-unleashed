@@ -982,6 +982,22 @@ function renderFontPop(pop, k, target) {
 
 // ---------- checks ----------
 let checkTimer = null, lastCheck = null;
+// The screen's RAM drive (FXProDashes docs/screen-images.md): on a wheel with the RAM-drive screen image, the dash is
+// kept on the screen as pictures (tiles): drawn at once, in full colour. How much of the drive it takes decides how
+// many dashes stay loaded together (instant switching).
+function showRam(c) {
+  const rp = $('ramPill'); if (!rp) return;
+  const kb = Math.max(1, Math.round((c.RamBytes || 0) / 1024)), budget = Math.round((c.RamBudget || 344064) / 1024);
+  const fit = Math.max(1, Math.floor((c.RamBudget || 344064) / Math.max(1, c.RamBytes || 1)));
+  rp.classList.remove('busy', 'ok', 'warn', 'err');
+  rp.classList.add(c.RamBytes > c.RamBudget ? 'err' : c.RamBytes > 96 * 1024 ? 'warn' : 'ok');
+  $('ramText').textContent = `Screen RAM ${kb} KB`;
+  rp.title = c.RamBytes > c.RamBudget
+    ? `Takes ${kb} KB: more than the screen's RAM drive (${budget} KB). On a wheel with it, this dash is drawn with rectangles instead. Fewer or smaller pictures and gradients fit.`
+    : `On a wheel with the screen's RAM drive this dash is kept as ${c.RamFiles} picture${c.RamFiles === 1 ? '' : 's'} (${kb} KB of ${budget} KB): `
+      + `drawn at once, in full colour. About ${fit} dash${fit === 1 ? '' : 'es'} this size stay loaded together; the first show of one loads for a few seconds.`;
+}
+
 function scheduleCheck(ms = 450) { clearTimeout(checkTimer); $('checksPill').classList.add('busy'); checkTimer = setTimeout(runCheck, ms); }
 async function runCheck() {
   if (!dash) return;
@@ -995,6 +1011,7 @@ async function runCheck() {
     const c = r.cost;
     $('costText').textContent = `Draws in ~${c.StaticSeconds.toFixed(1)} s · ${c.DynamicElements} live element${c.DynamicElements === 1 ? '' : 's'}` + (c.RedrawnValues.length ? ` · ${c.RedrawnValues.length} on busy backgrounds` : '');
     $('costMeter').style.width = clamp(c.StaticSeconds / 15 * 100, 3, 100) + '%';
+    showRam(c);
     if ($('statTime')) $('statTime').textContent = c.StaticSeconds.toFixed(1) + ' s';
     issuesByName = {};
     for (const i of r.issues) if (i.Element) { const o = issuesByName[i.Element]; issuesByName[i.Element] = { level: o && o.level === 'error' ? 'error' : i.Level, text: (o ? o.text + '\n' : '') + i.Message }; }
@@ -1171,6 +1188,7 @@ function wire() {
   $('viewSeg').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.view));
   $('btnWheel').onclick = () => setWheel(!wheelOn);
   $('checksPill').onclick = () => $('drawer').classList.toggle('open');
+  $('ramPill').onclick = () => $('drawer').classList.toggle('open');
   $('drawerClose').onclick = () => $('drawer').classList.remove('open');
   $('zoomIn').onclick = () => setZoom(zoom + .1); $('zoomOut').onclick = () => setZoom(zoom - .1); $('zoomFit').onclick = fitZoom;
   $('stage').addEventListener('wheel', ev => { if (!ev.ctrlKey) return; ev.preventDefault(); setZoom(zoom * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });

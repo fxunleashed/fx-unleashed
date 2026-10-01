@@ -21,6 +21,14 @@ namespace User.FXProRpmSync
         /// </summary>
         public bool FirmwareConfirmed = false;
         public bool DashEnabled = true;
+        /// <summary>
+        /// The screen runs the RAM-drive image (FXProDashes docs/screen-images.md): dashes are drawn from pictures kept in
+        /// the screen's RAM (tiles) instead of thousands of rectangles. Can't be detected (the screen's replies don't reach
+        /// the PC), so the user turns it on, after the Test showed the test card.
+        /// </summary>
+        public bool ScreenRamDrive = false;
+        /// <summary>What the plugin put on the screen's RAM drive (ScreenRam).</summary>
+        public ScreenRamState ScreenRam = new ScreenRamState();
         public string DashId = BuiltInDashes.MustangId;
         public int PadLeft = 10, PadTop = 20;
         public bool LightsEnabled = true;
@@ -303,6 +311,10 @@ namespace User.FXProRpmSync
         private ILedLink leds;
         private DashRenderer renderer;
         private DashDefinition dash;
+        private ScreenRam ram;
+        /// <summary>Tiles of the shown dash still to go onto the screen (one per frame), then it's drawn from them.</summary>
+        private List<ScreenTile> pendingTiles;
+        private volatile bool ramTest;
         private IAnimatedSaver saver;
         private LightEngine engine = new LightEngine();
         /// <summary>The wheel this thread is set up for (probing, session, engine); follows UsbSettings.Model.</summary>
@@ -359,6 +371,7 @@ namespace User.FXProRpmSync
         public UsbController(FXProRpmSyncPlugin plugin)
         {
             this.plugin = plugin;
+            ram = new ScreenRam(() => S.ScreenRam ?? (S.ScreenRam = new ScreenRamState()));
             thread = new Thread(Loop) { IsBackground = true, Name = "FXProRpmSync USB" };
             thread.Start();
         }
@@ -645,6 +658,13 @@ namespace User.FXProRpmSync
             if (status == null)
             {
                 status = FxUsb.ReadStatus(p);
+                // the screen's RAM files are only still there if the wheel kept power: our token in the marker word says
+                // so (read before the build query, which clears that word)
+                if (ram.Count > 0 && !(status?.IsSupportedApp == true && ram.TokenMatches(status.Marker)))
+                {
+                    ram.Forget();
+                    SimHub.Logging.Current.Info("[FXProRpmSync] USB mode: the wheel lost power, the screen's RAM files are gone");
+                }
                 build = (status?.IsSupportedApp == true ? FxUsb.QueryBuild(p) : null) ?? -1;
                 if (build > 0) SimHub.Logging.Current.Info($"[FXProRpmSync] USB mode: the wheel runs patch build {build}");
                 if (status?.IsSupportedApp == true) FxUsb.ReleaseInputReports(p);
@@ -680,6 +700,8 @@ namespace User.FXProRpmSync
             }
             conn = new FxConnection(path);
             sentBrightness = -1; // sent with the first settings pass
+            // our token in the marker word (echoed by the status report): still there next time = the wheel kept power
+            if (S.ScreenRamDrive) try { conn.WriteRam(FxUsb.MarkerWord, BitConverter.GetBytes((uint)ram.Token())); } catch { }
             // Wheel app build 8: where the dash button reports (CTRL+0x168), whether the upper paddles are sent
             // (CTRL+0x169 bit 0) and as which buttons (CTRL+0x16A/0x16B), as outputs 0-39 (build 9: 0-47, buttons
             // 41-48 being its own); written before the button mode that enables them. Unused RAM on older builds.
@@ -773,7 +795,7 @@ namespace User.FXProRpmSync
                         if (wheelDash) id = plugin.Settings.Usb.DefaultDashes.Where(r => !DashRef.IsWheel(r)).Select(DashRef.Id).FirstOrDefault();
                         wheelDash = false;
                     }
-                    if (!wheelDash) key = $"dash|{id ?? BuiltInDashes.MustangId}|{s.PadLeft}|{s.PadTop}|{reloads}";
+                    if (!wheelDash) key = $"dash|{id ?? BuiltInDashes.MustangId}|{s.PadLeft}|{s.PadTop}|{reloads}|{(s.ScreenRamDrive ? "ram" : "")}";
                     else wantPage = id;
                 }
             }
@@ -838,6 +860,7 @@ namespace User.FXProRpmSync
             UpdateProps();
             ScriptsFolder = dash.ScriptsFolder;
             DashProblems = renderer.Check();
+            PrepareTiles(item == null);
             renderer.DrawAll();
             lastDash = clock.Elapsed.TotalSeconds;
             SimHub.Logging.Current.Info("[FXProRpmSync] USB mode " + (item != null ? "screensaver: " : "dash on: ") + dash.Name);
@@ -1023,6 +1046,85 @@ namespace User.FXProRpmSync
             }
             // The logo goes out in slices (~24 commands per frame) so the lights keep animating while it draws in.
             if (saver != null && screen != null) saver.Step(screen, now, 24);
+            if (screen != null) UploadTiles(now);
+        }
+
+        // ---------- The screen's RAM drive (tiles) ----------
+
+        /// <summary>Used bytes and files on the screen's RAM drive, for the settings page.</summary>
+        public int RamUsed => ram.Used;
+        public int RamFiles => ram.Count;
+        /// <summary>What the RAM drive is doing (settings page), or null.</summary>
+        public string RamStatus { get; private set; }
+
+        /// <summary>Shows a test picture from the screen's RAM drive for a few seconds (settings page Test).</summary>
+        public void TestRamDrive() { ramTest = true; Wake(); }
+
+        /// <summary>With the RAM drive on: the dash's tiles. Drawn from them at once if they're all on the screen, else
+        /// with fills while the missing ones go up (UploadTiles), then again from them.</summary>
+        private void PrepareTiles(bool realDash)
+        {
+            pendingTiles = null;
+            if (!S.ScreenRamDrive || model != WheelModel.FxPro || renderer == null || !realDash) { RamStatus = null; return; }
+            // our token in the marker word (also when the drive was just switched on): it tells a later reconnect that
+            // the wheel kept power
+            try { conn?.WriteRam(FxUsb.MarkerWord, BitConverter.GetBytes((uint)ram.Token())); } catch { }
+            var tiles = renderer.EnableTiles();
+            var files = tiles.Files.ToList();
+            ram.Touch(files.Select(f => f.Name), clock.Elapsed.TotalSeconds);
+            var missing = files.Where(f => !ram.Has(f.Name)).OrderBy(f => f.Jpeg.Length).ToList();
+            if (missing.Count == 0) { renderer.UseTiles(true); RamStatus = $"Dash drawn from the screen's RAM ({tiles.Bytes / 1024} KB)."; }
+            else { pendingTiles = missing; RamStatus = $"Loading the dash's pictures into the screen ({missing.Count} to go)..."; }
+        }
+
+        private void UploadTiles(double now)
+        {
+            if (ramTest) { ramTest = false; RunRamTest(); return; }
+            if (pendingTiles == null || renderer?.Tiles == null) return;
+            var t = pendingTiles[0];
+            pendingTiles.RemoveAt(0);
+            var keep = new HashSet<string>(renderer.Tiles.Files.Select(f => f.Name));
+            if (!ram.Has(t.Name) && !ram.Upload(screen, t, keep, now))
+            {
+                pendingTiles = null;
+                RamStatus = "The dash's pictures don't fit in the screen's RAM: drawn with rectangles.";
+                return;
+            }
+            if (pendingTiles.Count > 0) { RamStatus = $"Loading the dash's pictures into the screen ({pendingTiles.Count} to go)..."; return; }
+            pendingTiles = null;
+            plugin.SaveSettings(); // the file list, so a SimHub restart knows what the screen has
+            renderer.UseTiles(true);
+            renderer.DrawAll();
+            RamStatus = $"Dash drawn from the screen's RAM ({renderer.Tiles.Bytes / 1024} KB).";
+            SimHub.Logging.Current.Info($"[FXProRpmSync] USB mode: dash tiles on the screen ({renderer.Tiles.FileCount} files, {renderer.Tiles.Bytes / 1024} KB; drive {ram.Used / 1024} KB)");
+        }
+
+        /// <summary>Uploads a colour card and shows it for 5 s, then the dash comes back.</summary>
+        private void RunRamTest()
+        {
+            byte[] jpeg;
+            using (var bmp = new System.Drawing.Bitmap(400, 240))
+            {
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    var cols = new[] { System.Drawing.Color.Red, System.Drawing.Color.Orange, System.Drawing.Color.Yellow, System.Drawing.Color.Lime,
+                                       System.Drawing.Color.Cyan, System.Drawing.Color.Blue, System.Drawing.Color.Magenta };
+                    for (int i = 0; i < cols.Length; i++)
+                        using (var b = new System.Drawing.SolidBrush(cols[i])) g.FillRectangle(b, i * 400 / cols.Length, 0, 400 / cols.Length + 1, 240);
+                    using (var f = new System.Drawing.Font("Arial", 40, System.Drawing.FontStyle.Bold)) g.DrawString("RAM OK", f, System.Drawing.Brushes.Black, 70, 85);
+                }
+                jpeg = ScreenTiles.Jpeg(bmp, 85);
+            }
+            var t = new ScreenTile { Name = "ramtest.jpg", R = new System.Drawing.Rectangle(200, 120, 400, 240), Jpeg = jpeg };
+            ScreenTiles.Registry[t.Name] = jpeg;
+            var keep = new HashSet<string>(renderer?.Tiles?.Files.Select(f => f.Name) ?? Enumerable.Empty<string>()) { t.Name };
+            if (!ram.Upload(screen, t, keep, clock.Elapsed.TotalSeconds)) { RamStatus = "Test: no room on the screen's RAM drive."; return; }
+            screen.Cmd("page 0"); screen.Cmd("vis 255,0"); screen.Cmd("cls 0");
+            screen.Cmd(ScreenTiles.Ramv(t, 0, 0));
+            screen.Pause(5000);
+            ram.Delete(screen, t.Name);
+            screenKey = null; // draw the dash (or screensaver) again
+            RamStatus = "Test sent: the colour card with \"RAM OK\" should have shown in the middle of the screen.";
         }
 
         // what the current frame's lights are made from (SendLeds also runs while the screen waits for its pacing)
