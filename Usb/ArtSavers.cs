@@ -208,7 +208,7 @@ namespace User.FXProRpmSync
         protected override int RowStep(int y) => y >= TrackTop ? 1 : 2; // the track's rows are 4 px bands already
 
         // ---- the track: rows below the horizon, each a slice of road at some distance ahead
-        private const double Horizon = 214, Depth = 3, Stripe = 1.5, StartAt = 4;
+        private const double Horizon = 214, Depth = 3, Stripe = 2, StartAt = 4;
         private const int TrackTop = 218, Band = 6, Vx = W / 2;
         private static readonly int RoadA = C("#1C2026"), RoadB = C("#14171B"), KerbRed = C("#C41212"), KerbWhite = C("#E8E8E8"),
                                     Line = C("#D9DDE2");
@@ -217,12 +217,13 @@ namespace User.FXProRpmSync
 
         /// <summary>
         /// How far the car has gone (track units) `sinceOut` seconds after lights out: it accelerates smoothly up to its
-        /// cruising speed (an ease-out, no overshoot) and holds it to the end of the drive. Bytes follow the speed (~1.9 KB/s
-        /// per unit), and it stays under half a stripe per frame, or the strips would seem to stand still or run backwards.
+        /// cruising speed (an ease-out, no overshoot) and holds it to the end of the drive. Bytes follow speed / stripe
+        /// length. A pattern seems to stand still or run backwards once it moves half its repeat (two stripes) per frame:
+        /// 10 units/s at ~12 frames/s is 0.8 a frame, against a repeat of 4.
         /// </summary>
         internal static double Travel(double sinceOut)
         {
-            const double cruise = 5.0, rampUp = 3.5;
+            const double cruise = 10.0, rampUp = 4.0;
             double s = Math.Min(sinceOut, IdleScreens.DriveSeconds);
             // speed v(s) = cruise * (1 - (1 - s/rampUp)^2) while ramping: distance is its integral
             if (s <= rampUp) return cruise * (s * s / rampUp - s * s * s / (3 * rampUp * rampUp));
