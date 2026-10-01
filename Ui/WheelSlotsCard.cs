@@ -17,7 +17,8 @@ namespace User.FXProRpmSync
         private UsbSettings S => plugin.Settings.Usb;
         private readonly ComboBox dash = Box(), padA = Box(), padB = Box();
         private readonly CheckBox paddles;
-        private readonly TextBlock note, warning;
+        private readonly TextBlock note, warning, clutchNote;
+        private readonly Action<int> selectClutch;
         private int shownBuild = -2;
         private bool loading;
 
@@ -26,7 +27,7 @@ namespace User.FXProRpmSync
             this.plugin = plugin;
             var body = new StackPanel();
             body.Children.Add(Theme.Eyebrow("Wheel buttons"));
-            body.Children.Add(Theme.Title("Dash button and upper paddles", 18));
+            body.Children.Add(Theme.Title("Dash button, paddles and clutch", 18));
             note = Theme.Note("", new Thickness(0, 6, 0, 12));
             body.Children.Add(note);
             body.Children.Add(Theme.Field("Dash button", dash));
@@ -35,6 +36,16 @@ namespace User.FXProRpmSync
             body.Children.Add(paddles);
             body.Children.Add(Theme.Field("Left upper paddle", padA));
             body.Children.Add(Theme.Field("Right upper paddle", padB));
+            var clutch = Theme.Segmented(new[] { "As set in SimPro", "Two axes", "Buttons (24 / 27)" }, Math.Max(0, Math.Min(2, S.ClutchMode)), i =>
+            {
+                if (loading || S.ClutchMode == i) return;
+                S.ClutchMode = i;
+                Apply();
+                Fill();
+            }, out selectClutch);
+            body.Children.Add(Theme.Field("Clutch paddles", clutch));
+            clutchNote = new TextBlock { Foreground = Theme.Text3, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(170, -6, 0, 6) };
+            body.Children.Add(clutchNote);
             warning = new TextBlock { Foreground = Theme.Amber, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed };
             body.Children.Add(warning);
             var reset = Theme.Btn("Defaults", () =>
@@ -81,7 +92,7 @@ namespace User.FXProRpmSync
                 box.Items.Clear();
                 for (int b = max; b >= 1; b--)
                 {
-                    string owner = Lower(FxProControls.StockOwner(b));
+                    string owner = Lower(FxProControls.StockOwner(b, S));
                     string text = owner == null
                         ? (FxProControls.IsClutchButtonMode(b) ? $"{b}  ·  free while the clutch paddles are axes" : $"{b}  ·  free")
                         : $"{b}  ·  shared with the {owner}";
@@ -90,6 +101,12 @@ namespace User.FXProRpmSync
                 box.SelectedItem = box.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (int)i.Tag == value);
             }
             padA.IsEnabled = padB.IsEnabled = S.UpperPaddles;
+            selectClutch?.Invoke(Math.Max(0, Math.Min(2, S.ClutchMode)));
+            clutchNote.Text = S.ClutchMode == 0
+                ? "The plugin leaves the clutch mode as SimPro set it. After picking another mode here, a power-off of the wheel brings SimPro's back."
+                : S.ClutchMode == 1
+                    ? "Each clutch paddle is its own axis. Set by the plugin while it drives the wheel; SimPro's setting comes back after a power-off."
+                    : "The clutch paddles are buttons 24 (left) and 27 (right), with no axes. Set by the plugin while it drives the wheel; SimPro's setting comes back after a power-off.";
             paddles.IsChecked = S.UpperPaddles;
             Warn();
             loading = false;
@@ -120,8 +137,8 @@ namespace User.FXProRpmSync
         private void Warn()
         {
             var shared = new[] { ("Dash button", S.DashSlot), ("Left upper paddle", S.UpperPaddleA), ("Right upper paddle", S.UpperPaddleB) }
-                .Where((x, i) => (i == 0 || S.UpperPaddles) && FxProControls.StockOwner(x.Item2) != null)
-                .Select(x => $"{x.Item1} shares button {x.Item2} with the {Lower(FxProControls.StockOwner(x.Item2))}.").ToList();
+                .Where((x, i) => (i == 0 || S.UpperPaddles) && FxProControls.StockOwner(x.Item2, S) != null)
+                .Select(x => $"{x.Item1} shares button {x.Item2} with the {Lower(FxProControls.StockOwner(x.Item2, S))}.").ToList();
             warning.Text = string.Join(" ", shared) + (shared.Count > 0 ? " A game bound to that button sees both." : "");
             warning.Visibility = shared.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }

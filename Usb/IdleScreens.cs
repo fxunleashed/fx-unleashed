@@ -90,10 +90,11 @@ namespace User.FXProRpmSync
         /// <summary>The built-in screensavers made of dash elements, animated by IdleValues.</summary>
         private static readonly (SaverItem Item, Func<DashDefinition> Make)[] builtins =
         {
-            (new SaverItem { Id = "lights-out", Name = "Lights out", Kind = SaverKind.Builtin, Blurb = "Five red lights, then go" }, null), // animated: LightsOutSaver
-            (new SaverItem { Id = "rev-sweep", Name = "Rev sweep", Kind = SaverKind.Builtin, Blurb = "Shift lights through the gears" }, RevSweepDash),
-            (new SaverItem { Id = "pit-board", Name = "Pit board", Kind = SaverKind.Builtin, Blurb = "Your last session" }, PitBoardDash),
-            (new SaverItem { Id = "chequered", Name = "Chequered", Kind = SaverKind.Builtin, Blurb = "The flag and the time" }, ChequeredDash),
+            // painted art + animation (ArtSavers.cs)
+            (new SaverItem { Id = "lights-out", Name = "Lights out", Kind = SaverKind.Builtin, Blurb = "The start gantry, then go" }, null),
+            (new SaverItem { Id = "rev-sweep", Name = "Rev sweep", Kind = SaverKind.Builtin, Blurb = "A tacho sweeping through the gears" }, null),
+            (new SaverItem { Id = "pit-board", Name = "Pit board", Kind = SaverKind.Builtin, Blurb = "Your last session" }, null),
+            (new SaverItem { Id = "chequered", Name = "Chequered", Kind = SaverKind.Builtin, Blurb = "The waving flag and the time" }, null),
         };
 
         /// <summary>The built-in screensavers, then the user's.</summary>
@@ -118,19 +119,45 @@ namespace User.FXProRpmSync
             }
         }
 
-        /// <summary>The screensavers that draw themselves (the logo, the start lights); null for dash ones.</summary>
-        internal static IAnimatedSaver Animated(SaverItem item) =>
-            item == null || item.Kind == SaverKind.Logo ? new ScreenSaver() : item.Id == "lights-out" ? new LightsOutSaver() : (IAnimatedSaver)null;
+        /// <summary>The screensavers that draw themselves (the logo, the painted built-ins); null for dash ones.</summary>
+        internal static IAnimatedSaver Animated(SaverItem item, LastSession last = null)
+        {
+            if (item == null || item.Kind == SaverKind.Logo) return new ScreenSaver();
+            switch (item.Id)
+            {
+                case "lights-out": return new LightsOutSaver();
+                case "rev-sweep": return new TachoSaver();
+                case "pit-board": return new PitBoardSaver(last);
+                case "chequered": return new ChequeredSaver();
+                default: return null;
+            }
+        }
 
         /// <summary>The start lights at `t`: a 9 s cycle, one light a second, a random hold, then out (go = "LIGHTS OUT").</summary>
-        public static bool[] StartLights(double t, out bool go)
+        public static bool[] StartLights(double t, out bool go) => StartLights(t, out go, out _);
+
+        /// <summary>The same, with the seconds since the lights went out (for the reaction timer).</summary>
+        public static bool[] StartLights(double t, out bool go, out double sinceOut)
         {
             int cycle = (int)(t / 9);
             double c = t - cycle * 9, hold = 4.6 + new Random(cycle).NextDouble() * 1.4;
             go = c >= hold && c < hold + 2.4;
+            sinceOut = Math.Max(0, c - hold);
             var on = new bool[5];
             for (int k = 0; k < 5; k++) on[k] = c >= (k + 1) * 0.9 && c < hold;
             return on;
+        }
+
+        /// <summary>
+        /// The rev sweep at `t`: 3.2 s per gear (1-6): the revs climb (`frac` 0-1), then the lights flash blue at the shift
+        /// point (`flash` true/false, null before it).
+        /// </summary>
+        public static (int Gear, double Frac, bool? Flash) RevSweep(double t)
+        {
+            int cycle = (int)(t / 3.2);
+            double g = (t - cycle * 3.2) / 3.2, f = g < 0.82 ? Math.Pow(g / 0.82, 1.25) : 1;
+            bool? flash = g >= 0.82 ? (int)((g - 0.82) * 3.2 / 0.08) % 2 == 0 : (bool?)null;
+            return (cycle % 6 + 1, f, flash);
         }
 
         /// <summary>Idle values for a screensaver dash: the time and date.</summary>
@@ -141,45 +168,8 @@ namespace User.FXProRpmSync
             v.Set("date", now.ToString("ddd d MMM", CultureInfo.InvariantCulture).ToUpperInvariant());
         }
 
-        private const string SegOff = "#161616";
-
-        /// <summary>
-        /// Everything the screensavers show, for a moment `t` (seconds): the clock, the start lights (a 9 s cycle: one
-        /// light a second, a random hold, lights out), the rev sweep (6 s per gear, 1-6), and the last session.
-        /// Values only change a few times a second, so the renderer sends only small fills.
-        /// </summary>
-        public static void IdleValues(DashValues v, double t, LastSession last)
-        {
-            AddClock(v);
-
-            // Rev sweep: up through the rev lights, a blue flash at the shift point, then the next gear
-            int gearCycle = (int)(t / 3.2);
-            double g = (t - gearCycle * 3.2) / 3.2, f = g < 0.82 ? Math.Pow(g / 0.82, 1.25) : 1;
-            bool flash = g >= 0.82 && (int)((g - 0.82) * 3.2 / 0.08) % 2 == 0;
-            v.Set("saver.gear", ((gearCycle % 6) + 1).ToString(CultureInfo.InvariantCulture));
-            for (int i = 0; i < 15; i++)
-            {
-                string on = i < 5 ? "#16D65A" : i < 10 ? "#FFB000" : "#FF1A1A";
-                v.Set("saver.s" + (i + 1), g >= 0.82 ? (flash ? "#2F6BFF" : SegOff) : f >= (i + 1) / 15.5 ? on : SegOff);
-            }
-            v.Set("saver.rpm", (int)(3500 + 5000 * f) / 100 * 100);
-
-            // Pit board
-            if (last != null && last.BestLap > 0)
-            {
-                v.Set("saver.pos", last.Position > 0 ? "P" + last.Position : "P-");
-                v.Set("saver.laps", "L" + last.Laps);
-                v.Set("saver.best", last.BestLap);
-                var car = (last.Car ?? "").ToUpperInvariant();
-                v.Set("saver.car", car.Length > 30 ? car.Substring(0, 30) : car);
-            }
-            else
-            {
-                v.Set("saver.pos", "BOX");
-                v.Set("saver.laps", "BOX");
-                v.Set("saver.car", "NO SESSION YET");
-            }
-        }
+        /// <summary>Everything a screensaver dash shows (the clock and date). `t` and `last` are kept for the callers.</summary>
+        public static void IdleValues(DashValues v, double t, LastSession last) => AddClock(v);
 
         private static DashElement Val(string name, string bind, int font, int x, int y, int w, int h, string colour, string align, params string[] samples) =>
             new DashElement { Type = "value", Name = name, Bind = bind, Format = "text", Font = font, Align = align, X = x, Y = y, W = w, H = h, Color = colour, Samples = samples, Empty = "" };
@@ -198,48 +188,6 @@ namespace User.FXProRpmSync
                 Val("date", "date", 3, 95, 306, 600, 48, "#9AA0A6", "center", "WED 28 SEP"),
             },
         };
-
-        /// <summary>A shift light bar sweeping through the gears, with the gear and the revs.</summary>
-        private static DashDefinition RevSweepDash()
-        {
-            var d = new DashDefinition { Id = "saver:rev-sweep", Name = "Rev sweep", Author = "FX Unleashed", Elements = new List<DashElement>() };
-            for (int i = 0; i < 15; i++)
-                d.Elements.Add(new DashElement { Type = "rect", Name = "seg" + (i + 1), X = 40 + i * 48, Y = 60, W = 38, H = 38, Color = SegOff, ColorBind = "saver.s" + (i + 1) });
-            d.Elements.Add(Val("gear", "saver.gear", 1, 295, 140, 200, 150, "#FFFFFF", "center", "8"));
-            d.Elements.Add(Val("rpm", "saver.rpm", 3, 245, 310, 300, 48, "#9AA0A6", "center", "8800"));
-            d.Elements.Add(new DashElement { Type = "label", Name = "rpmlabel", Text = "RPM", Font = 14, Align = "center", X = 345, Y = 362, W = 100, H = 20, Color = "#6A717C" });
-            d.Elements.Add(Val("clock", "clock", 4, 295, 405, 200, 32, "#6A717C", "center", "88:88"));
-            return d;
-        }
-
-        /// <summary>A pit board: position and laps of your last session in big letters, the best lap and the car under.</summary>
-        private static DashDefinition PitBoardDash() => new DashDefinition
-        {
-            Id = "saver:pit-board", Name = "Pit board", Author = "FX Unleashed",
-            Elements = new List<DashElement>
-            {
-                new DashElement { Type = "box", Name = "board", X = 150, Y = 20, W = 490, H = 420, Color = "#8A8F98", Fill = "#050505", Border = 6, Radius = 6 },
-                Val("pos", "saver.pos", 11, 170, 40, 450, 128, "#FFD000", "center", "P88", "BOX"),
-                Val("laps", "saver.laps", 11, 170, 170, 450, 128, "#FFFFFF", "center", "L88", "BOX"),
-                new DashElement { Type = "value", Name = "best", Bind = "saver.best", Format = "laptime", Font = 3, Align = "center", X = 190, Y = 308, W = 410, H = 48, Color = "#FFFFFF", Samples = new[] { "8:88.888" }, Empty = "" },
-                Val("car", "saver.car", 14, 175, 372, 440, 20, "#8A8F98", "center", "MCLAREN 720S GT3 EVO"),
-                Val("clock", "clock", 4, 630, 420, 150, 32, "#6A717C", "right", "88:88"),
-            },
-        };
-
-        /// <summary>A chequered flag behind a black panel with the time.</summary>
-        private static DashDefinition ChequeredDash()
-        {
-            var d = new DashDefinition { Id = "saver:chequered", Name = "Chequered", Author = "FX Unleashed", Elements = new List<DashElement>() };
-            const int cols = 10, rows = 6, cw = 79, ch = 77;
-            for (int r = 0; r < rows; r++)
-                for (int c = 0; c < cols; c++)
-                    if ((r + c) % 2 == 0) d.Elements.Add(Rect($"sq{r}_{c}", c * cw, r * ch, cw, Math.Min(ch, 460 - r * ch), "#E8E8E8"));
-            d.Elements.Add(new DashElement { Type = "box", Name = "panel", X = 40, Y = 130, W = 710, H = 200, Color = "#FF1414", Fill = "#000000", Border = 4, Radius = 10 });
-            d.Elements.Add(Val("clock", "clock", 1, 55, 138, 680, 150, "#FFFFFF", "center", "88:88"));
-            d.Elements.Add(Val("date", "date", 4, 235, 292, 320, 32, "#9AA0A6", "center", "WED 28 SEP"));
-            return d;
-        }
 
         /// <summary>Most seconds a picture may take to draw in (25 KB/s): it's drawn once, while the lights keep running.</summary>
         public const double MaxDrawSeconds = 15;

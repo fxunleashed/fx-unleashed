@@ -53,6 +53,9 @@ namespace User.FXProRpmSync
         /// <summary>Buttons held now (bit n = button n+1).</summary>
         public ulong Down => last;
 
+        /// <summary>The report's two axes (bytes 1 and 2, 0-127 on the FX Pro): its left and right clutch paddles.</summary>
+        public volatile int Axis1, Axis2;
+
         /// <summary>A wheel button went down (its number; raised on the reader's thread). For the Wheel tab's drawing:
         /// raised for every press, bound or not, and while a binding is being learned.</summary>
         public event Action<int> ButtonDown;
@@ -107,6 +110,7 @@ namespace User.FXProRpmSync
         /// one (FX Pro wheel app build 9).</summary>
         private void Report(byte[] r, int length)
         {
+            Axis1 = r[1]; Axis2 = r[2];
             int bytes = Math.Min(length, 9) - 3;
             ulong now = 0;
             for (int i = 0; i < bytes; i++) now |= (ulong)r[3 + i] << (8 * i);

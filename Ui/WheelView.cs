@@ -129,6 +129,7 @@ namespace User.FXProRpmSync
             // Rev lights
             for (int i = 0; i < 15; i++) Led(23 + i, Kind.Rev, RevX(i), 41, 5, $"Rev light {i + 1}");
             BuildFxProControls();
+            BuildClutches();
             canvas.Children.Add(effects);
         }
 
@@ -141,16 +142,75 @@ namespace User.FXProRpmSync
 
         private static readonly Brush Ridge = Theme.B("#B8343F"), RollerBody = Theme.B("#25282E"), Bracket = Theme.B("#0D0E10");
 
-        /// <summary>The upper (shift) paddles: carbon plates behind the thumb openings.</summary>
+        /// <summary>
+        /// The paddles behind the wheel, top to bottom: the upper paddle and the shift paddle show through each thumb
+        /// opening, the clutch paddle sits below the grip with a bar that fills as it's pulled (ShowClutch).
+        /// </summary>
         private void BuildPaddles()
         {
-            foreach (var id in new[] { "l-paddle", "r-paddle" })
+            Brush Carbon()
             {
-                var c = FxProControls.ById(id);
-                var carbon = new LinearGradientBrush(Color.FromRgb(0x22, 0x24, 0x29), Color.FromRgb(0x10, 0x11, 0x14), 60);
-                carbon.Freeze();
-                var plate = new Rectangle { Width = 58, Height = 82, RadiusX = 10, RadiusY = 10, Fill = carbon, Stroke = Theme.B("#2B2F36"), StrokeThickness = 1, ToolTip = c.Name };
-                Add(plate, c.X - 29, c.Y - 44);
+                var b = new LinearGradientBrush(Color.FromRgb(0x24, 0x26, 0x2B), Color.FromRgb(0x10, 0x11, 0x14), 60);
+                b.Freeze();
+                return b;
+            }
+            var edge = Theme.B("#30343C");
+            foreach (var side in new[] { "l", "r" })
+            {
+                var up = FxProControls.ById(side + "-paddle");
+                Add(new Rectangle { Width = 54, Height = 22, RadiusX = 7, RadiusY = 7, Fill = Carbon(), Stroke = edge, StrokeThickness = 1, ToolTip = up.Name }, up.X - 27, up.Y - 11);
+                var shift = FxProControls.ById(side + "-shift");
+                Add(new Rectangle { Width = 60, Height = 64, RadiusX = 10, RadiusY = 10, Fill = Carbon(), Stroke = edge, StrokeThickness = 1, ToolTip = shift.Name }, shift.X - 30, shift.Y - 32);
+            }
+        }
+
+        /// <summary>The clutch paddles below the grips (drawn over the body, which covers them there), each with its travel:
+        /// a track that fills from the bottom as it's pulled (ShowClutch).</summary>
+        private void BuildClutches()
+        {
+            var edge = Theme.B("#3A3F48");
+            foreach (var side in new[] { "l", "r" })
+            {
+                var clutch = FxProControls.ById(side + "-clutch");
+                var body = new LinearGradientBrush(Color.FromRgb(0x26, 0x29, 0x2F), Color.FromRgb(0x12, 0x13, 0x16), 60);
+                body.Freeze();
+                Add(new Rectangle { Width = 30, Height = 58, RadiusX = 9, RadiusY = 9, Fill = body, Stroke = edge, StrokeThickness = 1.2, ToolTip = clutch.Name }, clutch.X - 15, clutch.Y - 29);
+                var track = new Rectangle { Width = 9, Height = 46, RadiusX = 4.5, RadiusY = 4.5, Fill = Theme.B("#08090B"), Stroke = edge, StrokeThickness = 1, IsHitTestVisible = false };
+                Add(track, clutch.X - 4.5, clutch.Y - 23);
+                var fill = new Rectangle { Width = 7, Height = 0, RadiusX = 3.5, RadiusY = 3.5, Fill = Theme.Red, IsHitTestVisible = false, Effect = Glow(8) };
+                Add(fill, clutch.X - 3.5, clutch.Y + 22);
+                clutchTracks.Add(track); clutchTracks.Add(fill);
+                if (side == "l") clutchLeft = fill; else clutchRight = fill;
+            }
+        }
+
+        private Rectangle clutchLeft, clutchRight;
+        private readonly List<Rectangle> clutchTracks = new List<Rectangle>();
+        private bool clutchButtons;
+
+        /// <summary>The clutch paddles send buttons (24/27) instead of axes: no travel bars, presses instead.</summary>
+        public bool ClutchButtons
+        {
+            get => clutchButtons;
+            set
+            {
+                if (clutchButtons == value) return;
+                clutchButtons = value;
+                foreach (var r in clutchTracks) r.Visibility = value ? Visibility.Hidden : Visibility.Visible;
+            }
+        }
+        private const double ClutchTravel = 44;
+
+        /// <summary>The clutch paddles' positions (the report's axes, 0-127; left = axis 1, right = axis 2).</summary>
+        public void ShowClutch(int left, int right)
+        {
+            if (clutchLeft == null) return;
+            foreach (var (bar, v) in new[] { (clutchLeft, left), (clutchRight, right) })
+            {
+                double h = Math.Max(0, Math.Min(1, v / 127.0)) * ClutchTravel;
+                if (Math.Abs(bar.Height - h) < 0.5) continue;
+                bar.Height = h;
+                Canvas.SetTop(bar, FxProControls.ById(bar == clutchLeft ? "l-clutch" : "r-clutch").Y + 22 - h);
             }
         }
 
@@ -207,16 +267,17 @@ namespace User.FXProRpmSync
                 case FxProControls.Kind.RollerSideways: return 22;
                 case FxProControls.Kind.RollerUpDown: return 19;
                 case FxProControls.Kind.Funky: return 15;
-                case FxProControls.Kind.Paddle: return 30;
-                case FxProControls.Kind.Clutch: return 18;
+                case FxProControls.Kind.Paddle: return 18;
+                case FxProControls.Kind.Shift: return 28;
+                case FxProControls.Kind.Clutch: return 22;
                 default: return 15;
             }
         }
 
         /// <summary>
-        /// A wheel button went down (FX Pro): its number pops up on the control it belongs to, with a ring for a press, a
-        /// turning arc for a knob, and chevrons sliding the way a roller or the funky switch went. Unknown buttons are
-        /// ignored. Call on the UI thread.
+        /// A wheel button went down (FX Pro): the control lights up, its number pops up above it, and a white, red-glowing
+        /// mark shows what happened: rings for a press, an arrow round a knob the way it turned, chevrons the way a roller
+        /// or the funky switch went. Unknown buttons are ignored. Call on the UI thread.
         /// </summary>
         public void Press(int button, UsbSettings settings)
         {
@@ -225,26 +286,57 @@ namespace User.FXProRpmSync
             if (m == null) return;
             var (c, dir) = m.Value;
             double r = Reach(c.Kind);
+            Flash(c.X, c.Y, r);
             switch (dir)
             {
                 case FxProControls.Dir.Press: Ring(c.X, c.Y, r); break;
-                case FxProControls.Dir.Clockwise: Arc(c.X, c.Y, r + 3, true); break;
-                case FxProControls.Dir.Anticlockwise: Arc(c.X, c.Y, r + 3, false); break;
+                case FxProControls.Dir.Clockwise: Arc(c.X, c.Y, r + 5, true); break;
+                case FxProControls.Dir.Anticlockwise: Arc(c.X, c.Y, r + 5, false); break;
                 case FxProControls.Dir.Up: Chevrons(c.X, c.Y, r, 0, -1); break;
                 case FxProControls.Dir.Down: Chevrons(c.X, c.Y, r, 0, 1); break;
                 case FxProControls.Dir.Left: Chevrons(c.X, c.Y, r, -1, 0); break;
                 case FxProControls.Dir.Right: Chevrons(c.X, c.Y, r, 1, 0); break;
             }
-            Badge(button, c.X, c.Y - r - 13);
+            Badge(button, c.X, c.Y - r - 18);
         }
 
+        /// <summary>The marks: white with a red glow, so they stand out on the dark wheel and on lit LEDs alike.</summary>
+        private static readonly Brush Mark = Brushes.White;
+        private const double MarkWidth = 4.2;
+
+        private static DropShadowEffect Glow(double radius = 14) =>
+            new DropShadowEffect { Color = Color.FromRgb(0xFF, 0x1F, 0x2D), BlurRadius = radius, ShadowDepth = 0, Opacity = 1 };
+
+        /// <summary>
+        /// Adds an effect and runs its animations; removes it when they're done. A storyboard can only drive properties of
+        /// elements, so animations of a transform (a lone Freezable it can't resolve) are started on the transform itself.
+        /// </summary>
         private void Run(UIElement e, double seconds, Action<Storyboard> fill)
         {
             effects.Children.Add(e);
             var sb = new Storyboard { Duration = TimeSpan.FromSeconds(seconds) };
             fill(sb);
+            foreach (var a in sb.Children.OfType<DoubleAnimation>().ToList())
+            {
+                if (!(Storyboard.GetTarget(a) is Animatable target) || target is UIElement) continue;
+                var dp = TransformProperty(target, Storyboard.GetTargetProperty(a).Path);
+                if (dp == null) continue;
+                sb.Children.Remove(a);
+                target.BeginAnimation(dp, a, HandoffBehavior.Compose);
+            }
             sb.Completed += (s, a) => effects.Children.Remove(e);
             sb.Begin();
+        }
+
+        private static DependencyProperty TransformProperty(Animatable t, string name)
+        {
+            switch (t)
+            {
+                case ScaleTransform _: return name == "ScaleX" ? ScaleTransform.ScaleXProperty : name == "ScaleY" ? ScaleTransform.ScaleYProperty : null;
+                case RotateTransform _: return name == "Angle" ? RotateTransform.AngleProperty : null;
+                case TranslateTransform _: return name == "X" ? TranslateTransform.XProperty : name == "Y" ? TranslateTransform.YProperty : null;
+                default: return null;
+            }
         }
 
         private static DoubleAnimation Anim(DependencyObject target, string path, double from, double to, double begin, double secs, IEasingFunction ease = null)
@@ -255,107 +347,128 @@ namespace User.FXProRpmSync
             return a;
         }
 
-        /// <summary>The button's number in a red pill: pops in, holds, fades.</summary>
+        /// <summary>The control itself lights up red for a moment.</summary>
+        private void Flash(double cx, double cy, double r)
+        {
+            double fr = r * 1.7;
+            var fill = new RadialGradientBrush(Color.FromArgb(230, 0xFF, 0x2A, 0x38), Color.FromArgb(0, 0xFF, 0x1F, 0x2D));
+            fill.GradientStops.Insert(1, new GradientStop(Color.FromArgb(150, 0xFF, 0x1F, 0x2D), 0.55));
+            var spot = new Ellipse { Width = 2 * fr, Height = 2 * fr, Fill = fill, Opacity = 0 };
+            Canvas.SetLeft(spot, cx - fr); Canvas.SetTop(spot, cy - fr);
+            Run(spot, 1.2, sb =>
+            {
+                sb.Children.Add(Anim(spot, "Opacity", 0, 1, 0, 0.06));
+                sb.Children.Add(Anim(spot, "Opacity", 1, 0, 0.45, 0.75));
+            });
+        }
+
+        /// <summary>The button's number in a big red pill with a white edge: pops in, holds, fades.</summary>
         private void Badge(int button, double cx, double cy)
         {
             var text = new TextBlock
             {
-                Text = button.ToString(), FontFamily = Theme.Display, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White,
+                Text = button.ToString(), FontFamily = Theme.Display, FontSize = 17, FontWeight = FontWeights.Bold, Foreground = Brushes.White,
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
-            var scale = new ScaleTransform(0.4, 0.4);
+            var scale = new ScaleTransform(0.3, 0.3);
             var pill = new Border
             {
-                Background = Theme.Red, CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 1), MinWidth = 22, Child = text,
-                RenderTransformOrigin = new Point(0.5, 1), RenderTransform = scale, Opacity = 0,
-                Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 8, ShadowDepth = 0, Opacity = 0.8 },
+                Background = Theme.Red, BorderBrush = Brushes.White, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(7, 0, 7, 1), MinWidth = 28, Child = text, RenderTransformOrigin = new Point(0.5, 1), RenderTransform = scale,
+                Opacity = 0, Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 10, ShadowDepth = 0, Opacity = 0.9 },
             };
             pill.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            Canvas.SetLeft(pill, cx - pill.DesiredSize.Width / 2);
+            Canvas.SetLeft(pill, Math.Max(0, Math.Min(W - pill.DesiredSize.Width, cx - pill.DesiredSize.Width / 2)));
             Canvas.SetTop(pill, Math.Max(0, cy - pill.DesiredSize.Height / 2));
-            var back = new BackEase { Amplitude = 0.5, EasingMode = EasingMode.EaseOut };
-            Run(pill, 1.4, sb =>
+            var back = new BackEase { Amplitude = 0.6, EasingMode = EasingMode.EaseOut };
+            Run(pill, 2.2, sb =>
             {
                 sb.Children.Add(Anim(pill, "Opacity", 0, 1, 0, 0.08));
-                sb.Children.Add(Anim(scale, "ScaleX", 0.4, 1, 0, 0.25, back));
-                sb.Children.Add(Anim(scale, "ScaleY", 0.4, 1, 0, 0.25, back));
-                sb.Children.Add(Anim(pill, "Opacity", 1, 0, 1.05, 0.35));
+                sb.Children.Add(Anim(scale, "ScaleX", 0.3, 1, 0, 0.3, back));
+                sb.Children.Add(Anim(scale, "ScaleY", 0.3, 1, 0, 0.3, back));
+                sb.Children.Add(Anim(pill, "Opacity", 1, 0, 1.75, 0.45));
             });
         }
 
-        /// <summary>A press: a ring that spreads out and fades.</summary>
+        /// <summary>A press: two rings spreading out from the control.</summary>
         private void Ring(double cx, double cy, double r)
         {
-            var scale = new ScaleTransform(0.8, 0.8);
-            var ring = new Ellipse
+            for (int k = 0; k < 2; k++)
             {
-                Width = 2 * r, Height = 2 * r, Stroke = Theme.Red, StrokeThickness = 2.5,
-                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = scale,
-            };
-            Canvas.SetLeft(ring, cx - r); Canvas.SetTop(ring, cy - r);
-            var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-            Run(ring, 0.6, sb =>
-            {
-                sb.Children.Add(Anim(scale, "ScaleX", 0.8, 1.7, 0, 0.6, ease));
-                sb.Children.Add(Anim(scale, "ScaleY", 0.8, 1.7, 0, 0.6, ease));
-                sb.Children.Add(Anim(ring, "Opacity", 1, 0, 0, 0.6));
-            });
+                var scale = new ScaleTransform(0.9, 0.9);
+                var ring = new Ellipse
+                {
+                    Width = 2 * r, Height = 2 * r, Stroke = Mark, StrokeThickness = MarkWidth, Opacity = 0, Effect = Glow(),
+                    RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = scale,
+                };
+                Canvas.SetLeft(ring, cx - r); Canvas.SetTop(ring, cy - r);
+                double begin = k * 0.22;
+                var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+                Run(ring, 1.0 + begin, sb =>
+                {
+                    sb.Children.Add(Anim(scale, "ScaleX", 0.9, 1.3, begin, 0.9, ease));
+                    sb.Children.Add(Anim(scale, "ScaleY", 0.9, 1.3, begin, 0.9, ease));
+                    sb.Children.Add(Anim(ring, "Opacity", 1, 0, begin, 0.9));
+                });
+            }
         }
 
-        /// <summary>A knob or the funky switch turned: an arrowed arc sweeping round it the way it went.</summary>
+        /// <summary>A knob or the funky switch turned: a thick arrowed arc sweeping round it the way it went.</summary>
         private void Arc(double cx, double cy, double r, bool clockwise)
         {
-            // a 100-degree arc over the top, with an arrow head at its leading end
-            double a0 = -140, a1 = -40;
-            Point P(double deg, double rad) => new Point(r + rad * Math.Cos(deg * Math.PI / 180), r + rad * Math.Sin(deg * Math.PI / 180));
+            // a 150-degree arc over the top, with a big arrow head at its leading end
+            double a0 = -165, a1 = -15;
+            Point P(double deg, double rad) => new Point(r + 10 + rad * Math.Cos(deg * Math.PI / 180), r + 10 + rad * Math.Sin(deg * Math.PI / 180));
             var fig = new PathFigure { StartPoint = P(clockwise ? a0 : a1, r) };
             fig.Segments.Add(new ArcSegment(P(clockwise ? a1 : a0, r), new Size(r, r), 0, false, clockwise ? SweepDirection.Clockwise : SweepDirection.Counterclockwise, true));
-            double tip = clockwise ? a1 : a0, back = clockwise ? -14 : 14;
-            var head = new PathFigure { StartPoint = P(tip + back, r - 5) };
+            double tip = clockwise ? a1 : a0, back = clockwise ? -24 : 24;
+            var head = new PathFigure { StartPoint = P(tip + back, r - 9) };
             head.Segments.Add(new LineSegment(P(tip, r), true));
-            head.Segments.Add(new LineSegment(P(tip + back, r + 5), true));
-            var rot = new RotateTransform(clockwise ? -50 : 50);
+            head.Segments.Add(new LineSegment(P(tip + back, r + 9), true));
+            double size = 2 * r + 20;
+            var rot = new RotateTransform(clockwise ? -60 : 60);
             var path = new Path
             {
-                Data = new PathGeometry(new[] { fig, head }), Stroke = Theme.Red, StrokeThickness = 2.6, StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, Width = 2 * r, Height = 2 * r, Opacity = 0,
+                Data = new PathGeometry(new[] { fig, head }), Stroke = Mark, StrokeThickness = MarkWidth + 0.8, StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, Width = size, Height = size, Opacity = 0, Effect = Glow(),
                 RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = rot,
             };
-            Canvas.SetLeft(path, cx - r); Canvas.SetTop(path, cy - r);
+            Canvas.SetLeft(path, cx - size / 2); Canvas.SetTop(path, cy - size / 2);
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            Run(path, 0.7, sb =>
+            Run(path, 1.2, sb =>
             {
-                sb.Children.Add(Anim(rot, "Angle", clockwise ? -50 : 50, clockwise ? 70 : -70, 0, 0.7, ease));
-                sb.Children.Add(Anim(path, "Opacity", 0, 1, 0, 0.1));
-                sb.Children.Add(Anim(path, "Opacity", 1, 0, 0.35, 0.35));
+                sb.Children.Add(Anim(rot, "Angle", clockwise ? -60 : 60, clockwise ? -20 : 20, 0, 1.0, ease));
+                sb.Children.Add(Anim(path, "Opacity", 0, 1, 0, 0.08));
+                sb.Children.Add(Anim(path, "Opacity", 1, 0, 0.75, 0.45));
             });
         }
 
-        /// <summary>A roller or the funky switch went one way: two chevrons slide out that way and fade.</summary>
+        /// <summary>A roller or the funky switch went one way: three chevrons run out that way and fade.</summary>
         private void Chevrons(double cx, double cy, double r, int dx, int dy)
         {
             double angle = dx > 0 ? 90 : dx < 0 ? -90 : dy > 0 ? 180 : 0; // drawn pointing up
-            for (int k = 0; k < 2; k++)
+            for (int k = 0; k < 3; k++)
             {
                 var move = new TranslateTransform();
                 var group = new TransformGroup();
-                group.Children.Add(new RotateTransform(angle, 7, 4));
+                group.Children.Add(new RotateTransform(angle, 12, 6));
                 group.Children.Add(move);
                 var chev = new Path
                 {
-                    Data = Geometry.Parse("M 0,7 L 7,0 L 14,7"), Stroke = Theme.Red, StrokeThickness = 2.6, StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, Width = 14, Height = 8, Opacity = 0, RenderTransform = group,
+                    Data = Geometry.Parse("M 1,11 L 12,1 L 23,11"), Stroke = Mark, StrokeThickness = MarkWidth, StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, Width = 24, Height = 12, Opacity = 0, Effect = Glow(12),
+                    RenderTransform = group,
                 };
-                double start = r * 0.55 + k * 7;
-                Canvas.SetLeft(chev, cx - 7); Canvas.SetTop(chev, cy - 4);
-                double begin = k * 0.08;
+                double start = r * 0.4;
+                Canvas.SetLeft(chev, cx - 12); Canvas.SetTop(chev, cy - 6);
+                double begin = k * 0.14;
                 var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-                Run(chev, 0.6 + begin, sb =>
+                Run(chev, 1.0 + begin, sb =>
                 {
-                    sb.Children.Add(Anim(move, "X", dx * start, dx * (start + 14), begin, 0.5, ease));
-                    sb.Children.Add(Anim(move, "Y", dy * start, dy * (start + 14), begin, 0.5, ease));
+                    sb.Children.Add(Anim(move, "X", dx * start, dx * (start + 8), begin, 0.75, ease));
+                    sb.Children.Add(Anim(move, "Y", dy * start, dy * (start + 8), begin, 0.75, ease));
                     sb.Children.Add(Anim(chev, "Opacity", 0, 1, begin, 0.08));
-                    sb.Children.Add(Anim(chev, "Opacity", 1, 0, begin + 0.25, 0.3));
+                    sb.Children.Add(Anim(chev, "Opacity", 1, 0, begin + 0.45, 0.4));
                 });
             }
         }

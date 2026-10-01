@@ -56,7 +56,7 @@ namespace User.FXProRpmSync
                     var d = IdleScreens.DashFor(item);
                     if (d == null)
                     {
-                        var saver = IdleScreens.Animated(item) ?? new ScreenSaver();
+                        var saver = IdleScreens.Animated(item, new LastSession { Car = "McLaren 720S GT3 Evo", BestLap = 107.832, Laps = 23, Position = 3 }) ?? new ScreenSaver();
                         saver.Start();
                         for (int i = 0; i < 400 && saver.Drawing; i++) saver.Step(screen, 3.3, 500);
                         saver.Step(screen, 3.3, 500);

@@ -15,7 +15,7 @@ namespace User.FXProRpmSync
     /// </summary>
     public static class FxProControls
     {
-        public enum Kind { Button, Knob, RollerSideways, RollerUpDown, Funky, Paddle, Clutch }
+        public enum Kind { Button, Knob, RollerSideways, RollerUpDown, Funky, Paddle, Shift, Clutch }
 
         /// <summary>Which way a press went, for the Wheel tab's animation.</summary>
         public enum Dir { Press, Clockwise, Anticlockwise, Up, Down, Left, Right }
@@ -61,10 +61,14 @@ namespace User.FXProRpmSync
             C("r-inner-roller", "Right inner roller", Kind.RollerUpDown, 2 * Mid - 165.5, 154.5),
             C("r-outer-roller", "Right outer roller", Kind.RollerSideways, 2 * Mid - 62.0, 119.0),
             C("funky", "Funky switch", Kind.Funky, Mid, 318.0),
-            C("l-paddle", "Left upper paddle", Kind.Paddle, 125.0, 150.0),
-            C("r-paddle", "Right upper paddle", Kind.Paddle, 2 * Mid - 125.0, 150.0),
-            C("l-clutch", "Left clutch paddle", Kind.Clutch, 113.0, 281.0),
-            C("r-clutch", "Right clutch paddle", Kind.Clutch, 2 * Mid - 113.0, 281.0),
+            // behind the wheel, top to bottom: the upper paddles and the shift paddles show through the thumb openings, the
+            // clutch paddles below the grips
+            C("l-paddle", "Left upper paddle", Kind.Paddle, 125.0, 115.0),
+            C("r-paddle", "Right upper paddle", Kind.Paddle, 2 * Mid - 125.0, 115.0),
+            C("l-shift", "Left shift paddle", Kind.Shift, 125.0, 163.0),
+            C("r-shift", "Right shift paddle", Kind.Shift, 2 * Mid - 125.0, 163.0),
+            C("l-clutch", "Left clutch paddle", Kind.Clutch, 114.0, 286.0),
+            C("r-clutch", "Right clutch paddle", Kind.Clutch, 2 * Mid - 114.0, 286.0),
         };
 
         public static Control ById(string id) => All.First(c => c.Id == id);
@@ -74,7 +78,7 @@ namespace User.FXProRpmSync
         {
             [7] = ("l-top-outer", Dir.Press), [8] = ("l-top-inner", Dir.Press), [6] = ("l-outer-high", Dir.Press),
             [5] = ("l-inner-high", Dir.Press), [19] = ("l-middle", Dir.Press), [20] = ("l-bottom", Dir.Press),
-            [4] = ("r-top-inner", Dir.Press), [3] = ("r-top-outer", Dir.Press), [2] = ("r-outer-high", Dir.Press),
+            [3] = ("r-top-inner", Dir.Press), [4] = ("r-top-outer", Dir.Press), [2] = ("r-outer-high", Dir.Press),
             [1] = ("r-inner-high", Dir.Press), [21] = ("r-middle", Dir.Press),
             [22] = ("diff", Dir.Clockwise), [23] = ("diff", Dir.Anticlockwise),
             [32] = ("map", Dir.Clockwise), [31] = ("map", Dir.Anticlockwise),
@@ -83,14 +87,18 @@ namespace User.FXProRpmSync
             [10] = ("tc", Dir.Clockwise), [9] = ("tc", Dir.Anticlockwise),
             [34] = ("l-outer-roller", Dir.Right), [33] = ("l-outer-roller", Dir.Left),
             [37] = ("l-inner-roller", Dir.Up), [38] = ("l-inner-roller", Dir.Down),
-            [36] = ("r-inner-roller", Dir.Up), [35] = ("r-inner-roller", Dir.Down),
-            [39] = ("r-outer-roller", Dir.Right), [40] = ("r-outer-roller", Dir.Left),
+            // the right side checked live on the Wheel tab (2026-09-30): 3/4 and the two rollers were the other way round
+            // in the capture; which way round each roller's pair goes is still to be confirmed
+            [36] = ("r-outer-roller", Dir.Right), [35] = ("r-outer-roller", Dir.Left),
+            [39] = ("r-inner-roller", Dir.Up), [40] = ("r-inner-roller", Dir.Down),
             [29] = ("funky", Dir.Up), [28] = ("funky", Dir.Down), [25] = ("funky", Dir.Left), [30] = ("funky", Dir.Right),
             [26] = ("funky", Dir.Press),
             // the funky switch also turns (seen in a capture between the TC knob and its directions; which way is which
             // isn't confirmed yet)
             [15] = ("funky", Dir.Clockwise), [16] = ("funky", Dir.Anticlockwise),
-            [14] = ("l-clutch", Dir.Press), [13] = ("r-clutch", Dir.Press),
+            // the shift paddles (checked live on the Wheel tab, 2026-09-30; an earlier note had these as the clutch paddles
+            // "pulled fully": the clutch paddles only move the report's two axes)
+            [14] = ("l-shift", Dir.Press), [13] = ("r-shift", Dir.Press),
         };
 
         /// <summary>The buttons the patched firmware sends for the dash button and the upper paddles.</summary>
@@ -111,6 +119,8 @@ namespace User.FXProRpmSync
                 if (button == s.DashSlot) return (ById("dash"), Dir.Press);
                 if (s.UpperPaddles && button == s.UpperPaddleA) return (ById("l-paddle"), Dir.Press);
                 if (s.UpperPaddles && button == s.UpperPaddleB) return (ById("r-paddle"), Dir.Press);
+                if (s.ClutchMode == 2 && button == 24) return (ById("l-clutch"), Dir.Press);
+                if (s.ClutchMode == 2 && button == 27) return (ById("r-clutch"), Dir.Press);
             }
             return Stock.TryGetValue(button, out var m) ? (ById(m.Id), m.Dir) : ((Control, Dir)?)null;
         }
@@ -133,8 +143,14 @@ namespace User.FXProRpmSync
             }
         }
 
-        /// <summary>The stock control using a button (1-40), for the slot picker; null if free.</summary>
-        public static string StockOwner(int button) => Stock.TryGetValue(button, out _) ? Describe(button, null) : null;
+        /// <summary>The stock control using a button (1-40), for the slot picker; null if free. With the clutch paddles
+        /// in button mode, 24/27 are theirs.</summary>
+        public static string StockOwner(int button, UsbSettings s = null)
+        {
+            if (Stock.TryGetValue(button, out _)) return Describe(button, null);
+            if (s?.ClutchMode == 2 && IsClutchButtonMode(button)) return button == 24 ? "Left clutch paddle (button mode)" : "Right clutch paddle (button mode)";
+            return null;
+        }
 
         /// <summary>Highest button the wheel's firmware reports: 48 on build 9+, else 40.</summary>
         public static int MaxButton(int build) => build >= 9 ? 48 : 40;
@@ -160,6 +176,13 @@ namespace User.FXProRpmSync
             if (s.DashSlot < 1 || s.DashSlot > max) s.DashSlot = dd;
             if (s.UpperPaddleA < 1 || s.UpperPaddleA > max) s.UpperPaddleA = da;
             if (s.UpperPaddleB < 1 || s.UpperPaddleB > max) s.UpperPaddleB = db;
+            // the clutch paddles in button mode own 24 and 27
+            if (s.ClutchMode == 2)
+            {
+                if (IsClutchButtonMode(s.DashSlot)) s.DashSlot = Free(s, build, dd);
+                if (IsClutchButtonMode(s.UpperPaddleA)) s.UpperPaddleA = Free(s, build, da);
+                if (IsClutchButtonMode(s.UpperPaddleB)) s.UpperPaddleB = Free(s, build, db);
+            }
             if (s.UpperPaddleA == s.DashSlot) s.UpperPaddleA = Free(s, build, da);
             if (s.UpperPaddleB == s.DashSlot || s.UpperPaddleB == s.UpperPaddleA) s.UpperPaddleB = Free(s, build, db);
             return before != (s.DashSlot, s.UpperPaddleA, s.UpperPaddleB);
@@ -168,7 +191,7 @@ namespace User.FXProRpmSync
         /// <summary>A button none of the three uses: the preferred one if free, else the first free one.</summary>
         private static int Free(UsbSettings s, int build, int preferred)
         {
-            bool taken(int b) => b == s.DashSlot || b == s.UpperPaddleA || b == s.UpperPaddleB;
+            bool taken(int b) => b == s.DashSlot || b == s.UpperPaddleA || b == s.UpperPaddleB || (s.ClutchMode == 2 && IsClutchButtonMode(b));
             if (!taken(preferred)) return preferred;
             for (int b = MaxButton(build); b >= 1; b--) if (!taken(b) && !Stock.ContainsKey(b)) return b;
             for (int b = MaxButton(build); b >= 1; b--) if (!taken(b)) return b;

@@ -271,6 +271,9 @@ namespace User.FXProRpmSync
             var live = u?.Active == true ? u.LastFrame : null;
             double t = clock.Elapsed.TotalSeconds;
             wheel.Show(live ?? engine.Render(plugin.ActiveLightsFor(plugin.DashCarKey), SimLap.Values(t), null, t, false));
+            var b = plugin.Buttons;
+            wheel.ClutchButtons = S.ClutchMode == 2;
+            if (b != null && b.Found) wheel.ShowClutch(b.Axis1, b.Axis2); else wheel.ShowClutch(0, 0);
         }
 
         private void RenderScreen()

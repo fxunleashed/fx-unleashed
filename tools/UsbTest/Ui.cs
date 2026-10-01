@@ -117,8 +117,9 @@ static class UiTest
             Pump(300);
             SaveElement(host, Path.Combine(dir, "wheel-fxpro.png"));
             // a button, a knob each way, both roller kinds, the funky switch, a paddle, the dash button
-            foreach (int b in new[] { 7, 22, 9, 34, 37, 29, 15, 42, 41, 13 }) view.Press(b, s);
-            Pump(200);
+            view.ShowClutch(90, 40);
+            foreach (int b in new[] { 7, 22, 9, 34, 37, 29, 15, 42, 13, 41 }) view.Press(b, s);
+            Pump(450);
             SaveElement(host, Path.Combine(dir, "wheel-fxpro-presses.png"));
             w.Close();
         });

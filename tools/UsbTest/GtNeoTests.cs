@@ -241,12 +241,12 @@ static class GtNeoTests
         // every stock button 1-40 but 24/27 belongs to exactly one control; 24/27 are the clutch paddles' button mode
         var stock = Enumerable.Range(1, 40).Where(FxProControls.IsStockButton).ToList();
         Check("FX Pro: 38 stock buttons, all but 24 and 27", stock.Count == 38 && !stock.Contains(24) && !stock.Contains(27), string.Join(",", stock));
-        Check("FX Pro: names", FxProControls.Describe(18, null) == "BB knob clockwise" && FxProControls.Describe(36, null) == "Right inner roller up"
+        Check("FX Pro: names", FxProControls.Describe(18, null) == "BB knob clockwise" && FxProControls.Describe(36, null) == "Right outer roller to the right"
               && FxProControls.Describe(26, null) == "Funky switch push" && FxProControls.Describe(34, null) == "Left outer roller to the right",
               FxProControls.Describe(18, null) + " / " + FxProControls.Describe(36, null));
         var s = new UsbSettings { DashSlot = 41, UpperPaddleA = 42, UpperPaddleB = 43 };
         Check("FX Pro: placed buttons win over stock", FxProControls.Lookup(41, s)?.Control.Id == "dash" && FxProControls.Lookup(42, s)?.Control.Id == "l-paddle"
-              && FxProControls.Lookup(36, s)?.Control.Id == "r-inner-roller");
+              && FxProControls.Lookup(36, s)?.Control.Id == "r-outer-roller");
         // build 8 settings move to build 9's own buttons; build 9 settings fall back on a build 8 wheel
         var old = new UsbSettings { DashSlot = 36, UpperPaddleA = 24, UpperPaddleB = 27 };
         bool moved = FxProControls.Normalize(old, 9);
@@ -262,5 +262,13 @@ static class GtNeoTests
         Check("FX Pro: the three never share a button", clash.DashSlot == 44 && clash.UpperPaddleA != 44 && clash.UpperPaddleB != 44 && clash.UpperPaddleA != clash.UpperPaddleB
               && clash.UpperPaddleA > 40 && clash.UpperPaddleB > 40, $"{clash.DashSlot}/{clash.UpperPaddleA}/{clash.UpperPaddleB}");
         Check("FX Pro: older builds untouched", !FxProControls.Normalize(new UsbSettings { DashSlot = 99 }, 7));
+        // the clutch paddles as buttons (SimPro's mode 2) own 24 and 27
+        var cb = new UsbSettings { DashSlot = 41, UpperPaddleA = 24, UpperPaddleB = 27, ClutchMode = 2 };
+        FxProControls.Normalize(cb, 9);
+        Check("FX Pro: clutch buttons push the upper paddles off 24/27", cb.UpperPaddleA != 24 && cb.UpperPaddleB != 27 && cb.UpperPaddleA != cb.UpperPaddleB
+              && cb.UpperPaddleA != 41 && cb.UpperPaddleB != 41, $"{cb.DashSlot}/{cb.UpperPaddleA}/{cb.UpperPaddleB}");
+        Check("FX Pro: clutch buttons on the drawing", FxProControls.Lookup(24, cb)?.Control.Id == "l-clutch" && FxProControls.Lookup(27, cb)?.Control.Id == "r-clutch"
+              && FxProControls.Lookup(24, new UsbSettings { DashSlot = 41, UpperPaddleA = 42, UpperPaddleB = 43 }) == null);
+        Check("FX Pro: shift paddles are 14/13", FxProControls.Lookup(14, null)?.Control.Id == "l-shift" && FxProControls.Lookup(13, null)?.Control.Id == "r-shift");
     }
 }

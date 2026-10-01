@@ -87,12 +87,21 @@ namespace User.FXProRpmSync
 
         /// <summary>Wheel app build 8+: the controller button the dash button reports as. Build 9 declares 48 buttons and
         /// 41-48 are free (default 41); on build 8 every one of the 40 is a stock control's (FxProControls), so it shares
-        /// (default 36, with the right inner roller). Builds 5-7 always use 40. Kept valid by FxProControls.Normalize.</summary>
+        /// (default 36, with the right outer roller). Builds 5-7 always use 40. Kept valid by FxProControls.Normalize.</summary>
         public int DashSlot = 36;
 
         /// <summary>Wheel app build 8+: report the two upper paddles (analogue channels 4/5, which stock never sends over
         /// USB) as buttons UpperPaddleA / UpperPaddleB.</summary>
         public bool UpperPaddles = true;
+
+        /// <summary>
+        /// FX Pro: the clutch paddles' mode while the plugin drives the wheel: 0 = as set in SimPro (left alone), 1 = two
+        /// axes, 2 = buttons (24 left / 27 right, as SimPro's button mode). The wheel keeps the mode in its config block
+        /// (0x20001DA8, set by SimPro over the base's radio only, so never in USB mode); the plugin writes it in RAM: lost
+        /// at power-off, written again on every connect. The same word holds the bite point (used only by SimPro's
+        /// combined-axis mode, which this doesn't offer) and two unused bytes.
+        /// </summary>
+        public int ClutchMode = 0;
 
         /// <summary>Wheel app build 8+: the controller buttons for the two upper paddles (left, right). Build 9: 42/43 by
         /// default (41-48 are free). Build 8: 24/27, the clutch paddles' button-mode buttons, free while those are axes.</summary>
@@ -377,7 +386,37 @@ namespace User.FXProRpmSync
             byte Out(int button) => (byte)(Math.Max(1, Math.Min(max, button)) - 1);
             try { conn?.WriteRam(FxConnection.Ctrl + 0x168, new[] { Out(slot), (byte)(S.UpperPaddles ? 1 : 0), Out(S.UpperPaddleA), Out(S.UpperPaddleB) }); }
             catch { }
+            WriteClutchMode();
             return slot;
+        }
+
+        /// <summary>The wheel's clutch mode byte (FX Pro app 1.3.11; see UsbSettings.ClutchMode).</summary>
+        private const uint ClutchModeWord = 0x20001DA8;
+
+        /// <summary>SimPro's button table (logical input i+1 -> output table[i]), the words holding logical 21-24 and 25-28.</summary>
+        private const uint ButtonTable2124 = 0x20001C0C, ButtonTable2528 = 0x20001C10;
+
+        /// <summary>
+        /// Two axes or buttons, if the user picked one: [mode, bite point 50, 0, 0] (only the mode matters in these two). For
+        /// buttons, the clutch paddles (logical inputs 24 and 27) also need their table entries: SimPro only sends them
+        /// over the base when it is set to button mode itself, so on a wheel set up with axes they're 0 (button 1 for
+        /// both). The table is written a word at a time, so logical 21-28 are written as SimPro's default (logical n ->
+        /// button n), which the FX Pro uses (checked on the user's wheel: 22, 23, 25, 26, 28 unchanged, the clutch
+        /// paddles 24 and 27). A custom SimPro mapping of those six comes back with a power-off.
+        /// </summary>
+        private void WriteClutchMode()
+        {
+            if (model != WheelModel.FxPro || (S.ClutchMode != 1 && S.ClutchMode != 2)) return;
+            try
+            {
+                if (S.ClutchMode == 2)
+                {
+                    conn?.WriteRam(ButtonTable2124, new byte[] { 20, 21, 22, 23 });
+                    conn?.WriteRam(ButtonTable2528, new byte[] { 24, 25, 26, 27 });
+                }
+                conn?.WriteRam(ClutchModeWord, new byte[] { (byte)S.ClutchMode, 50, 0, 0 });
+            }
+            catch { }
         }
 
         // Sleep: counted from the last time something drove the wheel (a game, the demo, the designer) or the user acted
@@ -780,7 +819,7 @@ namespace User.FXProRpmSync
                 want = item.Kind == SaverKind.Logo ? null : IdleScreens.DashFor(item, DashLibrary.Load(errors));
                 if (want == null)
                 {
-                    saver = IdleScreens.Animated(item) ?? new ScreenSaver();
+                    saver = IdleScreens.Animated(item, s.LastSession) ?? new ScreenSaver();
                     saver.Start();
                     SimHub.Logging.Current.Info("[FXProRpmSync] USB mode screensaver: " + item.Name);
                     return;

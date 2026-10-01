@@ -129,7 +129,7 @@ static class UsbTestMain
                 var d = IdleScreens.DashFor(item);
                 if (d == null)
                 {
-                    var ac = new Counter(); var an = IdleScreens.Animated(item); an.Start();
+                    var ac = new Counter(); var an = IdleScreens.Animated(item, last); an.Start();
                     while (an.Drawing) an.Step(ac, 0, 60);
                     long f0 = ac.Bytes, pk = 0, pv = ac.Bytes;
                     for (int k = 1; k <= 300; k++)
