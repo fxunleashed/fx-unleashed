@@ -216,19 +216,17 @@ namespace User.FXProRpmSync
         private readonly int[] rowState = new int[Rows];
 
         /// <summary>
-        /// How far the car has gone (track units) `sinceOut` seconds after lights out: a 2.4 s launch, then a steady pace
-        /// to the end of the drive. The top speed stays under half a stripe per frame, or the strips would seem to stand
-        /// still or run backwards.
+        /// How far the car has gone (track units) `sinceOut` seconds after lights out: it accelerates smoothly up to its
+        /// cruising speed (an ease-out, no overshoot) and holds it to the end of the drive. Bytes follow the speed (~1.9 KB/s
+        /// per unit), and it stays under half a stripe per frame, or the strips would seem to stand still or run backwards.
         /// </summary>
-        private static double Travel(double sinceOut)
+        internal static double Travel(double sinceOut)
         {
-            // a launch up to `top`, then easing down to a cruise that costs a third of the bytes (they follow the speed)
-            const double launch = 2.4, accel = 1.5, top = 2 * accel * launch, cruise = 3.2, ease = 2.0;
+            const double cruise = 5.0, rampUp = 3.5;
             double s = Math.Min(sinceOut, IdleScreens.DriveSeconds);
-            if (s <= launch) return accel * s * s;
-            double d = accel * launch * launch, u = s - launch;
-            if (u <= ease) return d + top * u - (top - cruise) * u * u / (2 * ease);
-            return d + top * ease - (top - cruise) * ease / 2 + cruise * (u - ease);
+            // speed v(s) = cruise * (1 - (1 - s/rampUp)^2) while ramping: distance is its integral
+            if (s <= rampUp) return cruise * (s * s / rampUp - s * s * s / (3 * rampUp * rampUp));
+            return cruise * rampUp * 2 / 3 + cruise * (s - rampUp);
         }
 
         /// <summary>A row's look for a travel `d`: bit 0 asphalt shade, bit 1 kerb colour, bit 2 centre dash, bit 3 start line,
