@@ -193,15 +193,88 @@ namespace User.FXProRpmSync
     /// "Lights out": a start gantry of five pods over a starting grid. One pair of lights a second, a random hold, out;
     /// then "LIGHTS OUT" and a reaction timer on the timing panel, with the time below. A lens is 3-4 circles inside its
     /// rim, so a change costs ~80 bytes and never touches the art around it.
+    /// At lights out the car launches: the track is drawn the way 80s arcade racers did it, as 4 px rows of asphalt
+    /// strips, kerb blocks and a dashed centre line whose light/dark pattern depends on the distance along the track.
+    /// Moving forward shifts the pattern, and only the rows whose pattern changed are redrawn (a few fills each), so the
+    /// track rushes at you for ~10-15 KB/s while the car accelerates, and the start line slides away underneath.
     /// </summary>
     internal sealed class LightsOutSaver : ArtSaver
     {
-        private const int Pods = 5, PodW = 112, PodH = 196, Pitch = 136, Top = 70, LensR = 33;
+        private const int Pods = 5, PodW = 96, PodH = 150, Pitch = 128, Top = 34, LensR = 27;
         private static int PodX(int k) => W / 2 - (Pods - 1) * Pitch / 2 + k * Pitch;
-        private static readonly int[] LensY = { Top + 58, Top + 138 };
-        private const int PanelX = 165, PanelY = 300, PanelW = 470, PanelH = 104;
+        private static readonly int[] LensY = { Top + 42, Top + 106 };
+        private const int PanelX = 175, PanelY = 192, PanelW = 450, PanelH = 96;
 
-        protected override int RowStep(int y) => y >= PanelY + PanelH + 6 ? 3 : 2;
+        protected override int RowStep(int y) => y >= TrackTop ? 1 : 2; // the track's rows are 4 px bands already
+
+        // ---- the track: rows below the horizon, each a slice of road at some distance ahead
+        private const double Horizon = 214, Depth = 3, Stripe = 1, StartAt = 4;
+        private const int TrackTop = 218, Band = 6, Vx = W / 2;
+        private static readonly int RoadA = C("#1C2026"), RoadB = C("#14171B"), KerbRed = C("#C41212"), KerbWhite = C("#E8E8E8"),
+                                    Line = C("#D9DDE2");
+        private static readonly int Rows = (H - TrackTop + Band - 1) / Band;
+        private readonly int[] rowState = new int[Rows];
+
+        /// <summary>How far the car has gone (track units) `sinceOut` seconds after lights out: a launch, then a steady pace.</summary>
+        private static double Travel(double sinceOut)
+        {
+            // under half a stripe per frame at the top speed, or the strips would seem to stand still or run backwards
+            double s = Math.Min(sinceOut, 2.4);
+            return 1.2 * s * s;
+        }
+
+        /// <summary>A row's look for a travel `d`: bit 0 asphalt shade, bit 1 kerb colour, bit 2 centre dash, bit 3 start line.</summary>
+        private static int RowState(int row, double d)
+        {
+            double t = (TrackTop + row * Band + Band / 2.0 - Horizon) / (H - Horizon);
+            if (t < 0.15) return 16;                              // far away: plain (stripes there would only flicker)
+            double w = Depth / t + d;
+            int s = (int)Math.Floor(w / Stripe);
+            bool dash = (w / (2 * Stripe)) % 1 < 0.5;
+            // the start line: a strip 0.25 long at StartAt, coming at us as the car moves (gone once it's behind)
+            bool start = Math.Abs(Depth / t - (StartAt - d)) < 0.25;
+            return (s & 1) | ((s & 1) << 1) | (dash ? 4 : 0) | (start ? 8 : 0);
+        }
+
+        /// <summary>
+        /// The fills that draw a row in a state, cut around the timing panel (and a pixel round it). `dashOnly`: just the
+        /// centre dash's spot (a line, or road where there's none), when only the dash changed.
+        /// </summary>
+        private static IEnumerable<(int X, int Y, int W, int H, int Colour)> RowFills(int row, int state, bool dashOnly = false)
+        {
+            int y = TrackTop + row * Band, h = Math.Min(Band, H - y);
+            bool underPanel = y + h > PanelY - 1 && y < PanelY + PanelH + 1;
+            foreach (var f in RowParts(row, state))
+            {
+                if (dashOnly && !f.Dash) continue;
+                int x0 = Math.Max(0, f.X), x1 = Math.Min(W, f.X + f.W);
+                if (x1 <= x0) continue;
+                if (!underPanel) { yield return (x0, f.Y, x1 - x0, f.H, f.Colour); continue; }
+                int p0 = PanelX - 1, p1 = PanelX + PanelW + 1;
+                if (x0 < p0) yield return (x0, f.Y, Math.Min(x1, p0) - x0, f.H, f.Colour);
+                if (x1 > p1) { int a = Math.Max(x0, p1); yield return (a, f.Y, x1 - a, f.H, f.Colour); }
+            }
+        }
+
+        /// <summary>A row's parts in a state: left kerb, right kerb, road, centre dash (in the road's colour when off).</summary>
+        private static IEnumerable<(int X, int Y, int W, int H, int Colour, bool Dash)> RowParts(int row, int state)
+        {
+            int y = TrackTop + row * Band, h = Math.Min(Band, H - y);
+            double t = (y + Band / 2.0 - Horizon) / (H - Horizon);
+            int half = (int)Math.Round(60 + 320 * t), kerb = (int)Math.Round(8 + 70 * t);
+            bool far = (state & 16) != 0, start = (state & 8) != 0;
+            int road = start ? Line : far ? RoadA : (state & 1) == 0 ? RoadA : RoadB;
+            int kc = far ? KerbRed : (state & 2) == 0 ? KerbRed : KerbWhite;
+            int l = Vx - half, r = Vx + half;
+            yield return (l - kerb, y, kerb, h, kc, false);
+            yield return (r, y, kerb, h, kc, false);
+            yield return (l, y, r - l, h, road, false);
+            if (!far && !start)
+            {
+                int dw = Math.Max(2, (int)Math.Round(2 + 8 * t));
+                yield return (Vx - dw / 2, y, dw, h, (state & 4) != 0 ? Line : road, true);
+            }
+        }
 
         private static readonly string[] Pal =
         {
@@ -222,43 +295,29 @@ namespace User.FXProRpmSync
         {
             for (int k = 0; k < Pods; k++) lit[k] = null;
             go = null; timer = null; clock = null;
+            for (int row = 0; row < Rows; row++) rowState[row] = RowState(row, 0); // as painted
         }
 
         protected override void Paint(Graphics g)
         {
-            // the track in perspective: asphalt, kerbs, grid boxes
-            float hy = 292, vx = W / 2f;
-            PointF P(float x, float y) => new PointF(vx + (x - vx) * (y - hy) / (H - hy), y);
-            using (var road = new GraphicsPath())
-            {
-                road.AddPolygon(new[] { new PointF(vx - 60, hy), new PointF(vx + 60, hy), new PointF(W + 260, H), new PointF(-260, H) });
-                using (var b = new SolidBrush(Col("#1C2026"))) g.FillPath(b, road);
-            }
-            for (int i = 0; i < 6; i++)
-            {
-                // kerbs: red and white blocks along both edges, getting bigger towards us
-                float y0 = hy + (H - hy) * (float)Math.Pow(i / 6.0, 1.5), y1 = hy + (H - hy) * (float)Math.Pow((i + 1) / 6.0, 1.5);
-                float t0 = (y0 - hy) / (H - hy), t1 = (y1 - hy) / (H - hy);
-                foreach (int side in new[] { -1, 1 })
-                {
-                    float e0 = vx + side * (60 + 320 * t0), e1 = vx + side * (60 + 320 * t1), w0 = 8 + 70 * t0, w1 = 8 + 70 * t1;
-                    using (var b = new SolidBrush(Col(i % 2 == 0 ? "#C41212" : "#E8E8E8")))
-                        g.FillPolygon(b, new[] { new PointF(e0, y0), new PointF(e0 + side * w0, y0), new PointF(e1 + side * w1, y1), new PointF(e1, y1) });
-                }
-            }
-            // the start line, straight across
-            using (var b = new SolidBrush(Col("#D9DDE2"))) g.FillRectangle(b, 0, 446, W, 9);
+            // the track, standing on the grid (the same rows the animation redraws)
+            var mode = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.None;
+            for (int row = 0; row < Rows; row++)
+                foreach (var f in RowFills(row, RowState(row, 0)))
+                    if (f.W > 0) using (var b = new SolidBrush(DashRenderer.ToColor(f.Colour))) g.FillRectangle(b, f.X, f.Y, f.W, f.H);
+            g.SmoothingMode = mode;
             // the gantry: a beam, two struts and five pods
-            using (var b = new LinearGradientBrush(new Rectangle(0, 34, W, 40), Col("#47505C"), Col("#14171B"), 90f)) g.FillRectangle(b, 30, 36, W - 60, 30);
+            using (var b = new LinearGradientBrush(new Rectangle(0, 8, W, 30), Col("#47505C"), Col("#14171B"), 90f)) g.FillRectangle(b, 30, 10, W - 60, 24);
             using (var b = new LinearGradientBrush(new Rectangle(0, 0, 30, H), Col("#333943"), Col("#0D0F12"), 0f))
             {
-                g.FillRectangle(b, 18, 36, 24, 260);
-                g.FillRectangle(b, W - 42, 36, 24, 260);
+                g.FillRectangle(b, 18, 10, 24, (int)Horizon - 8);
+                g.FillRectangle(b, W - 42, 10, 24, (int)Horizon - 8);
             }
             for (int k = 0; k < Pods; k++)
             {
                 var r = new RectangleF(PodX(k) - PodW / 2f, Top, PodW, PodH);
-                using (var path = Rounded(r, 16))
+                using (var path = Rounded(r, 14))
                 using (var b = new LinearGradientBrush(r, Col("#262B32"), Col("#07080A"), 0f))
                 using (var edge = new Pen(Col("#47505C"), 3))
                 {
@@ -270,12 +329,23 @@ namespace User.FXProRpmSync
             }
             // the timing panel
             Panel(g, new RectangleF(PanelX, PanelY, PanelW, PanelH), "#0A0B0D", "#C41212", 12, 3);
-            Text(g, "RACE START", Display(15, FontStyle.Bold), Col("#6B7481"), new RectangleF(PanelX, PanelY + 8, PanelW, 18));
+            Text(g, "RACE START", Display(14, FontStyle.Bold), Col("#6B7481"), new RectangleF(PanelX, PanelY + 6, PanelW, 16));
         }
 
         protected override void Animate(IScreenSink screen, double now)
         {
             var on = IdleScreens.StartLights(now, out bool lightsOut, out double sinceOut);
+            // the track: only rows whose pattern changed (back to the grid when the next start begins)
+            double d = Travel(sinceOut);
+            for (int row = 0; row < Rows; row++)
+            {
+                int st = RowState(row, d), changed = st ^ rowState[row];
+                if (changed == 0) continue;
+                rowState[row] = st;
+                // only the dash changed: one small fill; anything else: the whole row
+                foreach (var f in RowFills(row, st, dashOnly: changed == 4))
+                    if (f.W > 0) screen.Cmd(F("fill {0},{1},{2},{3},{4}", f.X, f.Y, f.W, f.H, f.Colour));
+            }
             for (int k = 0; k < Pods; k++)
             {
                 if (lit[k] == on[k]) continue;
@@ -286,32 +356,32 @@ namespace User.FXProRpmSync
                     if (on[k])
                     {
                         screen.Cmd(Cirs(x, ly, LensR, LitRim));
-                        screen.Cmd(Cirs(x, ly, LensR - 5, Lit));
-                        screen.Cmd(Cirs(x - 8, ly - 9, 11, Hot));
-                        screen.Cmd(Cirs(x - 11, ly - 12, 4, Spark));
+                        screen.Cmd(Cirs(x, ly, LensR - 4, Lit));
+                        screen.Cmd(Cirs(x - 7, ly - 7, 9, Hot));
+                        screen.Cmd(Cirs(x - 9, ly - 10, 3, Spark));
                     }
                     else
                     {
                         screen.Cmd(Cirs(x, ly, LensR, LensOff));
-                        screen.Cmd(Cirs(x + 4, ly + 5, LensR - 10, LensOffIn));
+                        screen.Cmd(Cirs(x + 3, ly + 4, LensR - 8, LensOffIn));
                     }
                 }
             }
             if (go != lightsOut)
             {
                 go = lightsOut;
-                screen.Cmd(Xstr(PanelX + 10, PanelY + 28, PanelW - 20, 40, 8, lightsOut ? White : Grey, PanelC, 1, lightsOut ? "LIGHTS OUT" : "GET READY"));
+                screen.Cmd(Xstr(PanelX + 10, PanelY + 24, PanelW - 20, 40, 8, lightsOut ? White : Grey, PanelC, 1, lightsOut ? "LIGHTS OUT" : "GET READY"));
             }
             // a reaction timer after lights out, the time otherwise
             string t = lightsOut ? sinceOut.ToString("0.000", CultureInfo.InvariantCulture) + " s" : DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
             if (t != timer)
             {
                 timer = t;
-                screen.Cmd(Xstr(PanelX + 10, PanelY + 72, PanelW - 20, 28, 2, lightsOut ? Red : Grey, PanelC, 1, t));
+                screen.Cmd(Xstr(PanelX + 10, PanelY + 66, PanelW - 20, 26, 5, lightsOut ? Red : Grey, PanelC, 1, t));
             }
         }
 
-        protected override double FrameSeconds => 0.07;
+        protected override double FrameSeconds => 0.08;
     }
 
     // =====================================================================================================================

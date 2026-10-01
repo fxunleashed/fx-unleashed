@@ -120,6 +120,24 @@ static class UsbTestMain
             sv.Step(sc, 1.3, 24); sc.P.Bitmap.Save(Path.Combine(dir, "saver_b.png"), ImageFormat.Png);
             return 0;
         }
+        if (args.Length > 1 && args[1] == "track")
+        {
+            // Lights out through one launch: frames before, during and after, and the bytes each 0.1 s
+            var c = new Counter(); var sv = IdleScreens.Animated(IdleScreens.All(new UsbSettings()).First(x => x.Id == "lights-out")); sv.Start();
+            while (sv.Drawing) sv.Step(c, 0, 60);
+            IdleScreens.StartLights(0, out _, out _);
+            double hold = 0; for (double tt = 0; tt < 9; tt += 0.01) { IdleScreens.StartLights(tt, out bool g0, out _); if (g0) { hold = tt; break; } }
+            long prev = c.Bytes, peak = 0, total = 0;
+            for (double tt = 0; tt < 9; tt += 0.02)
+            {
+                sv.Step(c, tt, 400);
+                if (Math.Round(tt * 50) % 5 == 0) { long b = c.Bytes - prev; peak = Math.Max(peak, b); total += b; prev = c.Bytes; }
+                foreach (var at in new[] { -0.5, 0.4, 1.0, 1.6, 2.3 })
+                    if (Math.Abs(tt - (hold + at)) < 0.011) c.P.Bitmap.Save(Path.Combine(dir, $"track{at:+0.0;-0.0}.png"), ImageFormat.Png);
+            }
+            Console.WriteLine($"lights out at {hold:0.00} s; worst {peak * 10} B/s over 0.1 s, cycle average {total / 9.0:0} B/s");
+            return 0;
+        }
         if (args.Length > 1 && args[1] == "savers")
         {
             // the built-in screensavers: layout check, first-draw size, traffic while animating, pictures at a few moments
