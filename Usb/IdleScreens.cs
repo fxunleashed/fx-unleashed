@@ -133,15 +133,19 @@ namespace User.FXProRpmSync
             }
         }
 
-        /// <summary>The start lights at `t`: a 9 s cycle, one light a second, a random hold, then out (go = "LIGHTS OUT").</summary>
+        /// <summary>Seconds of driving after lights out, and the whole start cycle (lights, hold, drive, a pause).</summary>
+        public const double DriveSeconds = 30, StartCycle = 40;
+
+        /// <summary>The start lights at `t`: one light a second, a random hold, then out and DriveSeconds of driving
+        /// (go = "LIGHTS OUT"), repeating every StartCycle seconds.</summary>
         public static bool[] StartLights(double t, out bool go) => StartLights(t, out go, out _);
 
-        /// <summary>The same, with the seconds since the lights went out (for the reaction timer).</summary>
+        /// <summary>The same, with the seconds since the lights went out (0 before; it keeps counting after the drive).</summary>
         public static bool[] StartLights(double t, out bool go, out double sinceOut)
         {
-            int cycle = (int)(t / 9);
-            double c = t - cycle * 9, hold = 4.6 + new Random(cycle).NextDouble() * 1.4;
-            go = c >= hold && c < hold + 2.4;
+            int cycle = (int)(t / StartCycle);
+            double c = t - cycle * StartCycle, hold = 4.6 + new Random(cycle).NextDouble() * 1.4;
+            go = c >= hold && c < hold + DriveSeconds;
             sinceOut = Math.Max(0, c - hold);
             var on = new bool[5];
             for (int k = 0; k < 5; k++) on[k] = c >= (k + 1) * 0.9 && c < hold;

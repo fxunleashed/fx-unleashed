@@ -208,56 +208,64 @@ namespace User.FXProRpmSync
         protected override int RowStep(int y) => y >= TrackTop ? 1 : 2; // the track's rows are 4 px bands already
 
         // ---- the track: rows below the horizon, each a slice of road at some distance ahead
-        private const double Horizon = 214, Depth = 3, Stripe = 1, StartAt = 4;
+        private const double Horizon = 214, Depth = 3, Stripe = 1.5, StartAt = 4;
         private const int TrackTop = 218, Band = 6, Vx = W / 2;
         private static readonly int RoadA = C("#1C2026"), RoadB = C("#14171B"), KerbRed = C("#C41212"), KerbWhite = C("#E8E8E8"),
                                     Line = C("#D9DDE2");
         private static readonly int Rows = (H - TrackTop + Band - 1) / Band;
         private readonly int[] rowState = new int[Rows];
 
-        /// <summary>How far the car has gone (track units) `sinceOut` seconds after lights out: a launch, then a steady pace.</summary>
+        /// <summary>
+        /// How far the car has gone (track units) `sinceOut` seconds after lights out: a 2.4 s launch, then a steady pace
+        /// to the end of the drive. The top speed stays under half a stripe per frame, or the strips would seem to stand
+        /// still or run backwards.
+        /// </summary>
         private static double Travel(double sinceOut)
         {
-            // under half a stripe per frame at the top speed, or the strips would seem to stand still or run backwards
-            double s = Math.Min(sinceOut, 2.4);
-            return 1.2 * s * s;
+            // a launch up to `top`, then easing down to a cruise that costs a third of the bytes (they follow the speed)
+            const double launch = 2.4, accel = 1.5, top = 2 * accel * launch, cruise = 3.2, ease = 2.0;
+            double s = Math.Min(sinceOut, IdleScreens.DriveSeconds);
+            if (s <= launch) return accel * s * s;
+            double d = accel * launch * launch, u = s - launch;
+            if (u <= ease) return d + top * u - (top - cruise) * u * u / (2 * ease);
+            return d + top * ease - (top - cruise) * ease / 2 + cruise * (u - ease);
         }
 
-        /// <summary>A row's look for a travel `d`: bit 0 asphalt shade, bit 1 kerb colour, bit 2 centre dash, bit 3 start line.</summary>
+        /// <summary>A row's look for a travel `d`: bit 0 asphalt shade, bit 1 kerb colour, bit 2 centre dash, bit 3 start line,
+        /// 16 far (plain).</summary>
         private static int RowState(int row, double d)
         {
             double t = (TrackTop + row * Band + Band / 2.0 - Horizon) / (H - Horizon);
             if (t < 0.15) return 16;                              // far away: plain (stripes there would only flicker)
             double w = Depth / t + d;
-            int s = (int)Math.Floor(w / Stripe);
+            int s = (int)Math.Floor(w / Stripe), a = (int)Math.Floor(w / (2 * Stripe));
             bool dash = (w / (2 * Stripe)) % 1 < 0.5;
             // the start line: a strip 0.25 long at StartAt, coming at us as the car moves (gone once it's behind)
             bool start = Math.Abs(Depth / t - (StartAt - d)) < 0.25;
-            return (s & 1) | ((s & 1) << 1) | (dash ? 4 : 0) | (start ? 8 : 0);
+            return (a & 1) | ((s & 1) << 1) | (dash ? 4 : 0) | (start ? 8 : 0);
         }
 
         /// <summary>
         /// The fills that draw a row in a state, cut around the timing panel (and a pixel round it). `dashOnly`: just the
         /// centre dash's spot (a line, or road where there's none), when only the dash changed.
         /// </summary>
-        private static IEnumerable<(int X, int Y, int W, int H, int Colour)> RowFills(int row, int state, bool dashOnly = false)
+        private static IEnumerable<(int X, int Y, int W, int H, int Colour, int Part)> RowFills(int row, int state)
         {
             int y = TrackTop + row * Band, h = Math.Min(Band, H - y);
             bool underPanel = y + h > PanelY - 1 && y < PanelY + PanelH + 1;
             foreach (var f in RowParts(row, state))
             {
-                if (dashOnly && !f.Dash) continue;
                 int x0 = Math.Max(0, f.X), x1 = Math.Min(W, f.X + f.W);
                 if (x1 <= x0) continue;
-                if (!underPanel) { yield return (x0, f.Y, x1 - x0, f.H, f.Colour); continue; }
+                if (!underPanel) { yield return (x0, f.Y, x1 - x0, f.H, f.Colour, f.Part); continue; }
                 int p0 = PanelX - 1, p1 = PanelX + PanelW + 1;
-                if (x0 < p0) yield return (x0, f.Y, Math.Min(x1, p0) - x0, f.H, f.Colour);
-                if (x1 > p1) { int a = Math.Max(x0, p1); yield return (a, f.Y, x1 - a, f.H, f.Colour); }
+                if (x0 < p0) yield return (x0, f.Y, Math.Min(x1, p0) - x0, f.H, f.Colour, f.Part);
+                if (x1 > p1) { int a = Math.Max(x0, p1); yield return (a, f.Y, x1 - a, f.H, f.Colour, f.Part); }
             }
         }
 
-        /// <summary>A row's parts in a state: left kerb, right kerb, road, centre dash (in the road's colour when off).</summary>
-        private static IEnumerable<(int X, int Y, int W, int H, int Colour, bool Dash)> RowParts(int row, int state)
+        /// <summary>A row's parts in a state: kerbs (part 0), road (1), centre dash (2, in the road's colour when off).</summary>
+        private static IEnumerable<(int X, int Y, int W, int H, int Colour, int Part)> RowParts(int row, int state)
         {
             int y = TrackTop + row * Band, h = Math.Min(Band, H - y);
             double t = (y + Band / 2.0 - Horizon) / (H - Horizon);
@@ -266,13 +274,13 @@ namespace User.FXProRpmSync
             int road = start ? Line : far ? RoadA : (state & 1) == 0 ? RoadA : RoadB;
             int kc = far ? KerbRed : (state & 2) == 0 ? KerbRed : KerbWhite;
             int l = Vx - half, r = Vx + half;
-            yield return (l - kerb, y, kerb, h, kc, false);
-            yield return (r, y, kerb, h, kc, false);
-            yield return (l, y, r - l, h, road, false);
+            yield return (l - kerb, y, kerb, h, kc, 0);
+            yield return (r, y, kerb, h, kc, 0);
+            yield return (l, y, r - l, h, road, 1);
             if (!far && !start)
             {
                 int dw = Math.Max(2, (int)Math.Round(2 + 8 * t));
-                yield return (Vx - dw / 2, y, dw, h, (state & 4) != 0 ? Line : road, true);
+                yield return (Vx - dw / 2, y, dw, h, (state & 4) != 0 ? Line : road, 2);
             }
         }
 
@@ -288,13 +296,12 @@ namespace User.FXProRpmSync
                                     Red = C("#FF2020"), Grey = C("#9AA2AD");
 
         private readonly bool?[] lit = new bool?[Pods];
-        private bool? go;
-        private string timer, clock;
+        private string headline, timer, clock;
 
         protected override void Reset()
         {
             for (int k = 0; k < Pods; k++) lit[k] = null;
-            go = null; timer = null; clock = null;
+            headline = null; timer = null; clock = null;
             for (int row = 0; row < Rows; row++) rowState[row] = RowState(row, 0); // as painted
         }
 
@@ -342,9 +349,11 @@ namespace User.FXProRpmSync
                 int st = RowState(row, d), changed = st ^ rowState[row];
                 if (changed == 0) continue;
                 rowState[row] = st;
-                // only the dash changed: one small fill; anything else: the whole row
-                foreach (var f in RowFills(row, st, dashOnly: changed == 4))
-                    if (f.W > 0) screen.Cmd(F("fill {0},{1},{2},{3},{4}", f.X, f.Y, f.W, f.H, f.Colour));
+                // only what changed: the dash spot, the kerbs, or (asphalt / start line) the whole row
+                bool whole = (changed & (1 | 8 | 16)) != 0;
+                foreach (var f in RowFills(row, st))
+                    if (f.W > 0 && (whole || (f.Part == 0 && (changed & 2) != 0) || (f.Part == 2 && (changed & 4) != 0)))
+                        screen.Cmd(F("fill {0},{1},{2},{3},{4}", f.X, f.Y, f.W, f.H, f.Colour));
             }
             for (int k = 0; k < Pods; k++)
             {
@@ -367,19 +376,26 @@ namespace User.FXProRpmSync
                     }
                 }
             }
-            if (go != lightsOut)
+            // the panel: LIGHTS OUT and the reaction time for 3 s, then the race clock; GET READY and the time on the grid
+            bool racing = lightsOut && sinceOut >= 3;
+            string head = racing ? RaceClock(sinceOut) : lightsOut ? "LIGHTS OUT" : "GET READY";
+            if (head != headline)
             {
-                go = lightsOut;
-                screen.Cmd(Xstr(PanelX + 10, PanelY + 24, PanelW - 20, 40, 8, lightsOut ? White : Grey, PanelC, 1, lightsOut ? "LIGHTS OUT" : "GET READY"));
+                headline = head;
+                screen.Cmd(Xstr(PanelX + 10, PanelY + 24, PanelW - 20, 40, 8, lightsOut ? White : Grey, PanelC, 1, head));
             }
-            // a reaction timer after lights out, the time otherwise
-            string t = lightsOut ? sinceOut.ToString("0.000", CultureInfo.InvariantCulture) + " s" : DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+            string t = racing ? "RACE TIME" : lightsOut ? sinceOut.ToString("0.000", CultureInfo.InvariantCulture) + " s"
+                     : DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
             if (t != timer)
             {
                 timer = t;
                 screen.Cmd(Xstr(PanelX + 10, PanelY + 66, PanelW - 20, 26, 5, lightsOut ? Red : Grey, PanelC, 1, t));
             }
         }
+
+        /// <summary>Time since lights out as a race clock, to the tenth (0:12.3): a few bytes ten times a second.</summary>
+        private static string RaceClock(double s) =>
+            ((int)(s / 60)).ToString(CultureInfo.InvariantCulture) + ":" + (s % 60).ToString("00.0", CultureInfo.InvariantCulture);
 
         protected override double FrameSeconds => 0.08;
     }

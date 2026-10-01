@@ -126,16 +126,16 @@ static class UsbTestMain
             var c = new Counter(); var sv = IdleScreens.Animated(IdleScreens.All(new UsbSettings()).First(x => x.Id == "lights-out")); sv.Start();
             while (sv.Drawing) sv.Step(c, 0, 60);
             IdleScreens.StartLights(0, out _, out _);
-            double hold = 0; for (double tt = 0; tt < 9; tt += 0.01) { IdleScreens.StartLights(tt, out bool g0, out _); if (g0) { hold = tt; break; } }
-            long prev = c.Bytes, peak = 0, total = 0;
-            for (double tt = 0; tt < 9; tt += 0.02)
+            double hold = 0; for (double tt = 0; tt < IdleScreens.StartCycle; tt += 0.01) { IdleScreens.StartLights(tt, out bool g0, out _); if (g0) { hold = tt; break; } }
+            long prev = c.Bytes, peak = 0, total = 0, driving = 0;
+            for (double tt = 0; tt < IdleScreens.StartCycle; tt += 0.02)
             {
                 sv.Step(c, tt, 400);
-                if (Math.Round(tt * 50) % 5 == 0) { long b = c.Bytes - prev; peak = Math.Max(peak, b); total += b; prev = c.Bytes; }
-                foreach (var at in new[] { -0.5, 0.4, 1.0, 1.6, 2.3 })
+                if (Math.Round(tt * 50) % 5 == 0) { long b = c.Bytes - prev; peak = Math.Max(peak, b); total += b; if (tt > hold + 3 && tt < hold + IdleScreens.DriveSeconds) driving += b; prev = c.Bytes; }
+                foreach (var at in new[] { -0.5, 0.4, 1.6, 6.0, 20.0, 31.0 })
                     if (Math.Abs(tt - (hold + at)) < 0.011) c.P.Bitmap.Save(Path.Combine(dir, $"track{at:+0.0;-0.0}.png"), ImageFormat.Png);
             }
-            Console.WriteLine($"lights out at {hold:0.00} s; worst {peak * 10} B/s over 0.1 s, cycle average {total / 9.0:0} B/s");
+            Console.WriteLine($"lights out at {hold:0.00} s; worst {peak * 10} B/s over 0.1 s, cycle average {total / IdleScreens.StartCycle:0} B/s, driving {driving / IdleScreens.DriveSeconds:0} B/s");
             return 0;
         }
         if (args.Length > 1 && args[1] == "savers")
