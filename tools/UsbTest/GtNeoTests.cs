@@ -231,6 +231,36 @@ static class GtNeoTests
         Check("plugin: no FX Pro dash-button binding on the GT Neo", !p.Settings.Usb.WheelButtons.ContainsValue(WheelButtons.DashButton));
         p.SwitchWheel(WheelModel.FxPro);
         Check("plugin: back on the FX Pro, the dash button steps the dashes", p.ActiveModel == WheelModel.FxPro && p.Settings.Usb.WheelButtons.TryGetValue("next", out var b) && b == WheelButtons.DashButton);
-        Check("button names per wheel", WheelButtons.Name(40, WheelModel.FxPro) == "Dash button" && WheelButtons.Name(40, WheelModel.GtNeo) == "Wheel button 40");
+        Check("button names per wheel", WheelButtons.Name(WheelButtons.DashButton, WheelModel.FxPro).StartsWith("Dash button") && WheelButtons.Name(40, WheelModel.GtNeo) == "Wheel button 40");
+        FxProControlTests();
+    }
+
+    /// <summary>The FX Pro's control map and the dash button / upper paddle buttons (FxProControls).</summary>
+    static void FxProControlTests()
+    {
+        // every stock button 1-40 but 24/27 belongs to exactly one control; 24/27 are the clutch paddles' button mode
+        var stock = Enumerable.Range(1, 40).Where(FxProControls.IsStockButton).ToList();
+        Check("FX Pro: 38 stock buttons, all but 24 and 27", stock.Count == 38 && !stock.Contains(24) && !stock.Contains(27), string.Join(",", stock));
+        Check("FX Pro: names", FxProControls.Describe(18, null) == "BB knob clockwise" && FxProControls.Describe(36, null) == "Right inner roller up"
+              && FxProControls.Describe(26, null) == "Funky switch push" && FxProControls.Describe(34, null) == "Left outer roller to the right",
+              FxProControls.Describe(18, null) + " / " + FxProControls.Describe(36, null));
+        var s = new UsbSettings { DashSlot = 41, UpperPaddleA = 42, UpperPaddleB = 43 };
+        Check("FX Pro: placed buttons win over stock", FxProControls.Lookup(41, s)?.Control.Id == "dash" && FxProControls.Lookup(42, s)?.Control.Id == "l-paddle"
+              && FxProControls.Lookup(36, s)?.Control.Id == "r-inner-roller");
+        // build 8 settings move to build 9's own buttons; build 9 settings fall back on a build 8 wheel
+        var old = new UsbSettings { DashSlot = 36, UpperPaddleA = 24, UpperPaddleB = 27 };
+        bool moved = FxProControls.Normalize(old, 9);
+        Check("FX Pro: build 8 defaults become 41/42/43 on build 9", moved && old.DashSlot == 41 && old.UpperPaddleA == 42 && old.UpperPaddleB == 43);
+        var custom = new UsbSettings { DashSlot = 13, UpperPaddleA = 24, UpperPaddleB = 27 };
+        Check("FX Pro: a user's own pick stays on build 9", !FxProControls.Normalize(custom, 9) && custom.DashSlot == 13);
+        var wide = new UsbSettings { DashSlot = 45, UpperPaddleA = 46, UpperPaddleB = 27 };
+        FxProControls.Normalize(wide, 8);
+        Check("FX Pro: 41-48 fall back to build 8's defaults on a build 8 wheel", wide.DashSlot == 36 && wide.UpperPaddleA == 24 && wide.UpperPaddleB == 27,
+              $"{wide.DashSlot}/{wide.UpperPaddleA}/{wide.UpperPaddleB}");
+        var clash = new UsbSettings { DashSlot = 44, UpperPaddleA = 44, UpperPaddleB = 44 };
+        FxProControls.Normalize(clash, 9);
+        Check("FX Pro: the three never share a button", clash.DashSlot == 44 && clash.UpperPaddleA != 44 && clash.UpperPaddleB != 44 && clash.UpperPaddleA != clash.UpperPaddleB
+              && clash.UpperPaddleA > 40 && clash.UpperPaddleB > 40, $"{clash.DashSlot}/{clash.UpperPaddleA}/{clash.UpperPaddleB}");
+        Check("FX Pro: older builds untouched", !FxProControls.Normalize(new UsbSettings { DashSlot = 99 }, 7));
     }
 }

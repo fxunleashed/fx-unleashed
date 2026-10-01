@@ -93,6 +93,52 @@ static class UiTest
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++) ExpandAll(VisualTreeHelper.GetChild(o, i));
     }
 
+    /// <summary>
+    /// The FX Pro drawing (cutouts, rollers, funky switch) with presses fired on several controls, rendered while the
+    /// animations run: wheel-fxpro.png (no presses) and wheel-fxpro-presses.png in `dir`.
+    /// </summary>
+    public static void RunWheel(string dir)
+    {
+        var t = new System.Threading.Thread(() =>
+        {
+            var s = new UsbSettings { DashSlot = 41, UpperPaddleA = 42, UpperPaddleB = 43 };
+            var view = new WheelView(WheelModel.FxPro) { Width = 1326 };
+            var host = new Border { Background = new SolidColorBrush(Color.FromRgb(0x10, 0x11, 0x14)), Padding = new Thickness(20), Child = view };
+            var w = new Window { Width = 1400, Height = 900, Left = -3000, Top = 0, ShowActivated = false, ShowInTaskbar = false, Content = host };
+            w.Show();
+            void Pump(int ms)
+            {
+                var frame = new DispatcherFrame();
+                var tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+                tm.Tick += (a, b) => { tm.Stop(); frame.Continue = false; };
+                tm.Start();
+                Dispatcher.PushFrame(frame);
+            }
+            Pump(300);
+            SaveElement(host, Path.Combine(dir, "wheel-fxpro.png"));
+            // a button, a knob each way, both roller kinds, the funky switch, a paddle, the dash button
+            foreach (int b in new[] { 7, 22, 9, 34, 37, 29, 15, 42, 41, 13 }) view.Press(b, s);
+            Pump(200);
+            SaveElement(host, Path.Combine(dir, "wheel-fxpro-presses.png"));
+            w.Close();
+        });
+        t.SetApartmentState(System.Threading.ApartmentState.STA);
+        t.Start();
+        t.Join();
+    }
+
+    private static void SaveElement(FrameworkElement e, string file)
+    {
+        e.UpdateLayout();
+        int width = (int)e.ActualWidth, h = (int)e.ActualHeight;
+        var bmp = new RenderTargetBitmap(width, h, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(e);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(bmp));
+        using (var f = File.Create(file)) enc.Save(f);
+        Console.WriteLine("wheel: " + file);
+    }
+
     private static void Save(SettingsControl control, string file)
     {
         var page = (FrameworkElement)((ScrollViewer)control.Content).Content;

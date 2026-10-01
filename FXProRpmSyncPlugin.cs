@@ -382,6 +382,7 @@ namespace User.FXProRpmSync
             SimHubLedDevice.IsConnected = () => Settings.Usb.Enabled && Usb?.Model == WheelModel.FxPro && Usb?.WheelFound == true;
             if (Settings.Usb.WheelButtons == null) Settings.Usb.WheelButtons = new Dictionary<string, int>();
             Settings.Usb.UpdateRenamedPresets();
+            WheelButtons.Layout = Settings.Usb;
             DefaultDashButton();
             Buttons = new WheelButtons(this);
             Detector = new WheelDetector();

@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 
@@ -21,7 +22,8 @@ namespace User.FXProRpmSync
     /// Shows an LED frame (colour x brightness, with a glow), optionally a picture in the screen (the dash preview).
     /// LED numbers as the firmware counts them (mapped with a camera): buttons 0-5 left / 6-11 right (see LeftButtons),
     /// encoders 12-16 (ABS, TC, BB, DIFF, MAP), the lights beside the rev bar 17-19 left / 20-22 right (top to bottom),
-    /// rev lights 23-37 (left to right).
+    /// rev lights 23-37 (left to right). Also the FX Pro's controls without LEDs (thumb rollers, funky switch, upper
+    /// paddles behind the thumb openings; FxProControls) and, on Press, which button a control sent.
     /// </summary>
     public class WheelView : Viewbox
     {
@@ -78,6 +80,7 @@ namespace User.FXProRpmSync
             for (int i = 0; i < shown.Length; i++) shown[i] = -1;
 
             var geo = Outline(Model == WheelModel.GtNeo ? "gtneo-outline.svg" : "fxpro-outline.svg");
+            if (Model == WheelModel.FxPro) BuildPaddles(); // behind the body: seen through the thumb openings
             if (geo != null)
             {
                 if (glow)
@@ -125,9 +128,237 @@ namespace User.FXProRpmSync
             }
             // Rev lights
             for (int i = 0; i < 15; i++) Led(23 + i, Kind.Rev, RevX(i), 41, 5, $"Rev light {i + 1}");
+            BuildFxProControls();
+            canvas.Children.Add(effects);
         }
 
         private static double RevX(int i) => Mid - 101 + i * (202.0 / 14);
+
+        // ---------- FX Pro: the controls without LEDs, and the press animations ----------
+
+        /// <summary>Press animations and button numbers, above everything.</summary>
+        private readonly Canvas effects = new Canvas { Width = W, Height = H, IsHitTestVisible = false };
+
+        private static readonly Brush Ridge = Theme.B("#B8343F"), RollerBody = Theme.B("#25282E"), Bracket = Theme.B("#0D0E10");
+
+        /// <summary>The upper (shift) paddles: carbon plates behind the thumb openings.</summary>
+        private void BuildPaddles()
+        {
+            foreach (var id in new[] { "l-paddle", "r-paddle" })
+            {
+                var c = FxProControls.ById(id);
+                var carbon = new LinearGradientBrush(Color.FromRgb(0x22, 0x24, 0x29), Color.FromRgb(0x10, 0x11, 0x14), 60);
+                carbon.Freeze();
+                var plate = new Rectangle { Width = 58, Height = 82, RadiusX = 10, RadiusY = 10, Fill = carbon, Stroke = Theme.B("#2B2F36"), StrokeThickness = 1, ToolTip = c.Name };
+                Add(plate, c.X - 29, c.Y - 44);
+            }
+        }
+
+        /// <summary>The thumb rollers and the funky switch (from SimPro's front picture of the wheel).</summary>
+        private void BuildFxProControls()
+        {
+            foreach (var c in FxProControls.All)
+            {
+                if (c.Kind == FxProControls.Kind.RollerSideways)
+                {
+                    // an upright cylinder at the top of the grip, ridges running up and down: it rolls sideways
+                    var g = new Grid { Width = 30, Height = 40, ToolTip = c.Name };
+                    g.Children.Add(new Rectangle { RadiusX = 6, RadiusY = 6, Fill = RollerBody, Stroke = UnlitRim, StrokeThickness = 1.5 });
+                    for (int i = 0; i < 6; i++)
+                        g.Children.Add(new Rectangle
+                        {
+                            Width = 2.2, Height = 15, Fill = Ridge, RadiusX = 1, RadiusY = 1, HorizontalAlignment = HorizontalAlignment.Left,
+                            VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(4.5 + i * 4, 0, 0, 5),
+                        });
+                    Add(g, c.X - 15, c.Y - 20);
+                }
+                else if (c.Kind == FxProControls.Kind.RollerUpDown)
+                {
+                    // a narrow wheel on a bracket at the inner edge of the thumb opening, ridges across: it rolls up and down
+                    bool left = c.X < Mid;
+                    Add(new Rectangle { Width = 14, Height = 22, RadiusX = 2, RadiusY = 2, Fill = Bracket, Stroke = UnlitRim, StrokeThickness = 1 }, left ? c.X - 20 : c.X + 6, c.Y - 13);
+                    var g = new Grid { Width = 16, Height = 34, ToolTip = c.Name };
+                    g.Children.Add(new Rectangle { RadiusX = 5, RadiusY = 5, Fill = RollerBody, Stroke = UnlitRim, StrokeThickness = 1.5 });
+                    for (int i = 0; i < 6; i++)
+                        g.Children.Add(new Rectangle
+                        {
+                            Width = 12, Height = 2.2, Fill = Ridge, RadiusX = 1, RadiusY = 1, VerticalAlignment = VerticalAlignment.Top,
+                            Margin = new Thickness(0, 4.5 + i * 4.7, 0, 0),
+                        });
+                    Add(g, c.X - 8, c.Y - 17);
+                }
+                else if (c.Kind == FxProControls.Kind.Funky)
+                {
+                    // the funky switch: a small knob that tilts four ways, pushes and turns
+                    Add(new Ellipse { Width = 24, Height = 24, Fill = KnobFill, Stroke = UnlitRim, StrokeThickness = 2.5, ToolTip = c.Name }, c.X - 12, c.Y - 12);
+                    Add(new Ellipse { Width = 9, Height = 9, Fill = Theme.B("#2A2E35"), IsHitTestVisible = false }, c.X - 4.5, c.Y - 4.5);
+                    foreach (var (dx, dy) in new[] { (0, -1), (0, 1), (-1, 0), (1, 0) })
+                        Add(new Ellipse { Width = 2.4, Height = 2.4, Fill = Theme.B("#4A4F58"), IsHitTestVisible = false }, c.X + dx * 16 - 1.2, c.Y + dy * 16 - 1.2);
+                }
+            }
+        }
+
+        /// <summary>How far an effect sits from a control's centre.</summary>
+        private static double Reach(FxProControls.Kind k)
+        {
+            switch (k)
+            {
+                case FxProControls.Kind.Knob: return 19;
+                case FxProControls.Kind.RollerSideways: return 22;
+                case FxProControls.Kind.RollerUpDown: return 19;
+                case FxProControls.Kind.Funky: return 15;
+                case FxProControls.Kind.Paddle: return 30;
+                case FxProControls.Kind.Clutch: return 18;
+                default: return 15;
+            }
+        }
+
+        /// <summary>
+        /// A wheel button went down (FX Pro): its number pops up on the control it belongs to, with a ring for a press, a
+        /// turning arc for a knob, and chevrons sliding the way a roller or the funky switch went. Unknown buttons are
+        /// ignored. Call on the UI thread.
+        /// </summary>
+        public void Press(int button, UsbSettings settings)
+        {
+            if (Model != WheelModel.FxPro) return;
+            var m = FxProControls.Lookup(button, settings);
+            if (m == null) return;
+            var (c, dir) = m.Value;
+            double r = Reach(c.Kind);
+            switch (dir)
+            {
+                case FxProControls.Dir.Press: Ring(c.X, c.Y, r); break;
+                case FxProControls.Dir.Clockwise: Arc(c.X, c.Y, r + 3, true); break;
+                case FxProControls.Dir.Anticlockwise: Arc(c.X, c.Y, r + 3, false); break;
+                case FxProControls.Dir.Up: Chevrons(c.X, c.Y, r, 0, -1); break;
+                case FxProControls.Dir.Down: Chevrons(c.X, c.Y, r, 0, 1); break;
+                case FxProControls.Dir.Left: Chevrons(c.X, c.Y, r, -1, 0); break;
+                case FxProControls.Dir.Right: Chevrons(c.X, c.Y, r, 1, 0); break;
+            }
+            Badge(button, c.X, c.Y - r - 13);
+        }
+
+        private void Run(UIElement e, double seconds, Action<Storyboard> fill)
+        {
+            effects.Children.Add(e);
+            var sb = new Storyboard { Duration = TimeSpan.FromSeconds(seconds) };
+            fill(sb);
+            sb.Completed += (s, a) => effects.Children.Remove(e);
+            sb.Begin();
+        }
+
+        private static DoubleAnimation Anim(DependencyObject target, string path, double from, double to, double begin, double secs, IEasingFunction ease = null)
+        {
+            var a = new DoubleAnimation(from, to, TimeSpan.FromSeconds(secs)) { BeginTime = TimeSpan.FromSeconds(begin), EasingFunction = ease };
+            Storyboard.SetTarget(a, target);
+            Storyboard.SetTargetProperty(a, new PropertyPath(path));
+            return a;
+        }
+
+        /// <summary>The button's number in a red pill: pops in, holds, fades.</summary>
+        private void Badge(int button, double cx, double cy)
+        {
+            var text = new TextBlock
+            {
+                Text = button.ToString(), FontFamily = Theme.Display, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            var scale = new ScaleTransform(0.4, 0.4);
+            var pill = new Border
+            {
+                Background = Theme.Red, CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 1), MinWidth = 22, Child = text,
+                RenderTransformOrigin = new Point(0.5, 1), RenderTransform = scale, Opacity = 0,
+                Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 8, ShadowDepth = 0, Opacity = 0.8 },
+            };
+            pill.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(pill, cx - pill.DesiredSize.Width / 2);
+            Canvas.SetTop(pill, Math.Max(0, cy - pill.DesiredSize.Height / 2));
+            var back = new BackEase { Amplitude = 0.5, EasingMode = EasingMode.EaseOut };
+            Run(pill, 1.4, sb =>
+            {
+                sb.Children.Add(Anim(pill, "Opacity", 0, 1, 0, 0.08));
+                sb.Children.Add(Anim(scale, "ScaleX", 0.4, 1, 0, 0.25, back));
+                sb.Children.Add(Anim(scale, "ScaleY", 0.4, 1, 0, 0.25, back));
+                sb.Children.Add(Anim(pill, "Opacity", 1, 0, 1.05, 0.35));
+            });
+        }
+
+        /// <summary>A press: a ring that spreads out and fades.</summary>
+        private void Ring(double cx, double cy, double r)
+        {
+            var scale = new ScaleTransform(0.8, 0.8);
+            var ring = new Ellipse
+            {
+                Width = 2 * r, Height = 2 * r, Stroke = Theme.Red, StrokeThickness = 2.5,
+                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = scale,
+            };
+            Canvas.SetLeft(ring, cx - r); Canvas.SetTop(ring, cy - r);
+            var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+            Run(ring, 0.6, sb =>
+            {
+                sb.Children.Add(Anim(scale, "ScaleX", 0.8, 1.7, 0, 0.6, ease));
+                sb.Children.Add(Anim(scale, "ScaleY", 0.8, 1.7, 0, 0.6, ease));
+                sb.Children.Add(Anim(ring, "Opacity", 1, 0, 0, 0.6));
+            });
+        }
+
+        /// <summary>A knob or the funky switch turned: an arrowed arc sweeping round it the way it went.</summary>
+        private void Arc(double cx, double cy, double r, bool clockwise)
+        {
+            // a 100-degree arc over the top, with an arrow head at its leading end
+            double a0 = -140, a1 = -40;
+            Point P(double deg, double rad) => new Point(r + rad * Math.Cos(deg * Math.PI / 180), r + rad * Math.Sin(deg * Math.PI / 180));
+            var fig = new PathFigure { StartPoint = P(clockwise ? a0 : a1, r) };
+            fig.Segments.Add(new ArcSegment(P(clockwise ? a1 : a0, r), new Size(r, r), 0, false, clockwise ? SweepDirection.Clockwise : SweepDirection.Counterclockwise, true));
+            double tip = clockwise ? a1 : a0, back = clockwise ? -14 : 14;
+            var head = new PathFigure { StartPoint = P(tip + back, r - 5) };
+            head.Segments.Add(new LineSegment(P(tip, r), true));
+            head.Segments.Add(new LineSegment(P(tip + back, r + 5), true));
+            var rot = new RotateTransform(clockwise ? -50 : 50);
+            var path = new Path
+            {
+                Data = new PathGeometry(new[] { fig, head }), Stroke = Theme.Red, StrokeThickness = 2.6, StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, Width = 2 * r, Height = 2 * r, Opacity = 0,
+                RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = rot,
+            };
+            Canvas.SetLeft(path, cx - r); Canvas.SetTop(path, cy - r);
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            Run(path, 0.7, sb =>
+            {
+                sb.Children.Add(Anim(rot, "Angle", clockwise ? -50 : 50, clockwise ? 70 : -70, 0, 0.7, ease));
+                sb.Children.Add(Anim(path, "Opacity", 0, 1, 0, 0.1));
+                sb.Children.Add(Anim(path, "Opacity", 1, 0, 0.35, 0.35));
+            });
+        }
+
+        /// <summary>A roller or the funky switch went one way: two chevrons slide out that way and fade.</summary>
+        private void Chevrons(double cx, double cy, double r, int dx, int dy)
+        {
+            double angle = dx > 0 ? 90 : dx < 0 ? -90 : dy > 0 ? 180 : 0; // drawn pointing up
+            for (int k = 0; k < 2; k++)
+            {
+                var move = new TranslateTransform();
+                var group = new TransformGroup();
+                group.Children.Add(new RotateTransform(angle, 7, 4));
+                group.Children.Add(move);
+                var chev = new Path
+                {
+                    Data = Geometry.Parse("M 0,7 L 7,0 L 14,7"), Stroke = Theme.Red, StrokeThickness = 2.6, StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, Width = 14, Height = 8, Opacity = 0, RenderTransform = group,
+                };
+                double start = r * 0.55 + k * 7;
+                Canvas.SetLeft(chev, cx - 7); Canvas.SetTop(chev, cy - 4);
+                double begin = k * 0.08;
+                var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+                Run(chev, 0.6 + begin, sb =>
+                {
+                    sb.Children.Add(Anim(move, "X", dx * start, dx * (start + 14), begin, 0.5, ease));
+                    sb.Children.Add(Anim(move, "Y", dy * start, dy * (start + 14), begin, 0.5, ease));
+                    sb.Children.Add(Anim(chev, "Opacity", 0, 1, begin, 0.08));
+                    sb.Children.Add(Anim(chev, "Opacity", 1, 0, begin + 0.25, 0.3));
+                });
+            }
+        }
 
         // ---------- GT Neo ----------
         // Traced from SimPro's front picture of the wheel by tools/brand/trace_gtneo.py (assets/gtneo-outline.svg), like

@@ -5,8 +5,8 @@ using Microsoft.Win32.SafeHandles;
 namespace User.FXProRpmSync
 {
     /// <summary>
-    /// The active wheel's own buttons, read straight from its USB input report (report 01: two bytes, then 40 button
-    /// bits in bytes 3-7, on the FX Pro and the GT Neo alike),
+    /// The active wheel's own buttons, read straight from its USB input report (report 01: two bytes, then the button
+    /// bits from byte 3: 40 in bytes 3-7 on the GT Neo and stock FX Pro, 48 in bytes 3-8 with FX Pro wheel app build 9),
     /// on a thread of their own. Bound buttons run the plugin's actions (next / previous dash, sleep) without going
     /// through SimHub's Controls and events, which can lose this controller (seen 2026-09-27: its joystick manager
     /// reported "device lost" and didn't find it again until a restart). Windows' joystick API only shows the first 32
@@ -53,10 +53,22 @@ namespace User.FXProRpmSync
         /// <summary>Buttons held now (bit n = button n+1).</summary>
         public ulong Down => last;
 
+        /// <summary>A wheel button went down (its number; raised on the reader's thread). For the Wheel tab's drawing:
+        /// raised for every press, bound or not, and while a binding is being learned.</summary>
+        public event Action<int> ButtonDown;
+
         /// <summary>A button's name on the settings page (the dash button is the FX Pro's).</summary>
         public static string Name(int button) => Name(button, WheelModel.FxPro);
 
-        public static string Name(int button, WheelModel m) => button == DashButton && m == WheelModel.FxPro ? "Dash button" : "Wheel button " + button;
+        public static string Name(int button, WheelModel m)
+        {
+            if (m != WheelModel.FxPro) return "Wheel button " + button;
+            if (button == DashButton) return $"Dash button ({button})";
+            return FxProControls.Describe(button, Layout) is string d ? $"{d} ({button})" : "Wheel button " + button;
+        }
+
+        /// <summary>Where the FX Pro's dash button and upper paddles report (the plugin's USB settings), for the names.</summary>
+        public static UsbSettings Layout;
 
         /// <summary>Calls `pressed` (on the reader's thread) with the next button pressed, instead of running its action.</summary>
         public void Learn(Action<int> pressed) => learner = pressed;
@@ -81,7 +93,7 @@ namespace User.FXProRpmSync
                         while (!stop && plugin.Unlocked && plugin.ActiveModel == model)
                         {
                             if (!FxUsb.ReadFile(h, buf, buf.Length, out int n, IntPtr.Zero)) break; // unplugged, or closed by Dispose
-                            if (n >= 8 && buf[0] == 1) Report(buf);
+                            if (n >= 8 && buf[0] == 1) Report(buf, n);
                         }
                     }
                 }
@@ -91,15 +103,21 @@ namespace User.FXProRpmSync
             }
         }
 
-        /// <summary>Report 01: [id, axis, axis, 40 button bits in bytes 3-7].</summary>
-        private void Report(byte[] r)
+        /// <summary>Report 01: [id, axis, axis, button bits from byte 3]: 40 buttons in an 8-byte report, 48 in a 9-byte
+        /// one (FX Pro wheel app build 9).</summary>
+        private void Report(byte[] r, int length)
         {
+            int bytes = Math.Min(length, 9) - 3;
             ulong now = 0;
-            for (int i = 0; i < 5; i++) now |= (ulong)r[3 + i] << (8 * i);
+            for (int i = 0; i < bytes; i++) now |= (ulong)r[3 + i] << (8 * i);
             ulong pressed = now & ~last;
             last = now;
-            for (int b = 0; b < 40 && pressed != 0; b++)
-                if ((pressed >> b & 1) != 0) Pressed(b + 1);
+            for (int b = 0; b < bytes * 8 && pressed != 0; b++)
+                if ((pressed >> b & 1) != 0)
+                {
+                    try { ButtonDown?.Invoke(b + 1); } catch { }
+                    Pressed(b + 1);
+                }
         }
 
         private void Pressed(int button)

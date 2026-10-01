@@ -85,18 +85,17 @@ namespace User.FXProRpmSync
         /// <summary>Wheel buttons bound to actions: "next" / "prev" / "sleep" -> button number (1-40). See WheelButtons.</summary>
         public Dictionary<string, int> WheelButtons = new Dictionary<string, int>();
 
-        /// <summary>Wheel app build 8+: the controller button (1-40) the dash button reports as. Pick one no control uses
-        /// (the capture of 2026-09-30 on the user's FX Pro: 23, 25, 26, 28, 30, 33-36 never seen; 24/27 become the upper
-        /// paddles). Builds 5-7 always use 40.</summary>
+        /// <summary>Wheel app build 8+: the controller button the dash button reports as. Build 9 declares 48 buttons and
+        /// 41-48 are free (default 41); on build 8 every one of the 40 is a stock control's (FxProControls), so it shares
+        /// (default 36, with the right inner roller). Builds 5-7 always use 40. Kept valid by FxProControls.Normalize.</summary>
         public int DashSlot = 36;
 
         /// <summary>Wheel app build 8+: report the two upper paddles (analogue channels 4/5, which stock never sends over
         /// USB) as buttons UpperPaddleA / UpperPaddleB.</summary>
         public bool UpperPaddles = true;
 
-        /// <summary>Wheel app build 8+: the controller buttons (1-40) for the two upper paddles. 24/27 by default: the clutch
-        /// paddles' button-mode buttons, always free while the clutch paddles are axes. With the clutch paddles in button
-        /// mode, pick two buttons no control uses (a button capture shows which).</summary>
+        /// <summary>Wheel app build 8+: the controller buttons for the two upper paddles (left, right). Build 9: 42/43 by
+        /// default (41-48 are free). Build 8: 24/27, the clutch paddles' button-mode buttons, free while those are axes.</summary>
         public int UpperPaddleA = 24, UpperPaddleB = 27;
 
         /// <summary>The screen's backlight, 5-100 (the plugin sends it on connect, on change and after sleep).</summary>
@@ -361,6 +360,26 @@ namespace User.FXProRpmSync
         /// someone is at the PC.</summary>
         public void SettingsChanged() { Interlocked.Increment(ref settingsVersion); Wake(); }
 
+        private volatile bool slotsChanged;
+
+        /// <summary>The dash button / upper paddle buttons changed (the Wheel tab): sent to the wheel on the USB thread.</summary>
+        public void ButtonSlotsChanged() { slotsChanged = true; SettingsChanged(); }
+
+        /// <summary>
+        /// Wheel app build 8+: where the dash button reports (CTRL+0x168), whether the upper paddles are sent (CTRL+0x169
+        /// bit 0) and as which buttons (CTRL+0x16A/0x16B), as outputs 0-39 (build 9: 0-47, buttons 41-48 being its own).
+        /// Unused RAM on older builds. Returns the dash button.
+        /// </summary>
+        private int WriteButtonSlots()
+        {
+            int max = FxProControls.MaxButton(build);
+            int slot = Math.Max(1, Math.Min(max, S.DashSlot));
+            byte Out(int button) => (byte)(Math.Max(1, Math.Min(max, button)) - 1);
+            try { conn?.WriteRam(FxConnection.Ctrl + 0x168, new[] { Out(slot), (byte)(S.UpperPaddles ? 1 : 0), Out(S.UpperPaddleA), Out(S.UpperPaddleB) }); }
+            catch { }
+            return slot;
+        }
+
         // Sleep: counted from the last time something drove the wheel (a game, the demo, the designer) or the user acted
         private double lastActive;
         private volatile bool sleepNow;
@@ -622,19 +641,17 @@ namespace User.FXProRpmSync
             }
             conn = new FxConnection(path);
             sentBrightness = -1; // sent with the first settings pass
-            // Wheel app build 8: where the dash button reports (CTRL+0x168, 0-39), whether the upper paddles are sent
-            // (CTRL+0x169 bit 0) and as which buttons (CTRL+0x16A/0x16B); written before the button mode that enables
-            // them. Unused RAM on older builds.
-            var slot = Math.Max(1, Math.Min(40, S.DashSlot));
-            byte Out(int button) => (byte)(Math.Max(1, Math.Min(40, button)) - 1);
-            try
-            {
-                conn.WriteRam(FxConnection.Ctrl + 0x168, new[] { Out(slot), (byte)(S.UpperPaddles ? 1 : 0), Out(S.UpperPaddleA), Out(S.UpperPaddleB) });
-            }
-            catch { }
+            // Wheel app build 8: where the dash button reports (CTRL+0x168), whether the upper paddles are sent
+            // (CTRL+0x169 bit 0) and as which buttons (CTRL+0x16A/0x16B), as outputs 0-39 (build 9: 0-47, buttons
+            // 41-48 being its own); written before the button mode that enables them. Unused RAM on older builds.
+            int oldDash = S.DashSlot;
+            if (FxProControls.Normalize(S, build)) plugin.SaveSettings();
+            int slot = WriteButtonSlots();
             WheelButtons.DashButton = build >= 8 ? slot : WheelButtons.LegacyDashButton;
-            if (build >= 8 && S.WheelButtons != null && S.WheelButtons.TryGetValue("next", out var next) && next == WheelButtons.LegacyDashButton)
-                S.WheelButtons["next"] = slot; // the default binding followed the dash button; on build 8, 40 is a stock control again
+            // the default binding follows the dash button (40 on builds 5-7; on build 8+ 40 is a stock control again)
+            if (build >= 8 && S.WheelButtons != null && S.WheelButtons.TryGetValue("next", out var next)
+                && (next == WheelButtons.LegacyDashButton || next == oldDash) && next != slot)
+                S.WheelButtons["next"] = slot;
             // Wheel app build 5: the dash button becomes a controller button (40 on builds 5-7, DashSlot on 8+) and stops
             // switching the wheel's own pages (no flash save). Harmless on older builds (unused RAM). Cleared again in Deactivate.
             try { conn.WriteRam(FxConnection.Ctrl + 0x160, BitConverter.GetBytes(ButtonMagic)); } catch { }
@@ -654,6 +671,13 @@ namespace User.FXProRpmSync
         /// </summary>
         private void ApplySettings(UsbSettings s, bool source, bool testing, bool sleeping)
         {
+            if (slotsChanged && conn != null)
+            {
+                slotsChanged = false;
+                if (FxProControls.Normalize(S, build)) plugin.SaveSettings();
+                int dash = WriteButtonSlots();
+                if (build >= 8) WheelButtons.DashButton = dash;
+            }
             int version = Volatile.Read(ref settingsVersion);
             string car = plugin.DashCarKey;
             if (version != appliedVersion || car != lightsCar) // lights can be set per car and per game

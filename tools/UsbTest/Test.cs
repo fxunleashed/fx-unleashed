@@ -166,6 +166,7 @@ static class UsbTestMain
             Console.WriteLine($"release v{m.version}: OK ({dll.Length} byte DLL, firmware min {m.firmware?.min})");
             return 0;
         }
+        if (args.Length > 1 && args[1] == "wheel") { UiTest.RunWheel(dir); return 0; }
         if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 1 && args[1] == "mirror")
         {

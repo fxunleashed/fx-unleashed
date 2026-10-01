@@ -30,6 +30,7 @@ namespace User.FXProRpmSync
         private readonly Border setup;
         private readonly TextBlock step2;
         private readonly TextBlock dashTile, lightsTile, idleTile;
+        private readonly WheelSlotsCard slots;
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private readonly DispatcherTimer frameTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         private readonly DispatcherTimer dashTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(100) };
@@ -63,7 +64,7 @@ namespace User.FXProRpmSync
             steps.Children.Add(Theme.Title("Unlock your wheel", 20));
             steps.Children.Add(Theme.Note("Unlocked mode needs the FXProDashes wheel firmware and the wheel's USB cable. Build 7 and later tell the plugin " +
                                           "themselves; builds 4-6 report the same as stock, so confirm them once:", new Thickness(0, 6, 0, 12)));
-            steps.Children.Add(Step("1", "Flash the FXProDashes firmware (build 7, or 4-6) through SimPro."));
+            steps.Children.Add(Step("1", "Flash the FXProDashes firmware (build 9, or 4-8) through SimPro."));
             steps.Children.Add(Step("2", "Plug the wheel's USB cable into this PC.", out step2));
             steps.Children.Add(Step("3", "Press Test: the demo dash stays steady for 8 seconds. On stock firmware the wheel's own dash flickers through it (harmless)."));
             var setupButtons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -114,6 +115,7 @@ namespace User.FXProRpmSync
             Grid.SetColumn(statusCard, 1);
             hero.Children.Add(statusCard);
             Children.Add(new Border { Margin = new Thickness(0, 0, 0, 14), Child = hero });
+            if (!neo) Children.Add(slots = new WheelSlotsCard(plugin));
             Children.Add(new QuickControlsCard(plugin));
             if (!neo) Children.Add(WiringCard.Build());
             if (neo) ((FrameworkElement)screenInfo.Parent).Visibility = Visibility.Collapsed; // no screen
@@ -121,8 +123,18 @@ namespace User.FXProRpmSync
             frameTimer.Tick += (s, e) => RenderLights();
             dashTimer.Tick += (s, e) => RenderScreen();
             slowTimer.Tick += (s, e) => Refresh();
-            Loaded += (s, e) => { frameTimer.Start(); if (model.HasScreen) dashTimer.Start(); slowTimer.Start(); Refresh(); };
-            Unloaded += (s, e) => { frameTimer.Stop(); dashTimer.Stop(); slowTimer.Stop(); dashPreview.Dispose(); };
+            // a wheel button pressed: its number and direction on the drawing
+            Action<int> pressed = b => Dispatcher.BeginInvoke(new Action(() => wheel.Press(b, S)));
+            Loaded += (s, e) =>
+            {
+                frameTimer.Start(); if (model.HasScreen) dashTimer.Start(); slowTimer.Start(); Refresh();
+                if (plugin.Buttons != null) plugin.Buttons.ButtonDown += pressed;
+            };
+            Unloaded += (s, e) =>
+            {
+                frameTimer.Stop(); dashTimer.Stop(); slowTimer.Stop(); dashPreview.Dispose();
+                if (plugin.Buttons != null) plugin.Buttons.ButtonDown -= pressed;
+            };
             Refresh();
         }
 
@@ -183,6 +195,7 @@ namespace User.FXProRpmSync
         private void Refresh()
         {
             if (model == WheelModel.GtNeo) { RefreshNeo(); return; }
+            slots?.Refresh();
             var u = Usb;
             bool patched = u?.FirmwarePatched ?? S.FirmwareConfirmed;
             setup.Visibility = patched ? Visibility.Collapsed : Visibility.Visible;
