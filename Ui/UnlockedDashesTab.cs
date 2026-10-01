@@ -285,8 +285,16 @@ namespace User.FXProRpmSync
                 var row = new WrapPanel { Margin = new Thickness(0, 6, 0, -8) };
                 if (refs.Count > 1)
                 {
-                    row.Children.Add(Theme.Btn("Previous", () => Save(refs, current - 1), icon: ""));
-                    row.Children.Add(Theme.Btn("Next", () => Save(refs, current + 1), icon: ""));
+                    row.Children.Add(Theme.Btn("Previous", () => Save(refs, current - 1), primary: true, icon: ""));
+                    row.Children.Add(Theme.Btn("Next", () => Save(refs, current + 1), primary: true, icon: ""));
+                }
+                // the demo lap through this list (what runs now: the current car's, or the default with no car), switched
+                // with the dash button like in a session
+                if (Usb != null && target == plugin.DashCarKey)
+                {
+                    bool demoing = Usb.DemoOn && Usb.DemoDashId == null;
+                    row.Children.Add(Theme.Btn(demoing ? "Stop the demo" : "Demo on the wheel", () => { Usb?.SetDemo(!demoing); Refresh(true); },
+                        icon: demoing ? "" : ""));
                 }
                 if (target != null) row.Children.Add(Theme.Btn("Back to the default", () => { plugin.DeleteUsbCarDash(target); if (target != plugin.DashCarKey) target = null; Refresh(true); }, icon: ""));
                 listPanel.Children.Add(row);

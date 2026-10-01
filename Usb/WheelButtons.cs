@@ -50,6 +50,11 @@ namespace User.FXProRpmSync
         /// <summary>The wheel's input reports are being read.</summary>
         public bool Found => handle != null;
 
+        /// <summary>When the last input report came (UTC ticks). The wheel sends one about every millisecond; none for a
+        /// while means its reports are stuck (UsbController re-arms them).</summary>
+        public long LastReportTicks => System.Threading.Interlocked.Read(ref lastReport);
+        private long lastReport;
+
         /// <summary>Buttons held now (bit n = button n+1).</summary>
         public ulong Down => last;
 
@@ -93,6 +98,7 @@ namespace User.FXProRpmSync
                         if (h.IsInvalid) { Thread.Sleep(2000); continue; }
                         handle = h;
                         last = 0;
+                        System.Threading.Interlocked.Exchange(ref lastReport, DateTime.UtcNow.Ticks); // a fresh start
                         while (!stop && plugin.Unlocked && plugin.ActiveModel == model)
                         {
                             if (!FxUsb.ReadFile(h, buf, buf.Length, out int n, IntPtr.Zero)) break; // unplugged, or closed by Dispose
@@ -110,6 +116,7 @@ namespace User.FXProRpmSync
         /// one (FX Pro wheel app build 9).</summary>
         private void Report(byte[] r, int length)
         {
+            System.Threading.Interlocked.Exchange(ref lastReport, DateTime.UtcNow.Ticks);
             Axis1 = r[1]; Axis2 = r[2];
             int bytes = Math.Min(length, 9) - 3;
             ulong now = 0;

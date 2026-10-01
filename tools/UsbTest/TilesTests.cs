@@ -50,8 +50,32 @@ static class TilesTests
         return (sum / (3.0 * pa.Length), off * 100.0 / pa.Length);
     }
 
+    /// <summary>Screensavers: drawn with fills vs from tiles (bytes, how alike), and their RAM.</summary>
+    static int Savers(string dir)
+    {
+        int bad = 0;
+        var savers = new (string Name, Func<IAnimatedSaver> Make)[]
+        {
+            ("logo", () => new ScreenSaver()), ("lights-out", () => new LightsOutSaver()), ("rev-sweep", () => new TachoSaver()),
+            ("pit-board", () => new PitBoardSaver(null)), ("chequered", () => new ChequeredSaver()),
+        };
+        foreach (var (name, make) in savers)
+        {
+            var a = new Sink(); var sa = make(); sa.Start(); sa.Step(a, 0, 1000000); a.Flush();
+            var b = new Sink(); var sb = make(); var ts = (ITiledSaver)sb; var t = ts.Tiles; ts.UseTiles = true; sb.Start(); sb.Step(b, 0, 1000000); b.Flush();
+            var d = Diff(a.P.Bitmap, b.P.Bitmap);
+            a.P.Bitmap.Save(Path.Combine(dir, $"saver_{name}_fills.png"), ImageFormat.Png);
+            b.P.Bitmap.Save(Path.Combine(dir, $"saver_{name}_tiles.png"), ImageFormat.Png);
+            bool ok = (d.Mean < 3 || name == "logo") && b.Bytes < a.Bytes; // the logo: full colour from tiles, three colours with fills
+            if (!ok) bad++;
+            Console.WriteLine($"{(ok ? "  " : "!!")} {name}: fills {a.Bytes / 1024.0:0.0} KB ({a.Bytes / 25600.0:0.0} s) -> tiles {b.Bytes / 1024.0:0.0} KB, {t.FileCount} files {t.Bytes / 1024} KB on the drive; vs fills {d.Mean:0.0}/{d.Off:0.00}%");
+        }
+        return bad;
+    }
+
     public static int Run(string dir, string[] args)
     {
+        if (args.Length > 2 && args[2] == "savers") return Savers(dir);
         var errors = new List<string>();
         // the installed dashes too (read only): SimHub's folder, as the plugin sees it
         DashLibrary.Root = Environment.GetEnvironmentVariable("SIMHUB_INSTALL_PATH") ?? @"C:\Program Files (x86)\SimHub\";
@@ -89,7 +113,9 @@ static class TilesTests
                     var v = demo.Step(1 / 30.0);
                     if (k % 3 != 0) continue;
                     ra.Update(v, k / 30.0); a.Flush();
+                    long before = b.Bytes;
                     rb.Update(v, k / 30.0); b.Flush();
+                    if (k == 3) Console.WriteLine($"   first values: {(b.Bytes - before) / 1024.0:0.0} KB ({(b.Bytes - before) / 25600.0:0.00} s at 25 KB/s)");
                     last = v; lastT = k / 30.0;
                 }
                 // what the session left on the screen vs a fresh full drawing (tiles) of the same moment: anything left

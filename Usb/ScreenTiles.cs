@@ -40,10 +40,16 @@ namespace User.FXProRpmSync
         public readonly List<ScreenTile> GridTiles = new List<ScreenTile>();
         /// <summary>By element index.</summary>
         public readonly Dictionary<int, ScreenTile> Bands = new Dictionary<int, ScreenTile>();
+        /// <summary>Pictures that come and go (an image element with a condition: tyre compound, pit or headlight icons),
+        /// by element index: the picture over the static layer under it, drawn with one command when it shows (with fills
+        /// a 59 px icon took ~840 fills, ~19 KB, ~0.8 s, every time the Ferrari 488 dash showed).</summary>
+        public readonly Dictionary<int, ScreenTile> Pictures = new Dictionary<int, ScreenTile>();
+        /// <summary>A picture bigger than this stays drawn with fills (a full-screen splash would take a big part of the drive).</summary>
+        public const int MaxPicture = 24 * 1024;
 
         /// <summary>The files this dash needs on the screen (each once).</summary>
         public IEnumerable<ScreenTile> Files =>
-            GridTiles.Concat(Bands.Values).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
+            GridTiles.Concat(Bands.Values).Concat(Pictures.Values).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
 
         /// <summary>RAM-drive bytes the files take (their sizes; the drive adds a small entry per file).</summary>
         public int Bytes => Files.Sum(t => t.Jpeg.Length);
@@ -73,6 +79,17 @@ namespace User.FXProRpmSync
             if (one) { t.Colour = c0; return t; }
             using (var part = bmp.Clone(r, PixelFormat.Format24bppRgb))
                 t.Jpeg = Jpeg(part, Quality);
+            t.Name = NameFor(t.Jpeg);
+            Registry[t.Name] = t.Jpeg;
+            return t;
+        }
+
+        /// <summary>A tile of a picture already cut to `r` (32 bpp, r's size).</summary>
+        public static ScreenTile MakeFrom(Bitmap part, Rectangle r)
+        {
+            var t = new ScreenTile { R = r };
+            using (var rgb = part.Clone(new Rectangle(0, 0, part.Width, part.Height), PixelFormat.Format24bppRgb))
+                t.Jpeg = Jpeg(rgb, Quality);
             t.Name = NameFor(t.Jpeg);
             Registry[t.Name] = t.Jpeg;
             return t;

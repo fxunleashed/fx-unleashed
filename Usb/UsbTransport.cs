@@ -320,8 +320,10 @@ namespace User.FXProRpmSync
         public void Flush() { lock (lk) if (count > 0) SendNow(count); }
 
         /// <summary>
-        /// Bytes to the screen as they are (no terminators), paced like commands: a file's data while the screen is in
-        /// its upload mode (twfile). Not mirrored. Pending commands go first.
+        /// Bytes to the screen as they are (no terminators): a file's data while the screen is in its upload mode
+        /// (twfile). Not paced: the data goes into the screen's 4 KB packet buffer, not its command buffer (the caller
+        /// waits after each packet), and USB (~30 KB/s) can't outrun the wheel's UART (~51 KB/s). Not mirrored.
+        /// Pending commands go first (paced).
         /// </summary>
         public void Raw(byte[] data)
         {
@@ -332,8 +334,12 @@ namespace User.FXProRpmSync
                 {
                     int n = Math.Min(61, data.Length - o);
                     Array.Copy(data, o, pending, 0, n);
-                    SendNow(n);
+                    c.ScreenBytes(pending, n);
+                    Bytes += n;
                 }
+                count = 0;
+                lastSend = DateTime.UtcNow;
+                credit = 0; creditAt = pace.Elapsed.TotalSeconds; // the next commands wait for the screen as after a burst
             }
         }
 

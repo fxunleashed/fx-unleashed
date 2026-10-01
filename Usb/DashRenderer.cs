@@ -223,6 +223,30 @@ namespace User.FXProRpmSync
                 if (DynamicUnder(band, n.Index)) continue; // what's under it changes: no fixed picture of it
                 t.Bands[n.Index] = ScreenTiles.Make(richBmp, richPx, band);
             }
+            foreach (var n in dynamic)
+            {
+                // pictures that come and go, with a fixed look, over the static layer (never over a bar). Shapes and text
+                // under it are allowed; it's drawn from its file only when what shows under it is hidden by it (PictureFits).
+                if (n.E.Type != "image" || n.E.ColorBind != null) continue;
+                var r = Clip(n.R);
+                if (r.Width <= 0 || r.Height <= 0 || r != n.R) continue;
+                if (dynamic.Any(m => m.Index < n.Index && m.R.IntersectsWith(r) && (m.Kind == "bar" || m.Kind == "deltabar"))) continue;
+                try
+                {
+                    using (var part = richBmp.Clone(r, PixelFormat.Format32bppArgb))
+                    {
+                        using (var g = Graphics.FromImage(part))
+                        {
+                            g.SmoothingMode = SmoothingMode.AntiAlias;
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            DrawShape(g, n.E, Point.Empty, n.Colour);
+                        }
+                        var pic = ScreenTiles.MakeFrom(part, r);
+                        if (pic.Jpeg.Length <= ScreenTiles.MaxPicture) t.Pictures[n.Index] = pic;
+                    }
+                }
+                catch { } // drawn with fills
+            }
             return Tiles = t;
         }
 
@@ -239,6 +263,28 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>Something that changes (a shape with a condition or data colour, a bar) under `area`, before element `index`.</summary>
+        /// <summary>A picture's file (made over the static layer) shows what fills would: no shape under it shows, and
+        /// text under it shows only where the picture covers it (an opaque picture).</summary>
+        private bool PictureFits(Node n)
+        {
+            bool textUnder = false;
+            foreach (var m in dynamic)
+            {
+                if (m.Index >= n.Index) break;
+                if (!m.Visible || !m.R.IntersectsWith(n.R)) continue;
+                // another state of the same icon (soft / medium / hard / wet in one spot): normally only one shows; when
+                // several do (the demo can't tell, so all of them), the top one is what counts
+                if (m.R == n.R && m.E.Type == "image" && Tiles.Pictures.ContainsKey(m.Index)) continue;
+                if (m.Kind == "shape" || m.Kind == "bar" || m.Kind == "deltabar") return false;
+                if (m.TextAt.HasValue && !m.TextAt.Value.IntersectsWith(n.R)) continue; // its box does, its text doesn't
+                textUnder = true;
+            }
+            if (!textUnder) return true;
+            EnsurePx(n);
+            if (n.PxOpaque == null) n.PxOpaque = !n.Px.Contains(Transparent);
+            return n.PxOpaque == true;
+        }
+
         private bool DynamicUnder(Rectangle area, int index) =>
             dynamic.Any(m => m.Index < index && (m.Kind == "shape" || m.Kind == "bar" || m.Kind == "deltabar") && m.R.IntersectsWith(area));
 
@@ -702,6 +748,14 @@ namespace User.FXProRpmSync
                                 if (m.Index > n.Index && SolidText(m) && !Covered(m.R) && n.R.Contains(m.TextAt.Value)) keep.Add(m);
                         var skip = SolidShapesAbove(n.Index);
                         skip.AddRange(keep.Select(m => m.TextAt.Value));
+                        // a picture with its own file on the screen, nothing over it: one command
+                        if (tilesOn && Tiles.Pictures.TryGetValue(n.Index, out var picTile) && !skip.Any(k => k.IntersectsWith(n.R)) && PictureFits(n))
+                        {
+                            screen.Cmd(ScreenTiles.Ramv(picTile, dx, dy));
+                            MarkAbove(n, n.R);
+                            n.Shown = true; n.Sent = n.Key; n.DrawnPx = n.Px;
+                            break;
+                        }
                         foreach (var part in Subtract(Clip(n.R), skip))
                         {
                             DrawShapeNode(n, part);
@@ -1179,13 +1233,18 @@ namespace User.FXProRpmSync
         /// What's under `area` now (static layer, then the dynamic shapes shown before element `index`), as RGB565 pixels
         /// row by row; null if a shape's pixels aren't known yet.
         /// </summary>
-        private int[] Composite(Rectangle area, int index)
+        /// <param name="coarse">With tiles: the colour-reduced static layer instead of the full-colour one. For pixels put
+        /// back with fills around text (a border line through a value's band): the anti-aliased layer made every pixel of
+        /// such a line its own fill (the Ferrari 488's first values: ~1000 fills, 23 KB, ~1 s; seen on the wheel
+        /// 2026-09-30), the reduced one a few straight runs.</param>
+        private int[] Composite(Rectangle area, int index, bool coarse = false)
         {
             area = Clip(area);
             if (area.Width <= 0 || area.Height <= 0) return null;
             var px = new int[area.Width * area.Height];
+            var src = coarse && quantPx != null ? quantPx : staticPx;
             for (int y = 0; y < area.Height; y++)
-                Array.Copy(staticPx, (area.Y + y) * Width + area.X, px, y * area.Width, area.Width);
+                Array.Copy(src, (area.Y + y) * Width + area.X, px, y * area.Width, area.Width);
             foreach (var m in dynamic)
             {
                 if (m.Index >= index) break;
@@ -1309,12 +1368,12 @@ namespace User.FXProRpmSync
                 foreach (var part in Subtract(Rectangle.Intersect(n.TextAt.Value, n.R), covered))
                 {
                     if (TouchesOtherText(n, part)) { Repaint(part, n.Index); continue; } // a neighbour's glyphs to put back
-                    var px = Composite(part, n.Index);                                     // else just what's under it
+                    var px = Composite(part, n.Index, coarse: true);                       // else just what's under it
                     if (px != null) SendFills(px, part.Width, new Rectangle(0, 0, part.Width, part.Height), Transparent, part.X, part.Y);
                     else Repaint(part, n.Index);
                 }
             }
-            var under = strip.HasValue ? null : Composite(area, n.Index);
+            var under = strip.HasValue ? null : Composite(area, n.Index, coarse: true);
             int major = 0, odd = int.MaxValue;
             if (under != null)
             {
@@ -1703,7 +1762,7 @@ namespace User.FXProRpmSync
                     if (r != null && ScreenTiles.Registry.TryGetValue(r.Item3, out var jpeg))
                     {
                         if (!pictures.TryGetValue(r.Item3, out var pic))
-                            using (var ms = new System.IO.MemoryStream(jpeg)) pictures[r.Item3] = pic = new Bitmap(Image.FromStream(ms));
+                            using (var ms = new System.IO.MemoryStream(jpeg)) pictures[r.Item3] = pic = To565(new Bitmap(Image.FromStream(ms)));
                         var mode = g.InterpolationMode;
                         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
                         g.DrawImage(pic, new Rectangle(r.Item1, r.Item2, pic.Width, pic.Height));
@@ -1720,6 +1779,20 @@ namespace User.FXProRpmSync
                 }
             }
             catch { }
+        }
+
+        /// <summary>A decoded picture rounded to RGB565 like the screen shows it (the full 24-bit decode showed a flat
+        /// panel a few levels off the exact colour behind values, as boxes that aren't there on the wheel).</summary>
+        private static Bitmap To565(Bitmap bmp)
+        {
+            var r = new Rectangle(0, 0, bmp.Width, bmp.Height);
+            var data = bmp.LockBits(r, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+            var px = new int[bmp.Width * bmp.Height];
+            System.Runtime.InteropServices.Marshal.Copy(data.Scan0, px, 0, px.Length);
+            for (int i = 0; i < px.Length; i++) px[i] = DashRenderer.ToColor(DashColors.To565(Color.FromArgb(px[i]))).ToArgb();
+            System.Runtime.InteropServices.Marshal.Copy(px, 0, data.Scan0, px.Length);
+            bmp.UnlockBits(data);
+            return bmp;
         }
 
         private void Xstr(string cmd)

@@ -14,9 +14,36 @@ namespace User.FXProRpmSync
     /// 25 KB/s, while the lights keep running). After that only the animation goes out: a few circles and short texts
     /// on plain panels, so a frame costs tens of bytes. The art is built once per process and shared.
     /// </summary>
-    internal abstract class ArtSaver : IAnimatedSaver
+    internal abstract class ArtSaver : ITiledSaver
     {
         protected const int W = DashRenderer.Width, H = DashRenderer.Height;
+
+        /// <summary>With the screen's RAM drive: the art as tiles (the same palette-reduced picture, so the animation's
+        /// fills and panel texts match it), drawn in one go instead of thousands of rectangles.</summary>
+        public bool UseTiles { get; set; }
+
+        private static readonly Dictionary<Type, ScreenTiles> tileCache = new Dictionary<Type, ScreenTiles>();
+
+        public ScreenTiles Tiles
+        {
+            get
+            {
+                lock (tileCache)
+                {
+                    if (tileCache.TryGetValue(GetType(), out var hit)) return hit;
+                    var px = Render();
+                    using (var bmp = new Bitmap(W, H, PixelFormat.Format32bppArgb))
+                    {
+                        var argb = new int[W * H];
+                        for (int i = 0; i < px.Length; i++) argb[i] = DashRenderer.ToColor(px[i]).ToArgb();
+                        var data = bmp.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                        System.Runtime.InteropServices.Marshal.Copy(argb, 0, data.Scan0, argb.Length);
+                        bmp.UnlockBits(data);
+                        return tileCache[GetType()] = SaverTiles.FromBitmap(bmp);
+                    }
+                }
+            }
+        }
 
         private static readonly Dictionary<Type, List<string>> artCache = new Dictionary<Type, List<string>>();
         private readonly Queue<string> pending = new Queue<string>();
@@ -50,7 +77,7 @@ namespace User.FXProRpmSync
         {
             pending.Clear();
             foreach (var c in new[] { "page 0", "vis 255,0", "cls 0" }) pending.Enqueue(c);
-            foreach (var c in Art()) pending.Enqueue(c);
+            foreach (var c in UseTiles ? SaverTiles.Commands(Tiles) : Art()) pending.Enqueue(c);
             lastAnim = double.NegativeInfinity;
             Reset();
         }

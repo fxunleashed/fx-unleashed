@@ -47,10 +47,37 @@ namespace User.FXProRpmSync
 
         public void StopWheelPreview() => Usb?.StopPreview();
 
+        private readonly SimHubFormulas formulas = new SimHubFormulas();
+
+        public object Eval(string formula) { lock (formulas) return formulas.Test(formula); }
+
+        public object Props(string[] names)
+        {
+            var pm = plugin.PluginManager ?? throw new Exception("SimHub isn't ready");
+            var result = new Dictionary<string, object>();
+            foreach (var n in names.Take(64))
+            {
+                object v;
+                try { v = pm.GetPropertyValue(n); } catch (Exception ex) { v = "error: " + ex.Message; }
+                result[n] = v is TimeSpan ts ? ts.TotalSeconds : v;
+            }
+            result["_utc"] = DateTime.UtcNow.ToString("HH:mm:ss.fff");
+            return result;
+        }
+
+        public object Ram(string op, int? arm, int? packet, int? done)
+        {
+            var u = Usb ?? throw new Exception("USB mode isn't running");
+            if (op == "waits") u.RamWaits(arm, packet, done);
+            if (op == "clear") u.RamClear();
+            return u.RamInfo();
+        }
+
         public void Demo(string dash)
         {
             var u = Usb ?? throw new Exception("USB mode isn't running");
             if (dash == null) { u.SetDemo(false); return; }
+            if (dash == "rotation") { u.SetDemo(true, null); return; } // the car's / default rotation (dash button cycles)
             u.SetDemo(true, dash.StartsWith("c:") ? dash.Substring(2) : dash);
         }
 

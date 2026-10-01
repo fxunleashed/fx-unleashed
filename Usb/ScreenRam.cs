@@ -31,9 +31,10 @@ namespace User.FXProRpmSync
         public const int Budget = Drive - 48 * 1024;
         public const int Packet = 4096;
 
-        // Waits, in ms. On the wheel (2026-09-30): 500 / 150 / 500 worked; the screen only copies into RAM, so less is
-        // likely fine (to be measured).
-        public static int ArmMs = 250, PacketMs = 120, DoneMs = 150;
+        // Waits, in ms. On the wheel (2026-09-30, rotation of 84 files): 60/30/60 and 30/15/40 clean (16 s); 15/5/20 lost
+        // files (holes in the dash, the screen swallowing commands until Unstick); 0/0/0 stuck the screen until a power
+        // cycle. Background preloading doubles them.
+        public static int ArmMs = 30, PacketMs = 15, DoneMs = 40;
 
         private readonly Func<ScreenRamState> state;
         private readonly Dictionary<string, double> lastUsed = new Dictionary<string, double>();
@@ -62,11 +63,34 @@ namespace User.FXProRpmSync
 
         public void Touch(IEnumerable<string> names, double now) { foreach (var n in names) lastUsed[n] = now; }
 
+        /// <summary>
+        /// Back to the screen's command mode whatever state an upload left it in (blind uploads: a command or packet the
+        /// screen missed leaves it waiting for file data, swallowing everything after; seen with no waits at all).
+        /// 4 KB of zeros finish a half-received packet; after the screen's 16 ms re-sync gap, an empty packet with id
+        /// FFFF ends the upload (Usart StopcomdataRec); a lone terminator then ends whatever the command parser got (in
+        /// command mode all of this is one bad command, ignored). The half-written file is deleted.
+        /// </summary>
+        public void Unstick(FxHostScreen screen, string lastName)
+        {
+            screen.Flush();
+            screen.Raw(new byte[Packet]);
+            screen.Pause(Math.Max(40, DoneMs));
+            screen.Raw(new byte[] { 0x3A, 0xA1, 0xBB, 0x44, 0x7F, 0xFF, 0xFE, 0, 0xFF, 0xFF, 0, 0 });
+            screen.Pause(Math.Max(40, DoneMs));
+            screen.Raw(new byte[] { 0xFF, 0xFF, 0xFF });
+            if (lastName != null) screen.Cmd("delfile \"ram/" + lastName + ".tm\"");
+            screen.Flush();
+            screen.Pause(Math.Max(40, DoneMs)); // a delete repaints the page on the next refresh (see Delete)
+        }
+
         /// <summary>Deletes one file from the screen.</summary>
         public void Delete(FxHostScreen screen, string name)
         {
             screen.Cmd("delfile \"ram/" + name + "\"");
             screen.Flush();
+            // the screen repaints its page (page 0's "Check1" picture) after a delete on its next refresh, not right
+            // away: drawing straight after it had the repaint land behind the dash (the RAM test, 2026-10-01)
+            screen.Pause(Math.Max(40, DoneMs));
             S.Files.Remove(name); lastUsed.Remove(name);
         }
 

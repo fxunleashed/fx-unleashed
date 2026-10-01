@@ -248,6 +248,7 @@ namespace User.FXProRpmSync
             buttons.Children.Add(Theme.Btn("Test (5 s)", () => { Usb?.TestRamDrive(); Refresh(); }, icon: ""));
             sp.Children.Add(buttons);
             sp.Children.Add(Theme.Switch("My screen has the RAM drive", S.ScreenRamDrive, v => { S.ScreenRamDrive = v; Changed(); Refresh(); }));
+            sp.Children.Add(Theme.Switch("Preload my rotation (the first dash takes longer to load, switching is then instant)", S.PreloadRotation, v => { S.PreloadRotation = v; Changed(); Refresh(); }));
             ramInfo = Theme.Note("", new Thickness(0, 8, 0, 0));
             sp.Children.Add(ramInfo);
             return Theme.CardBox(sp);
