@@ -28,6 +28,10 @@ namespace User.FXProRpmSync
         private readonly System.Windows.Shapes.Ellipse stateDot;
         private readonly Button demoButton, sleepButton;
         private readonly Border setup;
+        private Border ramCard;
+        private TextBlock ramInfo;
+        private CheckBox ramTick;
+        private bool syncingRam;
         private readonly TextBlock step2;
         private readonly TextBlock dashTile, lightsTile, idleTile;
         private readonly WheelSlotsCard slots;
@@ -119,6 +123,7 @@ namespace User.FXProRpmSync
             if (!neo) Children.Add(slots = new WheelSlotsCard(plugin));
             Children.Add(new QuickControlsCard(plugin));
             if (!neo) Children.Add(WiringCard.Build());
+            if (!neo) Children.Add(ramCard = RamCard());
             if (!neo) Children.Add(firmwareCard = new FirmwareCard(plugin));
             if (neo) ((FrameworkElement)screenInfo.Parent).Visibility = Visibility.Collapsed; // no screen
 
@@ -220,6 +225,7 @@ namespace User.FXProRpmSync
             lightsInfo.Text = !S.LightsEnabled ? "Lights: SimPro's" : S.LightsFrom != LightsSource.BuiltIn ? "Lights from " + (S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : "SimHub's device") + (u?.Active == true ? " (" + u.LightsState + ")" : "") : "Lights: " + plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             ActionLabels(u);
             demoButton.IsEnabled = sleepButton.IsEnabled = patched;
+            RefreshRam(u, patched);
 
             var rot = plugin.UsbRotation(plugin.DashCarKey, out _, out int cur);
             dashTile.Text = DashRef.Name(rot[((cur % rot.Count) + rot.Count) % rot.Count]) + (rot.Count > 1 ? $"  ·  1 of {rot.Count}" : "") +
@@ -227,6 +233,43 @@ namespace User.FXProRpmSync
             lightsTile.Text = !S.LightsEnabled ? "SimPro's lights" : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub" : S.LightsFrom == LightsSource.SimHubDevice ? "SimHub device" : plugin.ActiveLightsFor(plugin.DashCarKey).Name;
             idleTile.Text = (S.ScreenSaver ? IdleScreens.Find(S, S.SaverId).Name : "No screensaver") + "  ·  " +
                             (S.SleepEnabled ? $"sleep after {S.SleepMinutes} min" : "no sleep");
+        }
+
+        /// <summary>
+        /// The screen's RAM drive (FXProDashes docs/screen-images.md): with the RAM-drive screen image, dashes are drawn
+        /// from pictures kept in the screen (full colour, drawn at once) instead of thousands of rectangles. The PC can't
+        /// see the screen's replies, so the user switches it on after the Test showed the card.
+        /// </summary>
+        private Border RamCard()
+        {
+            var sp = new StackPanel();
+            sp.Children.Add(Theme.Eyebrow("Screen"));
+            sp.Children.Add(Theme.Title("Pictures in the screen's memory", 18));
+            sp.Children.Add(Theme.Note("With the RAM-drive screen image (FXProDashes), dashes are kept on the screen as pictures: full colour, " +
+                                       "drawn at once. The first time a dash shows it loads for a few seconds (drawn with rectangles meanwhile); " +
+                                       "after that it's instant until the wheel is powered off. Not sure your screen has it? Press Test: a colour " +
+                                       "card with \"RAM OK\" shows in the middle of the screen for 5 seconds if it does. Tick the box below only if it " +
+                                       "showed. If it didn't, \"Turn picture memory on\" in the firmware card below puts it there.", new Thickness(0, 6, 0, 10)));
+            var buttons = new WrapPanel();
+            buttons.Children.Add(Theme.Btn("Test (5 s)", () => { Usb?.TestRamDrive(); Refresh(); }, icon: ""));
+            sp.Children.Add(buttons);
+            ramTick = Theme.Switch("My screen has the RAM drive", S.ScreenRamDrive, v => { if (syncingRam) return; S.ScreenRamDrive = v; Changed(); Refresh(); });
+            sp.Children.Add(ramTick);
+            sp.Children.Add(Theme.Switch("Preload my rotation (the first dash takes longer to load, switching is then instant)", S.PreloadRotation, v => { S.PreloadRotation = v; Changed(); Refresh(); }));
+            ramInfo = Theme.Note("", new Thickness(0, 8, 0, 0));
+            sp.Children.Add(ramInfo);
+            return Theme.CardBox(sp);
+        }
+
+        private void RefreshRam(UsbController u, bool patched)
+        {
+            if (ramCard == null) return;
+            ramCard.Visibility = patched ? Visibility.Visible : Visibility.Collapsed;
+            if (ramTick.IsChecked != S.ScreenRamDrive) { syncingRam = true; ramTick.IsChecked = S.ScreenRamDrive; syncingRam = false; } // the firmware card can clear it
+            if (!S.ScreenRamDrive) { ramInfo.Text = u?.RamStatus ?? "Off: dashes are drawn with rectangles."; return; }
+            int used = u?.RamUsed ?? 0, files = u?.RamFiles ?? 0;
+            ramInfo.Text = $"In use: {used / 1024} KB of {ScreenRam.Budget / 1024} KB ({files} file{(files == 1 ? "" : "s")})" +
+                           (u?.RamStatus != null ? "  ·  " + u.RamStatus : "");
         }
 
         /// <summary>The GT Neo's state: lights only, no firmware, found or how to connect it.</summary>

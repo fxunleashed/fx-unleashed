@@ -351,6 +351,7 @@ namespace User.FXProRpmSync
             string shortName = full.Substring(full.LastIndexOf('.') + 1);
             bool raw = full.IndexOf("GameRawData", StringComparison.OrdinalIgnoreCase) >= 0 || full.IndexOf("Plugin.", StringComparison.OrdinalIgnoreCase) > 0 && !full.StartsWith("DataCorePlugin", StringComparison.OrdinalIgnoreCase) && !full.StartsWith("PersistantTrackerPlugin", StringComparison.OrdinalIgnoreCase);
             var special = Special(shortName, v, t);
+            if (special is DBNull) return null; // known, no value (yet)
             if (special != null) return special;
             string key = DashValues.Alias("prop:" + full) ?? DashValues.Alias("prop:" + shortName);
             if (key == null && RawKeys.TryGetValue(shortName, out var rk)) key = rk;
@@ -367,10 +368,28 @@ namespace User.FXProRpmSync
 
         private static double Wave(string name, double t, double period) => Math.Sin(t * 2 * Math.PI / period + DemoFormulas.Phase(name));
 
-        /// <summary>Common SimHub properties with a fixed meaning.</summary>
+        /// <summary>Common SimHub properties with a fixed meaning; DBNull = known, but no value now.</summary>
         private static object Special(string n, DashValues v, double t)
         {
             double best = v.Number("bestLapTime") ?? 0, last = v.Number("lastLapTime") ?? 0, cur = v.Number("currentLapTime") ?? 0;
+            // SimHub's sector times (NewData.Sector1Time: this lap's, once done; ...LastLapTime; ...BestLapTime: on the
+            // best lap; ...BestTime: the best single sector), a few hundredths apart from lap to lap
+            var sm = System.Text.RegularExpressions.Regex.Match(n, @"^Sector([123])(Time|LastLapTime|BestLapTime|BestTime)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (sm.Success)
+            {
+                int s = sm.Groups[1].Value[0] - '1';
+                double b = best > 0 ? best : 92.4, share = new[] { 0.31, 0.37, 0.32 }[s] * b, end = new[] { 0.31, 0.68, 1.0 }[s];
+                int lap = (int)(v.Number("lap") ?? 1);
+                double Run(int k) => share + 0.12 * DemoFormulas.Noise("sector" + s, k);
+                switch (sm.Groups[2].Value.ToLowerInvariant())
+                {
+                    case "time": return s == 2 || cur / b < end ? DBNull.Value : (object)TimeSpan.FromSeconds(Run(lap));
+                    case "lastlaptime": return last > 0 ? (object)TimeSpan.FromSeconds(Run(lap - 1)) : DBNull.Value;
+                    case "bestlaptime": return best > 0 ? (object)TimeSpan.FromSeconds(share) : DBNull.Value;
+                    default: return best > 0 ? (object)TimeSpan.FromSeconds(share - 0.05) : DBNull.Value;
+                }
+            }
             switch (n.ToLowerInvariant())
             {
                 case "sessiontypename": return "Race";

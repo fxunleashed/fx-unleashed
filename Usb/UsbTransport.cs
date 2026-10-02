@@ -363,6 +363,42 @@ namespace User.FXProRpmSync
 
         public void Flush() { lock (lk) if (count > 0) SendNow(count); }
 
+        /// <summary>
+        /// Bytes to the screen as they are (no terminators): a file's data while the screen is in its upload mode
+        /// (twfile). Not paced: the data goes into the screen's 4 KB packet buffer, not its command buffer (the caller
+        /// waits after each packet), and USB (~30 KB/s) can't outrun the wheel's UART (~51 KB/s). Not mirrored.
+        /// Pending commands go first (paced).
+        /// </summary>
+        public void Raw(byte[] data)
+        {
+            lock (lk)
+            {
+                if (count > 0) SendNow(count);
+                for (int o = 0; o < data.Length; o += 61)
+                {
+                    int n = Math.Min(61, data.Length - o);
+                    Array.Copy(data, o, pending, 0, n);
+                    c.ScreenBytes(pending, n);
+                    Bytes += n;
+                }
+                count = 0;
+                lastSend = DateTime.UtcNow;
+                credit = 0; creditAt = pace.Elapsed.TotalSeconds; // the next commands wait for the screen as after a burst
+            }
+        }
+
+        /// <summary>Waits `ms` with nothing sent to the screen (it is busy, e.g. writing a file), the lights kept going.</summary>
+        public void Pause(int ms)
+        {
+            Flush();
+            var until = pace.Elapsed.TotalMilliseconds + ms;
+            while (pace.Elapsed.TotalMilliseconds < until)
+            {
+                try { Waiting?.Invoke(); } catch { }
+                Thread.Sleep(Math.Max(1, Math.Min(10, (int)(until - pace.Elapsed.TotalMilliseconds))));
+            }
+        }
+
         private void SendNow(int n)
         {
             if (n > 0)

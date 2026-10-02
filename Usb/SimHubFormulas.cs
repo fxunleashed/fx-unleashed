@@ -59,9 +59,25 @@ namespace User.FXProRpmSync
             }
             catch
             {
-                failing[bind] = DateTime.UtcNow.AddSeconds(5);
+                // a formula that fails now often works a moment later (a sector time that isn't there yet): skip it only
+                // briefly. 5 s here showed a sector result up to ~10 s late on the wheel (2026-10-01).
+                failing[bind] = DateTime.UtcNow.AddMilliseconds(300);
                 return null;
             }
+        }
+
+        /// <summary>Evaluates a formula now (no caching of failures) and says what came back or what went wrong, for tools.</summary>
+        public object Test(string bind)
+        {
+            if (!IsFormula(bind)) return new { error = "not a formula (ncalc:... or js:...)" };
+            if (Engine() == null) return new { error = "SimHub's formula engine isn't available" };
+            try
+            {
+                bool js = bind.StartsWith("js:", StringComparison.OrdinalIgnoreCase);
+                var v = engine.ParseValue(new ExpressionValue(bind.Substring(js ? 3 : 6), js ? Interpreter.Javascript : Interpreter.NCalc));
+                return new { value = v is TimeSpan ts ? (object)ts.TotalSeconds : v, type = v?.GetType().Name ?? "null" };
+            }
+            catch (Exception ex) { return new { error = ex.GetType().Name + ": " + ex.Message }; }
         }
     }
 }

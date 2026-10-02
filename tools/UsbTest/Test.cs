@@ -184,6 +184,7 @@ static class UsbTestMain
             Console.WriteLine($"release v{m.version}: OK ({dll.Length} byte DLL, firmware min {m.firmware?.min})");
             return 0;
         }
+        if (args.Length > 1 && args[1] == "tiles") return TilesTests.Run(dir, args);
         if (args.Length > 1 && args[1] == "wheel") { UiTest.RunWheel(dir); return 0; }
         if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 1 && args[1] == "mirror")
@@ -215,6 +216,39 @@ static class UsbTestMain
         {
             // screen traffic and demo CPU for a dash: fxdash-style JSON file, or "mustang"
             var d = args[2] == "mustang" ? BuiltInDashes.MustangGt3() : Newtonsoft.Json.JsonConvert.DeserializeObject<DashDefinition>(File.ReadAllText(args[2]));
+            if (args.Length > 3 && args[3] == "first")
+            {
+                // what the first values cost when the dash shows (drawn from tiles), per element (removed one at a time)
+                long First(DashDefinition dd)
+                {
+                    var c = new Counter(); var rn = new DashRenderer(c, dd, 10, 20); rn.EnableTiles(); rn.UseTiles(true); rn.DrawAll(); c.Flush();
+                    var de = new UsbDemo(dd); de.Step(1 / 30.0); de.Step(1 / 30.0); long s0 = c.Bytes;
+                    rn.Update(de.Step(1 / 30.0), 0.1); c.Flush();
+                    return c.Bytes - s0;
+                }
+                long all = First(d);
+                Console.WriteLine($"first values: {all} B");
+                {
+                    var c = new Counter(); var rn = new DashRenderer(c, d, 10, 20); rn.EnableTiles(); rn.UseTiles(true); rn.DrawAll(); c.Flush();
+                    var de = new UsbDemo(d); de.Step(1 / 30.0); de.Step(1 / 30.0);
+                    c.Log = new System.Collections.Generic.List<string>();
+                    Console.WriteLine("  pictures: " + string.Join(",", rn.Tiles.Pictures.Keys));
+                    rn.Trace = m => c.Log.Add("# " + m);
+                    rn.Update(de.Step(1 / 30.0), 0.1);
+                    var kinds = c.Log.GroupBy(x => x.Split(' ')[0]).Select(g => $"{g.Key} x{g.Count()} {g.Sum(x => x.Length + 3)} B");
+                    Console.WriteLine("  by command: " + string.Join(", ", kinds));
+                    System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "first_cmds.txt"), c.Log);
+                }
+                var rows = new System.Collections.Generic.List<(long, string)>();
+                for (int i = 0; i < d.Elements.Count; i++)
+                {
+                    var dd = d.Clone(); dd.Elements.RemoveAt(i);
+                    var e = d.Elements[i];
+                    rows.Add((all - First(dd), $"#{i} {e.Type} {e.Name} ({e.X},{e.Y} {e.W}x{e.H}) bind={e.Bind} vis={(e.Visible == null ? "" : string.Join(" & ", e.Visible))}"));
+                }
+                foreach (var r1 in rows.OrderByDescending(x => x.Item1).Take(15)) Console.WriteLine($"  {r1.Item1,7} B  {r1.Item2.Replace((char)13, (char)32).Replace((char)10, (char)32)}");
+                return 0;
+            }
             if (args.Length > 3 && args[3] == "blame")
             {
                 long Run(DashDefinition dd)

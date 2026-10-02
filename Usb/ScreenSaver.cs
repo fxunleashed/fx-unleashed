@@ -13,8 +13,36 @@ namespace User.FXProRpmSync
     /// sorted into crisp black / red / white first (~3,300 rectangles at 420 px instead of ~10,000+), and the commands
     /// are sent in slices between LED frames, so it draws in over ~3 s while the lights keep animating.
     /// </summary>
-    internal sealed class ScreenSaver : IAnimatedSaver
+    internal sealed class ScreenSaver : ITiledSaver
     {
+        /// <summary>With the screen's RAM drive: the logo in full colour (anti-aliased) as tiles, drawn in one go.</summary>
+        public bool UseTiles { get; set; }
+
+        private static ScreenTiles tiles;
+
+        public ScreenTiles Tiles
+        {
+            get
+            {
+                lock (buildLock)
+                {
+                    if (tiles != null) return tiles;
+                    using (var stream = typeof(ScreenSaver).Assembly.GetManifestResourceStream("User.FXProRpmSync.logo-nobg.png"))
+                    using (var src = new Bitmap(stream))
+                    using (var bmp = new Bitmap(DashRenderer.Width, DashRenderer.Height, PixelFormat.Format32bppArgb))
+                    {
+                        using (var g = Graphics.FromImage(bmp))
+                        {
+                            g.Clear(Color.Black);
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.DrawImage(src, X, Y, Size, Size);
+                        }
+                        return tiles = SaverTiles.FromBitmap(bmp);
+                    }
+                }
+            }
+        }
+
         private const int Size = 420, X = (DashRenderer.Width - Size) / 2, Y = (DashRenderer.Height - Size) / 2;
         private const double Scale = Size / 500.0;
         // Dot row in the 500 px logo: 13 dots, 13.33 px apart, centred on y 103 (measured from the image).
@@ -37,7 +65,7 @@ namespace User.FXProRpmSync
             pending.Enqueue("page 0");
             pending.Enqueue("vis 255,0");
             pending.Enqueue("cls 0");
-            foreach (var c in Logo()) pending.Enqueue(c);
+            foreach (var c in UseTiles ? SaverTiles.Commands(Tiles) : Logo()) pending.Enqueue(c);
             for (int i = 0; i < DotCount; i++) dotSent[i] = null;
         }
 
@@ -115,6 +143,48 @@ namespace User.FXProRpmSync
 
 namespace User.FXProRpmSync
 {
+    /// <summary>
+    /// A screensaver whose background can be drawn from the screen's RAM drive (FXProDashes docs/screen-images.md): its
+    /// art as tiles (pictures), a few commands instead of thousands of rectangles (Lights out took ~10 s to draw in).
+    /// Set UseTiles (the files on the screen) before Start.
+    /// </summary>
+    internal interface ITiledSaver : IAnimatedSaver
+    {
+        ScreenTiles Tiles { get; }
+        bool UseTiles { get; set; }
+    }
+
+    /// <summary>Tiles of a whole-screen picture, and the commands that draw them.</summary>
+    internal static class SaverTiles
+    {
+        public static ScreenTiles FromBitmap(Bitmap bmp)
+        {
+            int w = DashRenderer.Width, h = DashRenderer.Height;
+            var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            var px = new int[w * h];
+            System.Runtime.InteropServices.Marshal.Copy(data.Scan0, px, 0, px.Length);
+            bmp.UnlockBits(data);
+            for (int i = 0; i < px.Length; i++)
+                px[i] = (((px[i] >> 16) & 255) >> 3 << 11) | (((px[i] >> 8) & 255) >> 2 << 5) | ((px[i] & 255) >> 3);
+            var t = new ScreenTiles();
+            for (int y = 0; y < h; y += ScreenTiles.Grid)
+                for (int x = 0; x < w; x += ScreenTiles.Grid)
+                    t.GridTiles.Add(ScreenTiles.Make(bmp, px, new Rectangle(x, y, Math.Min(ScreenTiles.Grid, w - x), Math.Min(ScreenTiles.Grid, h - y))));
+            return t;
+        }
+
+        /// <summary>The tiles' commands (the screen already cleared to black: black tiles are left out).</summary>
+        public static IEnumerable<string> Commands(ScreenTiles t)
+        {
+            foreach (var tile in t.GridTiles)
+            {
+                if (tile.Name != null) yield return ScreenTiles.Ramv(tile, 0, 0);
+                else if (tile.Colour != 0)
+                    yield return string.Format(CultureInfo.InvariantCulture, "fill {0},{1},{2},{3},{4}", tile.R.X, tile.R.Y, tile.R.Width, tile.R.Height, tile.Colour);
+            }
+        }
+    }
+
     /// <summary>A screensaver that draws itself with screen commands (not a dash): the logo, the start lights.</summary>
     internal interface IAnimatedSaver
     {

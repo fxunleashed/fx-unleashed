@@ -279,6 +279,8 @@ namespace User.FXProRpmSync
             var r = new DashValues { Running = true };
             int gear = (int)t.Get("gear");
             r.Set("speed", t.Get("speed"));
+            r.SpeedKmh = t.Get("speed");
+            r.InPitLane = t.Get("isInPitLane") > 0;
             r.Set("gear", (double)gear);
             r.GearKey = gear < 0 ? "R" : gear == 0 ? "N" : gear.ToString(CultureInfo.InvariantCulture);
             r.Set("gearText", r.GearKey);

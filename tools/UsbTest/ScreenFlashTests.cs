@@ -39,20 +39,33 @@ static class ScreenFlashTests
 
         var s = new UsbSettings();
         Check("screen: no uploads yet = picture memory off", ScreenFlasher.RamDriveOn(s) == false);
-        s.ScreenRamDeclared = true;
-        Check("screen: no uploads yet, but 'already flashed' ticked = picture memory on", ScreenFlasher.RamDriveOn(s) == true);
+        s.ScreenRamDrive = true;
+        Check("screen: no uploads yet, but the screen-has-RAM-drive tick set (flashed outside the plugin) = on", ScreenFlasher.RamDriveOn(s) == true);
+        s.ScreenRamDrive = false;
         ScreenFlasher.Record(s, img, "ramfs", "sent");
-        Check("screen: an upload from this PC clears 'already flashed' (the records take over)", !s.ScreenRamDeclared);
         Check("screen: an unanswered upload = unknown", ScreenFlasher.RamDriveOn(s) == null);
-        s.ScreenFlashes.Last().Result = "ok";
+        ScreenFlasher.Answer(s, "ok");
         Check("screen: a confirmed ramfs upload = on", ScreenFlasher.RamDriveOn(s) == true);
+        Check("screen: a confirmed ramfs upload leaves the tick to the user (power cycle and Test first)", !s.ScreenRamDrive);
+        s.ScreenRamDrive = true;
         ScreenFlasher.Record(s, img, "stock", "failed");
         Check("screen: a failed upload = unknown (recovery)", ScreenFlasher.RamDriveOn(s) == null);
-        ScreenFlasher.Record(s, img, "stock", "ok");
+        ScreenFlasher.Answer(s, "ok");
+        Check("screen: Answer only touches an unanswered upload", s.ScreenFlashes.Last().Result == "failed" && s.ScreenRamDrive);
+        ScreenFlasher.Record(s, img, "stock", "sent");
+        ScreenFlasher.Answer(s, "failed");
+        Check("screen: a failed answer clears the tick", s.ScreenFlashes.Last().Result == "failed" && !s.ScreenRamDrive);
+        s.ScreenRamDrive = true;
+        ScreenFlasher.Record(s, img, "stock", "sent");
+        ScreenFlasher.Answer(s, "ok");
+        Check("screen: a confirmed stock upload clears the tick", !s.ScreenRamDrive);
         Check("screen: a confirmed stock upload = off", ScreenFlasher.RamDriveOn(s) == false);
+        s.ScreenRamDrive = true;
+        Check("screen: ticked after a stock upload (flashed again elsewhere) = on", ScreenFlasher.RamDriveOn(s) == true);
+        s.ScreenRamDrive = false;
         var json = Newtonsoft.Json.JsonConvert.SerializeObject(s);
         var back = Newtonsoft.Json.JsonConvert.DeserializeObject<UsbSettings>(json);
-        Check("screen: the upload records survive the settings file", back.ScreenFlashes.Count == 3 && back.ScreenFlashes[0].ImageId == img.Id && back.ScreenFlashes[2].Result == "ok");
+        Check("screen: the upload records survive the settings file", back.ScreenFlashes.Count == 4 && back.ScreenFlashes[0].ImageId == img.Id && back.ScreenFlashes[3].Result == "ok");
 
         var full = Environment.GetEnvironmentVariable("FXPRO_STOCK_TFT");
         if (full != null && File.Exists(full))

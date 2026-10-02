@@ -30,6 +30,12 @@ namespace User.FXProRpmSync
         object LibraryInstalled();
         /// <summary>Installs a library item by id after asking the user in the plugin; the item comes from the library itself.</summary>
         object LibraryInstall(string kind, string id);
+        /// <summary>Screen RAM drive: status; "waits" (arm/packet/done ms) or "clear" (developer hooks for tuning).</summary>
+        object Ram(string op, int? arm, int? packet, int? done);
+        /// <summary>SimHub properties by name, as SimHub has them now (TimeSpans in seconds).</summary>
+        object Props(string[] names);
+        /// <summary>A SimHub formula evaluated now with SimHub's own engine: {value, type} or {error}.</summary>
+        object Eval(string formula);
     }
 
     /// <summary>
@@ -241,7 +247,12 @@ namespace User.FXProRpmSync
             ("POST", "/api/wheel/show[?left=L&top=T]", "body = dash: show it on the wheel now (plugin only)"),
             ("POST", "/api/verify[?seconds=N&left=L&top=T]", "body = dash: demo lap on a simulated wheel: traffic, flashes, drawing errors"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
-            ("POST", "/api/wheel/demo?dash=c:ID|w:PAGE|off", "the demo lap on the wheel with that dash, e.g. w:12 for the wheel's own dash page 12 (plugin only)"),
+            ("GET", "/api/props?names=A,B,...", "SimHub properties now, e.g. DataCorePlugin.GameData.NewData.Sector1Time (TimeSpans in seconds; plugin only)"),
+            ("GET", "/api/eval?f=ncalc:...", "a SimHub formula evaluated now with SimHub's own engine: {value, type} or {error} (plugin only)"),
+            ("GET", "/api/wheel/ram", "the screen's RAM drive: files, bytes, upload waits (plugin only)"),
+            ("POST", "/api/wheel/ram/waits?arm=MS&packet=MS&done=MS", "upload waits for this session, for tuning (plugin only)"),
+            ("POST", "/api/wheel/ram/clear", "delete the plugin's files from the screen's RAM; the dash loads again (plugin only)"),
+            ("POST", "/api/wheel/demo?dash=c:ID|w:PAGE|rotation|off", "the demo lap on the wheel with that dash, e.g. w:12 for the wheel's own dash page 12; rotation = the default rotation, cycled with the dash button (plugin only)"),
             ("GET", "/api/library/status", "plugin version (for the website's Install button)"),
             ("GET", "/api/library/installed", "library items installed: [{id, kind, version}]"),
             ("POST", "/api/library/install?kind=dash|saver&id=ID", "install a library item by id (asks the user in the plugin first; the plugin downloads it from the library itself)"),
@@ -347,6 +358,24 @@ namespace User.FXProRpmSync
                 return Json(new { shown = true, status = host.WheelStatus() });
             }
             if (path == "/api/wheel/stop") { host?.StopWheelPreview(); return Json(new { stopped = true }); }
+            if (path == "/api/eval")
+            {
+                if (host == null) return Json(new { error = "formulas are only available when the designer runs in SimHub" }, 400);
+                return Json(host.Eval(r.Q("f") ?? ""));
+            }
+            if (path == "/api/props")
+            {
+                if (host == null) return Json(new { error = "SimHub's properties are only available when the designer runs in SimHub" }, 400);
+                var names = (r.Q("names") ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim()).ToArray();
+                return Json(host.Props(names));
+            }
+            if (path == "/api/wheel/ram" || path == "/api/wheel/ram/waits" || path == "/api/wheel/ram/clear")
+            {
+                if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);
+                int? Q(string k) => r.Q(k) == null ? (int?)null : r.QI(k, 0);
+                string op = path.EndsWith("/waits") ? "waits" : path.EndsWith("/clear") ? "clear" : null;
+                return Json(host.Ram(op, Q("arm"), Q("packet"), Q("done")));
+            }
             if (path == "/api/wheel/demo")
             {
                 if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);

@@ -171,6 +171,9 @@ namespace User.FXProRpmSync
                 // Corners 0-3 = FL, FR, RL, RR (the wheel's ul, ur, dl, dr).
                 SetCorners(t, "brakeTemperature", 0, 1023, c(d.BrakeTemperatureFrontLeft), c(d.BrakeTemperatureFrontRight), c(d.BrakeTemperatureRearLeft), c(d.BrakeTemperatureRearRight));
                 SetCorners(t, "tyreTemperature", 0, 255, c(d.TyreTemperatureFrontLeft), c(d.TyreTemperatureFrontRight), c(d.TyreTemperatureRearLeft), c(d.TyreTemperatureRearRight));
+                // LMU: the tyre temperature LMU itself shows (SimHub's is the surface average, ~20 C off)
+                var lmu = data.GameName == "LMU" ? LmuTyreTemperatures(pm) : null;
+                if (lmu != null) SetCorners(t, "tyreTemperature", 0, 255, lmu[0], lmu[1], lmu[2], lmu[3]);
                 SetCorners(t, "tyreTemperatureInner", 0, 255, c(d.TyreTemperatureFrontLeftInner), c(d.TyreTemperatureFrontRightInner), c(d.TyreTemperatureRearLeftInner), c(d.TyreTemperatureRearRightInner));
                 SetCorners(t, "tyreTemperatureMiddle", 0, 255, c(d.TyreTemperatureFrontLeftMiddle), c(d.TyreTemperatureFrontRightMiddle), c(d.TyreTemperatureRearLeftMiddle), c(d.TyreTemperatureRearRightMiddle));
                 SetCorners(t, "tyreTemperatureOuter", 0, 255, c(d.TyreTemperatureFrontLeftOuter), c(d.TyreTemperatureFrontRightOuter), c(d.TyreTemperatureRearLeftOuter), c(d.TyreTemperatureRearRightOuter));
@@ -289,6 +292,33 @@ namespace User.FXProRpmSync
                     yield return Kv("ersMode", ir + "dcMGUKDeployMode");
                     break;
             }
+        }
+
+        /// <summary>
+        /// LMU's tyre temperatures as its own dashes show them (FL, FR, RL, RR, C): halfway between the inner layer's
+        /// average (its three readings) and the carcass, from the raw telemetry (Kelvin). SimHub's TyreTemperature* is the
+        /// surface average, which reads well below what the game shows. Null if the raw data isn't there.
+        /// </summary>
+        internal static double[] LmuTyreTemperatures(PluginManager pm)
+        {
+            if (pm == null) return null;
+            var r = new double[4];
+            for (int w = 0; w < 4; w++)
+            {
+                string p = "DataCorePlugin.GameRawData.CurrentPlayerTelemetry.mWheels0" + (w + 1) + ".";
+                double? carcass = Raw(pm, p + "mTireCarcassTemperature");
+                double? i1 = Raw(pm, p + "mTireInnerLayerTemperature01"), i2 = Raw(pm, p + "mTireInnerLayerTemperature02"),
+                        i3 = Raw(pm, p + "mTireInnerLayerTemperature03");
+                if (carcass == null || i1 == null || i2 == null || i3 == null || carcass <= 0) return null;
+                r[w] = ((i1.Value + i2.Value + i3.Value) / 3 + carcass.Value) / 2 - 273.15;
+            }
+            return r;
+        }
+
+        private static double? Raw(PluginManager pm, string path)
+        {
+            try { var v = pm.GetPropertyValue(path); return v == null ? (double?)null : Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture); }
+            catch { return null; }
         }
 
         /// <summary>Runs one block of the mapping; a failure leaves that block's fields at 0 instead of dropping the frame.</summary>

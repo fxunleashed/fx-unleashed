@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -280,11 +281,20 @@ namespace User.FXProRpmSync
                 var strip = new WrapPanel();
                 for (int i = 0; i < refs.Count; i++) strip.Children.Add(ListItem(refs, i, current));
                 listPanel.Children.Add(strip);
+                listPanel.Children.Add(RamTotal(refs));
                 var row = new WrapPanel { Margin = new Thickness(0, 6, 0, -8) };
                 if (refs.Count > 1)
                 {
-                    row.Children.Add(Theme.Btn("Previous", () => Save(refs, current - 1), icon: ""));
-                    row.Children.Add(Theme.Btn("Next", () => Save(refs, current + 1), icon: ""));
+                    row.Children.Add(Theme.Btn("Previous", () => Save(refs, current - 1), primary: true, icon: ""));
+                    row.Children.Add(Theme.Btn("Next", () => Save(refs, current + 1), primary: true, icon: ""));
+                }
+                // the demo lap through this list (what runs now: the current car's, or the default with no car), switched
+                // with the dash button like in a session
+                if (Usb != null && target == plugin.DashCarKey)
+                {
+                    bool demoing = Usb.DemoOn && Usb.DemoDashId == null;
+                    row.Children.Add(Theme.Btn(demoing ? "Stop the demo" : "Demo on the wheel", () => { Usb?.SetDemo(!demoing); Refresh(true); },
+                        icon: demoing ? "" : ""));
                 }
                 if (target != null) row.Children.Add(Theme.Btn("Back to the default", () => { plugin.DeleteUsbCarDash(target); if (target != plugin.DashCarKey) target = null; Refresh(true); }, icon: ""));
                 listPanel.Children.Add(row);
@@ -317,10 +327,47 @@ namespace User.FXProRpmSync
             name.Children.Add(actions);
             name.Children.Add(new TextBlock { Text = DashRef.Name(r), FontFamily = Theme.Display, FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
             body.Children.Add(name);
+            body.Children.Add(RamSize(r));
             var tile = Theme.Tile(body, 198, () => { focus = r; if (!now) Save(refs, i); else { RefreshBadges(); ShowFocus(); } }, now ? "Showing now" : "Show this one now");
             tile.Padding = new Thickness(10);
             Theme.Select(tile, now);
             return tile;
+        }
+
+        // ---------- Screen RAM (dash tiles, FXProDashes docs/screen-images.md) ----------
+
+        /// <summary>A dash's size on the screen's RAM drive (worked out in the background).</summary>
+        private TextBlock RamSize(string r)
+        {
+            var tb = new TextBlock { Foreground = Theme.Text3, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) };
+            if (DashRef.IsWheel(r)) { tb.Text = "Built into the wheel: no screen RAM"; return tb; }
+            var d = DashCache.Find(DashRef.Id(r));
+            tb.Text = "Screen RAM: ...";
+            var ui = TaskScheduler.FromCurrentSynchronizationContext();
+            Task.Run(() => DashRam.Bytes(d)).ContinueWith(t => tb.Text = "Screen RAM: " + DashRam.Text(t.Result), ui);
+            return tb;
+        }
+
+        /// <summary>The list's total against the screen's RAM drive: whether all of it stays loaded (instant switching).</summary>
+        private TextBlock RamTotal(List<string> refs)
+        {
+            var tb = new TextBlock { FontSize = 11.5, Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text3 };
+            var dashes = refs.Where(x => !DashRef.IsWheel(x)).Select(x => DashCache.Find(DashRef.Id(x))).Where(d => d != null).ToList();
+            if (dashes.Count == 0) return tb;
+            bool on = S.ScreenRamDrive;
+            tb.Text = "Screen RAM: working it out...";
+            var ui = TaskScheduler.FromCurrentSynchronizationContext();
+            Task.Run(() => DashRam.Bytes(dashes)).ContinueWith(t =>
+            {
+                int b = t.Result, budget = ScreenRam.Budget;
+                bool fits = b <= budget;
+                tb.Text = $"Screen RAM for this list: {DashRam.Text(b)} of {budget / 1024} KB" +
+                          (!on ? "  ·  used once the screen's RAM drive is on (Wheel page)."
+                           : fits ? "  ·  all of them stay loaded: switching between them is instant."
+                           : "  ·  more than fits at once: a dash that isn't loaded takes a few seconds the first time it shows (drawn with rectangles meanwhile).");
+                tb.Foreground = on && !fits ? Theme.Amber : Theme.Text3;
+            }, ui);
+            return tb;
         }
 
         private static Button Mini(string glyph, string tip, Action click)
@@ -372,6 +419,7 @@ namespace User.FXProRpmSync
             body.Children.Add(frame);
             body.Children.Add(new TextBlock { Text = name, FontFamily = Theme.Display, FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
             body.Children.Add(new TextBlock { Text = sub ?? " ", Foreground = Theme.Text3, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
+            if (!DashRef.IsWheel(r)) body.Children.Add(RamSize(r));
             var tile = Theme.Tile(body, width, () => { focus = r; RefreshBadges(); ShowFocus(); });
             tile.Padding = new Thickness(8);
             tiles[r] = (tile, badges);

@@ -24,7 +24,7 @@ namespace User.FXProRpmSync
 
         private readonly TextBlock memState, progressText, simproState, recoverSpeedText;
         private readonly ProgressBar progress;
-        private readonly CheckBox ack, declared;
+        private readonly CheckBox ack;
         private readonly Button turnOn, turnOff, recover, updateMode;
         private readonly Button[] pings;
         private readonly StackPanel answer;
@@ -52,16 +52,10 @@ namespace User.FXProRpmSync
             // ----- the RAM drive -----
             body.Children.Add(Theme.Note("Picture memory lets the plugin keep dash backgrounds and pictures in the screen itself and swap them " +
                 "instantly, instead of drawing them piece by piece. Turning it on or off takes about 10 seconds plus the screen's own check. " +
-                "Wheel on the base, USB plugged in, no game running.", new Thickness(0, 6, 0, 8)));
+                "Wheel on the base, USB plugged in, no game running. Already flashed the screen before (with the PC tool or an earlier " +
+                "version)? You don't need this: press Test in \"Pictures in the screen's memory\" above, and tick the box there if the test card shows.", new Thickness(0, 6, 0, 8)));
             memState = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text, Margin = new Thickness(0, 0, 0, 8) };
             body.Children.Add(memState);
-            declared = Theme.Switch("My screen's picture memory is already on", S.ScreenRamDeclared, v =>
-            {
-                S.ScreenRamDeclared = v;
-                plugin.SaveSettings();
-                Refresh();
-            }, "Tick this if you flashed the screen before (with the PC tool or an earlier version): this PC has no record of it, so the plugin would take the screen as stock.");
-            body.Children.Add(declared);
             body.Children.Add(new Expander
             {
                 Header = new TextBlock { Text = "Before you start: the risks", Foreground = Theme.Text2 },
@@ -165,8 +159,7 @@ namespace User.FXProRpmSync
             var img = ScreenFlasher.Choose(u, S, out var refusal);
             bool? on = ScreenFlasher.RamDriveOn(S);
             var last = S.ScreenFlashes?.LastOrDefault();
-            declared.Visibility = last == null ? Visibility.Visible : Visibility.Collapsed; // once the plugin has flashed, its records say
-            memState.Text = (on == true ? "Picture memory is on" + (last == null ? " (you said it's already flashed)" : "") : on == false ? "Picture memory is off (Simagic's header)"
+            memState.Text = (on == true ? "Picture memory is on" + (last == null ? " (you ticked that your screen has it)" : "") : on == false ? "Picture memory is off (Simagic's header)"
                     : last.Result == "failed" ? "The last upload failed: use Screen recovery below"
                     : "The last upload wasn't confirmed: answer below, or use Screen recovery if the screen has no dash")
                 + (last != null ? $"  ·  last change {last.When:d MMM HH:mm}" : "")
@@ -274,12 +267,14 @@ namespace User.FXProRpmSync
 
         private void Answer(string result)
         {
-            var last = S.ScreenFlashes?.LastOrDefault();
-            if (last != null && last.Result == "sent") { last.Result = result; plugin.SaveSettings(); }
+            ScreenFlasher.Answer(S, result); // also clears the picture-memory tick unless the memory was just turned on
+            Usb?.SettingsChanged();
+            plugin.SaveSettings();
             answered?.Set();
             answer.Visibility = Visibility.Collapsed;
             Show(result == "ok"
-                ? "Done. Switch the base off and unplug the wheel's USB for a few seconds, then start again."
+                ? "Done. Switch the base off and unplug the wheel's USB for a few seconds, then start again. If you turned picture memory on, " +
+                  "press Test in \"Pictures in the screen's memory\" above and tick its box when the test card shows."
                 : "The upload didn't take, and the screen has no dash until Simagic's header is back. Open Screen recovery below and follow the steps.", null);
             Refresh();
         }

@@ -157,21 +157,34 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>
-        /// The RAM drive as the records say: true = on, false = stock, null = unknown (a failed or unanswered upload). With no
-        /// records the screen is taken as stock, unless the user said it was flashed already (ScreenRamDeclared).
+        /// The RAM drive: true = on, false = stock, null = unknown (a failed or unanswered upload). With no uploads from this
+        /// PC it is what the user says (ScreenRamDrive: flashed before, outside the plugin); else what the last upload made,
+        /// unless the user has ticked the screen has it (a flash elsewhere can come after the records).
         /// </summary>
         public static bool? RamDriveOn(UsbSettings s)
         {
             var last = s.ScreenFlashes?.LastOrDefault();
-            if (last == null) return s.ScreenRamDeclared;
+            if (last == null) return s.ScreenRamDrive;
             if (last.Result != "ok") return null;
-            return last.Mode == "ramfs";
+            return s.ScreenRamDrive || last.Mode == "ramfs";
+        }
+
+        /// <summary>
+        /// The user's answer to what the screen showed after the last upload ("ok" or "failed"). The picture-memory tick
+        /// (ScreenRamDrive, which the dash code reads) is cleared unless the upload turned the memory on: after turning it on
+        /// the screen needs a power cycle and the Test before the user ticks it.
+        /// </summary>
+        public static void Answer(UsbSettings s, string result)
+        {
+            var last = s.ScreenFlashes?.LastOrDefault();
+            if (last == null || last.Result != "sent") return;
+            last.Result = result;
+            if (!(result == "ok" && last.Mode == "ramfs")) s.ScreenRamDrive = false;
         }
 
         public static void Record(UsbSettings s, ScreenImage img, string mode, string result)
         {
             if (s.ScreenFlashes == null) s.ScreenFlashes = new List<ScreenFlashRecord>();
-            s.ScreenRamDeclared = false; // from here the records say what's on the screen
             s.ScreenFlashes.Add(new ScreenFlashRecord { When = DateTime.Now, ImageId = img.Id, Mode = mode, Result = result });
         }
     }
