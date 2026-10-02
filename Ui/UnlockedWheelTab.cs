@@ -31,6 +31,7 @@ namespace User.FXProRpmSync
         private readonly TextBlock step2;
         private readonly TextBlock dashTile, lightsTile, idleTile;
         private readonly WheelSlotsCard slots;
+        private readonly FirmwareCard firmwareCard;
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private readonly DispatcherTimer frameTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         private readonly DispatcherTimer dashTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(100) };
@@ -118,6 +119,7 @@ namespace User.FXProRpmSync
             if (!neo) Children.Add(slots = new WheelSlotsCard(plugin));
             Children.Add(new QuickControlsCard(plugin));
             if (!neo) Children.Add(WiringCard.Build());
+            if (!neo) Children.Add(firmwareCard = new FirmwareCard(plugin));
             if (neo) ((FrameworkElement)screenInfo.Parent).Visibility = Visibility.Collapsed; // no screen
 
             frameTimer.Tick += (s, e) => RenderLights();
@@ -196,6 +198,7 @@ namespace User.FXProRpmSync
         {
             if (model == WheelModel.GtNeo) { RefreshNeo(); return; }
             slots?.Refresh();
+            firmwareCard?.Refresh();
             var u = Usb;
             bool patched = u?.FirmwarePatched ?? S.FirmwareConfirmed;
             setup.Visibility = patched ? Visibility.Collapsed : Visibility.Visible;

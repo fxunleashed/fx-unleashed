@@ -32,6 +32,7 @@ namespace User.FXProRpmSync
         [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool WriteFile(SafeFileHandle h, byte[] b, int n, out int w, IntPtr o);
         [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool ReadFile(SafeFileHandle h, byte[] b, int n, out int r, IntPtr o);
         [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetFeature(SafeFileHandle h, byte[] b, int n);
+        [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_SetFeature(SafeFileHandle h, byte[] b, int n);
 
         /// <summary>Device path of the wheel's HID interface, or null when it isn't plugged in.</summary>
         public static string FindPath() => FindPath(DeviceFilter);
@@ -71,6 +72,30 @@ namespace User.FXProRpmSync
             public string VersionText => $"{(Version >> 16) & 0xFF}.{(Version >> 8) & 0xFF}.{Version & 0xFF}";
             /// <summary>The wheel app the patch was built for, running normally.</summary>
             public bool IsSupportedApp => Version == 0x1030B && RunMode == 0;
+            /// <summary>The wheel's bootloader (update mode): it reports version bytes 0F 01 01 01 where the app reports
+            /// 0B 03 01 00; the run mode stays 0 (FXProDashes, build 9 flashed through the escape hatch).</summary>
+            public bool IsBootloader => Version == 0x0101010F || RunMode != 0;
+        }
+
+        /// <summary>
+        /// The escape hatch into update mode (FXProDashes tools/usb/boot-mode.ps1, proven 2026-09-30): F1 03 erases the
+        /// boot flag page, F1 01 restarts the wheel, which then stays in its bootloader (across power cycles too) until
+        /// SimPro finishes an install. The app stays in flash. These are the same two commands SimPro sends first, so
+        /// SimPro can then reinstall a wheel whose app misbehaves, as long as its USB answers. Returns null when sent.
+        /// </summary>
+        public static string EnterBootloader(string path)
+        {
+            foreach (byte cmd in new byte[] { 3, 1 })
+            {
+                using (var h = CreateFile(path, 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero))
+                {
+                    if (h.IsInvalid) return "can't open the wheel (error " + Marshal.GetLastWin32Error() + ")";
+                    var r = new byte[33]; r[0] = 0xF1; r[1] = cmd;
+                    if (!HidD_SetFeature(h, r, r.Length)) return $"F1 0{cmd} failed (error {Marshal.GetLastWin32Error()})";
+                }
+                Thread.Sleep(300);
+            }
+            return null;
         }
 
         /// <summary>F1 status (read-only). Null if it can't be read.</summary>
@@ -198,6 +223,25 @@ namespace User.FXProRpmSync
             var r = new byte[65]; r[0] = 0xF2; r[1] = 0x0A; r[2] = (byte)len;
             r[3] = (byte)rel; r[4] = (byte)(rel >> 8); r[5] = (byte)(rel >> 16); r[6] = (byte)(rel >> 24);
             Array.Copy(data, offset, r, 7, count);
+            Send(r);
+        }
+
+        // Wheel MCU: APB2 72 MHz; USART1 BRR (0x40013808) for the screen's UART: 512000 -> 0x08C, 115200 -> 0x271, 9600 -> 0x1D4C.
+        private const uint Usart1Brr = 0x40013808;
+
+        /// <summary>
+        /// Sets the speed of the wheel's UART to the screen (512000, 115200 or 9600) with one F2 0A store to USART1's BRR,
+        /// the only non-RAM address this class writes: PG only affects stores into flash, so this is a plain register write.
+        /// For reaching a screen left at another speed (screen recovery); a wheel power cycle sets 512000 again.
+        /// </summary>
+        public void SetScreenUart(int baud)
+        {
+            uint brr = baud == 512000 ? 0x08Cu : baud == 115200 ? 0x271u : baud == 9600 ? 0x1D4Cu : 0;
+            if (brr == 0) throw new ArgumentException("512000, 115200 or 9600");
+            uint rel = unchecked(Usart1Brr - 0x08020000u);
+            var r = new byte[65]; r[0] = 0xF2; r[1] = 0x0A; r[2] = 4;
+            r[3] = (byte)rel; r[4] = (byte)(rel >> 8); r[5] = (byte)(rel >> 16); r[6] = (byte)(rel >> 24);
+            r[7] = (byte)brr; r[8] = (byte)(brr >> 8);
             Send(r);
         }
 

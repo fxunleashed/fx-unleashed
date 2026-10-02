@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "images": [
+    {
+      "id": "fxpro-screen-1.3.11",
+      "wheelApp": "1.3.11",
+      "simproFile": "FXPproXScreen_App-V1.3.11.0-00000000.sfu",
+      "sfuSha256": "5d0fdc69d6fea877cd1444001a24ec9862322242f66541e24e00da1719cb112e",
+      "tftSize": 9208816,
+      "tftSha256": "b8ea74aa4bd868abbfec303fc2f1e3be4756fe0cb4c72f852a1dbb1deca43636",
+      "seal": "CC4713AF",
+      "header": "0001425400000000000000002003e0012003e001000300010000000000000000000000000000000000000000000034d6cce121a1000002000c000000f0838c00000070000cf272b000000000ffffffffffffffff00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff60487abe826a544e826a544eb45b504e166a544ebd5b524ebd5b224ed6d2d84e76d0d84e4fb6574e19633d4e49e4214e49e4214ef802194e0559504e9b5b964bf35a514ebd5b504e3d5b504ebf5b504effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffad7ceee7",
+      "blocks": {
+        "stock": "7564284c1632d8ba6b19459b65888530080cc3cec3bf336712ae69e0dab0abee",
+        "ramfs": "b17f5fab57181f5d20408e7253d6428e701891b5062b9b2fbfd3a508cab63a56",
+        "failtest": "217c28f9b5f3a2bcb5b5035bac3389232a37d5dd042966cf497f4cad3d464cf1"
+      }
+    }
+  ]
+}

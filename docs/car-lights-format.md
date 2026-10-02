@@ -10,7 +10,7 @@ back to Lovely, then to the light preset's pattern.
 | Game | Tool | What it reads |
 |---|---|---|
 | AMS2 (`ams2`) | `python -m cardata ams2 update` | `Vehicles/**/*.crd` (names), `<car>_cockpit.bin` (the RPM bar range; Reiza's cars inside `HRDFPERSISTENT.bff`, mods loose), `GUI/display_*.bgui` (the dash: rev steps, limiter lights), the lights' textures (colours) |
-| iRacing | planned | |
+| iRacing | — (none) | nothing to read: the sim's shift-light model is four RPM anchors per car (`firstShiftLED`, `RPMsShiftLED` = first/shift/last/blink, `RPMsShiftLEDVariable`), rendered as a proportional bar. No LED count, colours or per-gear curves exist in the game. iRacing cars come from Lovely (or those four anchors, live, from SimHub) — see NEXT.md "T". |
 
 ## Files
 

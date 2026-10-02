@@ -41,6 +41,7 @@
     <EmbeddedResource Include="assets\logo.png" LogicalName="User.FXProRpmSync.logo.png" />
     <EmbeddedResource Include="Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
     <EmbeddedResource Include="docs\legal\*.md" LogicalName="User.FXProRpmSync.Legal.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Resources\screen-images.json" LogicalName="User.FXProRpmSync.screen-images.json" />
   </ItemGroup>
 
   <!-- simgame.exe (SimGameStub/) is built first and embedded; the plugin extracts it at runtime (see SimGameFeed). -->

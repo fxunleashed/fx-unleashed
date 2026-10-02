@@ -20,6 +20,16 @@ namespace User.FXProRpmSync
         /// flicker against the wheel's own.
         /// </summary>
         public bool FirmwareConfirmed = false;
+        /// <summary>Header-only screen uploads from this PC (ScreenFlasher), oldest first.</summary>
+        public List<ScreenFlashRecord> ScreenFlashes = new List<ScreenFlashRecord>();
+        /// <summary>
+        /// The user says the screen's picture memory (RAM drive) is already on: flashed before, with the PC tool or an earlier
+        /// version, so this PC has no upload records for it. Only counts while there are no records; the plugin's own uploads
+        /// take over (ScreenFlasher.Record clears it).
+        /// </summary>
+        public bool ScreenRamDeclared = false;
+        /// <summary>Hash of the firmware warning the user accepted for screen uploads (asked again when the text changes).</summary>
+        public string ScreenFirmwareAck;
         public bool DashEnabled = true;
         public string DashId = BuiltInDashes.MustangId;
         public int PadLeft = 10, PadTop = 20;
@@ -329,6 +339,8 @@ namespace User.FXProRpmSync
         public bool WheelFound => path != null;
         public string WheelVersion => model == WheelModel.GtNeo ? NeoUsb.VersionText(neoSerial) : status?.VersionText;
         public bool SupportedApp => status?.IsSupportedApp == true;
+        /// <summary>The wheel is in its updater (update mode), waiting for SimPro to install an app.</summary>
+        public bool InUpdateMode => status?.IsBootloader == true;
         public bool Active => conn != null || neo != null;
         /// <summary>The wheel USB mode is set up for now.</summary>
         public WheelModel Model => model;
@@ -528,12 +540,57 @@ namespace User.FXProRpmSync
 
         private bool LiveFresh => latest?.Running == true && DateTime.UtcNow.Ticks - Interlocked.Read(ref latestTicks) < TimeSpan.FromSeconds(2).Ticks;
 
+        private volatile string lentFor;
+        private volatile bool lentIdle, reprobe;
+
+        /// <summary>
+        /// Hands the FX Pro to a firmware tool (screen flash, recovery, update mode): USB mode lets go of the wheel and
+        /// leaves it alone until the returned handle is disposed, then looks at it afresh (it may be in another state).
+        /// Returns null if USB mode didn't let go within 5 s.
+        /// </summary>
+        public IDisposable Lend(string reason)
+        {
+            lentIdle = false;
+            lentFor = reason;
+            wake.Set();
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (!lentIdle && DateTime.UtcNow < until) Thread.Sleep(50);
+            if (!lentIdle) { lentFor = null; return null; }
+            return new Lent(this);
+        }
+
+        public bool IsLent => lentFor != null;
+
+        private sealed class Lent : IDisposable
+        {
+            private UsbController c;
+            public Lent(UsbController c) { this.c = c; }
+            public void Dispose()
+            {
+                if (c == null) return;
+                c.reprobe = true;
+                c.lentFor = null;
+                c.wake.Set();
+                c = null;
+            }
+        }
+
         private void Loop()
         {
             while (!stop)
             {
                 try
                 {
+                    if (lentFor != null)
+                    {
+                        Deactivate();
+                        State = "Busy";
+                        Detail = lentFor;
+                        lentIdle = true;
+                        wake.WaitOne(500);
+                        continue;
+                    }
+                    if (reprobe) { reprobe = false; path = null; status = null; build = -1; nextProbe = DateTime.MinValue; }
                     var s = S;
                     bool testing = Testing;
                     if (!s.Enabled && !testing)
@@ -617,7 +674,7 @@ namespace User.FXProRpmSync
             }
             else if (status == null && DateTime.UtcNow - appearedAt < BootGrace) { State = "Wheel found"; Detail = "Letting it finish starting up."; }
             else if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
-            else if (!status.IsSupportedApp) { State = "Unsupported wheel firmware"; Detail = $"The wheel runs app {status.VersionText}{(status.RunMode != 0 ? " (in its bootloader)" : "")}; USB mode needs the patched 1.3.11 app."; }
+            else if (!status.IsSupportedApp) { State = "Unsupported wheel firmware"; Detail = $"The wheel runs app {status.VersionText}{(status.IsBootloader ? " (in update mode: reinstall it in SimPro, see Recovery below)" : "")}; USB mode needs the patched 1.3.11 app."; }
             else if (!allowed) { State = "Firmware not confirmed"; Detail = build == 0 ? "The wheel doesn't report a patch build (stock, or builds 4-6). Confirm that it runs the patched firmware below." : "Confirm that the wheel runs the patched firmware below."; }
             else { State = "Ready"; Detail = "Takes over the dash and lights when a game runs."; }
         }
