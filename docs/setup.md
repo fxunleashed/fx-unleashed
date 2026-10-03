@@ -176,5 +176,5 @@ buttons, so bind it to a plugin action instead (Wheel tab > Quick controls > Whe
 | "SimPro is reading <game>, not SimHub" (standard mode) | Close the game and start it again, with SimHub already running. |
 | SimPro hangs after the wheel enters boot mode | Close SimPro, start it again, reinstall: it installs to a wheel already in boot mode. |
 
-Still stuck? [Open an issue](https://github.com/fxunleashed/fx-unleashed/issues) with the SimHub log
-(`SimHub\Logs\SimHub.txt`, the lines with `[FXProRpmSync]`).
+Still stuck? Ask in the [Discord](https://discord.gg/P9Rz6fXrRc), or [open an issue](https://github.com/fxunleashed/fx-unleashed/issues)
+with the SimHub log (`SimHub\Logs\SimHub.txt`, the lines with `[FXProRpmSync]`).

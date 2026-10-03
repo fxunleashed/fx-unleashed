@@ -10,7 +10,7 @@
 
 A free [SimHub](https://www.simhubdash.com/) plugin for the **Simagic FX Pro**: your own dashes on its 800x480 screen,
 all 38 lights in any colour, screensavers, a community library and the dash button, all driven from SimHub.
-Website, guide and library: **[fxunleashed.com](https://fxunleashed.com)**.
+Website, guide and library: **[fxunleashed.com](https://fxunleashed.com)**. Questions, dashes and show-and-tell: **[Discord](https://discord.gg/P9Rz6fXrRc)**.
 
 It has two modes:
 
