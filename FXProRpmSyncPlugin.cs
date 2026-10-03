@@ -1008,6 +1008,7 @@ namespace User.FXProRpmSync
         public void End(PluginManager pluginManager)
         {
             if (InitError != null) return; // nothing started
+            Updates?.StopChecking();
             cts?.Cancel();
             wake.Set();
             try { worker?.Wait(2000); } catch { }

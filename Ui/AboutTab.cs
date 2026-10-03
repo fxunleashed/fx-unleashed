@@ -53,7 +53,7 @@ namespace User.FXProRpmSync
             releaseBox = new Border { Background = Theme.Raised, CornerRadius = new CornerRadius(8), Padding = new Thickness(14), Margin = new Thickness(0, 8, 0, 12), Child = rel };
             up.Children.Add(releaseBox);
 
-            up.Children.Add(Theme.Switch("Check for updates when SimHub starts (once a day)", S.AutoCheck, v => { S.AutoCheck = v; plugin.SaveSettings(); }));
+            up.Children.Add(Theme.Switch("Check for updates automatically (at start-up, then every few hours)", S.AutoCheck, v => { S.AutoCheck = v; plugin.SaveSettings(); }));
             var channel = Theme.Segmented(new[] { "Stable", "Beta" }, S.Channel == UpdateChannel.Beta ? 1 : 0, i =>
             {
                 S.Channel = i == 1 ? UpdateChannel.Beta : UpdateChannel.Stable;

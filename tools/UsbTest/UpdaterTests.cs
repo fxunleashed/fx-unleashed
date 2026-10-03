@@ -62,6 +62,14 @@ static class UpdaterTests
         Check("verify: minimum SimHub 9.11 accepts SimHub 9.12.8", Updater.Verify(M().WithMin("9.11"), v, zip, sh).SequenceEqual(dll));
         Check("verify: minimum SimHub 9.13 refuses SimHub 9.12.8", Throws(() => Updater.Verify(M().WithMin("9.13"), v, zip, sh)));
         Check("SimHub version unknown (not running in SimHub): no refusal", Updater.SimHubVersion() == null && Updater.FromSimHub(null) == null);
+        // when the automatic check runs: every start-up, then every 6 hours while SimHub stays open, never when switched off
+        var t0 = new DateTime(2026, 10, 3, 12, 0, 0, DateTimeKind.Utc);
+        Check("auto check: at start-up even if checked an hour ago", Updater.CheckDue(true, t0.AddHours(-1), t0, true));
+        Check("auto check: not again within 6 hours", !Updater.CheckDue(true, t0.AddHours(-5), t0, false));
+        Check("auto check: again after 6 hours while open", Updater.CheckDue(true, t0.AddHours(-6), t0, false));
+        Check("auto check: never checked yet", Updater.CheckDue(true, DateTime.MinValue, t0, false));
+        Check("auto check: clock set back", Updater.CheckDue(true, t0.AddHours(3), t0, false));
+        Check("auto check: switched off = never", !Updater.CheckDue(false, DateTime.MinValue, t0, true) && !Updater.CheckDue(false, DateTime.MinValue, t0, false));
         var noDll = Zip(("README.md", new byte[] { 1 }));
         var m5 = M(); m5.zip.sha256 = Updater.Sha256(noDll);
         Check("verify: no DLL in zip", Throws(() => Updater.Verify(m5, v, noDll, null)));

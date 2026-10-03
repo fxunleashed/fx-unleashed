@@ -21,7 +21,7 @@ namespace User.FXProRpmSync
     /// <summary>Update settings (part of the plugin's settings).</summary>
     public class UpdateSettings
     {
-        /// <summary>Look for a new version at start-up, at most once a day. Nothing is installed without a click.</summary>
+        /// <summary>Look for a new version at every start-up and every few hours while SimHub stays open. Nothing is installed without a click.</summary>
         public bool AutoCheck = true;
         public UpdateChannel Channel = UpdateChannel.Stable;
         /// <summary>"owner/repo" on GitHub whose releases carry the plugin (zip + manifest.json).</summary>
@@ -116,7 +116,7 @@ namespace User.FXProRpmSync
     }
 
     /// <summary>
-    /// In-plugin updates from GitHub releases (NEXT.md B). Check (at start-up at most once a day, or "Check now") →
+    /// In-plugin updates from GitHub releases (NEXT.md B). Check (at start-up, every few hours after, or "Check now") →
     /// banner → Install on a click: download the zip and manifest over HTTPS, check both SHA-256s and the DLL's size and
     /// assembly name, then swap the DLL. A loaded DLL can't be overwritten but can be renamed: the running one becomes
     /// User.FXProRpmSync.dll.old (kept for Roll back), the new one takes its name, and SimHub restarts. The DLL name and
@@ -230,12 +230,32 @@ namespace User.FXProRpmSync
 
         // ---------- Check ----------
 
-        /// <summary>At start-up: checks if it's on and the last check is over a day old.</summary>
+        /// <summary>How long SimHub can stay open before the next automatic check (a release shows without a restart).</summary>
+        internal static readonly TimeSpan AutoCheckEvery = TimeSpan.FromHours(6);
+        private System.Threading.Timer autoTimer;
+
+        /// <summary>Whether an automatic check is due: always at start-up, then once the last good check is old enough.</summary>
+        internal static bool CheckDue(bool autoCheck, DateTime lastCheckUtc, DateTime nowUtc, bool atStartup) =>
+            autoCheck && (atStartup || nowUtc - lastCheckUtc >= AutoCheckEvery || lastCheckUtc > nowUtc);
+
+        /// <summary>
+        /// Last thing in Init: checks now (if automatic checks are on), then looks every 30 minutes whether one is due again.
+        /// A failed check (offline) leaves the last good time alone, so it is tried again at the next look.
+        /// </summary>
         public void CheckInBackground()
         {
-            var s = plugin.Settings.Updates;
-            if (!s.AutoCheck || DateTime.UtcNow - s.LastCheckUtc < TimeSpan.FromDays(1)) return;
-            Task.Run(() => CheckAsync());
+            if (CheckDue(plugin.Settings.Updates.AutoCheck, plugin.Settings.Updates.LastCheckUtc, DateTime.UtcNow, true)) Task.Run(() => CheckAsync());
+            autoTimer = new System.Threading.Timer(_ =>
+            {
+                var s = plugin.Settings.Updates;
+                if (State != UpdateState.Installed && CheckDue(s.AutoCheck, s.LastCheckUtc, DateTime.UtcNow, false)) _ = CheckAsync();
+            }, null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
+        }
+
+        public void StopChecking()
+        {
+            try { autoTimer?.Dispose(); } catch { }
+            autoTimer = null;
         }
 
         public async Task CheckAsync()
@@ -259,6 +279,7 @@ namespace User.FXProRpmSync
                 {
                     State = UpdateState.UpToDate;
                     Message = $"You have the latest version (v{current}).";
+                    SimHub.Logging.Current.Info($"[FXProRpmSync] update check: v{current} is the latest on the {s.Channel} channel");
                     return;
                 }
                 LatestManifest = null;
