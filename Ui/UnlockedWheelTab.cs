@@ -77,6 +77,10 @@ namespace User.FXProRpmSync
             setupButtons.Children.Add(Theme.Btn("Test on the wheel (8 s)", () => Usb?.RunTest(), icon: ""));
             steps.Children.Add(setupButtons);
             steps.Children.Add(Theme.Switch("My wheel runs the patched firmware", S.FirmwareConfirmed, v => { S.FirmwareConfirmed = v; Changed(); Refresh(); }));
+            var next = Step("4", "Then, optional but highly recommended: the screen's RAM patch (picture memory), in the Firmware card further down this page. " +
+                                 "Dashes then appear at once and in full colour. The whole path is in the guide at fxunleashed.com/start.");
+            next.Margin = new Thickness(0, 12, 0, 0);
+            steps.Children.Add(next);
             setup = Theme.CardBox(steps);
             setup.BorderBrush = Theme.Red;
             if (!neo) Children.Add(setup);

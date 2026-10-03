@@ -111,13 +111,14 @@ Simagic's header back.
 ## 4. Pick your dashes and lights
 
 - **Dashes tab:** pick a car (or the default list) and add dashes. The first one shows when the car loads; the dash button
-  (button 40) steps through the list while you drive.
+  steps through the list while you drive.
 - **Library:** Dashes tab > Library > Browse, then **Install** (no restart) and **Use for this car**. You can also install from
   [fxunleashed.com/library](https://fxunleashed.com/library/).
 - **Your own:** **Edit in the designer** opens it in your browser and shows the dash on the wheel as you edit; SimHub dashes
   can be converted.
 - **Share:** **Share...** saves a dash as one file for a friend (they drop it on the Dashes tab, or press **Import a file...**).
-  **Package for the library** makes a file for the library's submit form: [how to submit](https://fxunleashed.com/docs/library-submit/).
+  **Package for the library** makes a file for the library's submit form (you need a free GitHub account):
+  [how to submit](https://fxunleashed.com/docs/library-submit/).
 - **Lights tab:** pick a preset or edit one per group (rev lights, side lights, buttons, encoders), per car and per game. Rev
   lights follow each car's real shift lights where the data exists. Alerts (flags, spotter, pit limiter, ABS/TC, low fuel...)
   come in the order you choose. ATSR-Hub or any SimHub LED profile can drive the lights instead (SimHub > Devices > add
@@ -138,7 +139,7 @@ Simagic's header back.
 
 ## Game controls
 
-In USB mode the wheel's buttons and paddles reach the PC **only through the wheel's own USB controller** ("FX Pro"), not
+In Unleashed mode the wheel's buttons and paddles reach the PC **only through the wheel's own USB controller** ("FX Pro"), not
 through the base. In each game, bind your wheel buttons and paddles once to that controller:
 
 | Game | Where |
@@ -151,8 +152,9 @@ through the base. In each game, bind your wheel buttons and paddles once to that
 | Automobilista 2 | Options > Controls > Configuration > Custom |
 | F1 (EA) | Settings > Controls, Vibration & Force Feedback > edit your wheel's preset |
 
-Steering, pedals and force feedback stay on the base as before. The dash button is button 40; some games only list 32
-buttons, so bind it to a plugin action instead (Wheel tab > Quick controls > Wheel buttons), e.g. "Next dash".
+Steering, pedals and force feedback stay on the base as before. The dash button has a button number of its own (41 with
+the current wheel app; the Wheel tab shows it and lets you change it). Some games only list 32 buttons, so bind it to a plugin
+action instead (Wheel tab > Quick controls > Wheel buttons), e.g. "Next dash".
 
 ## Updating, and going back to stock
 

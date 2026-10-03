@@ -1,7 +1,11 @@
 # FX Pro dash format (FormatVersion 2)
 
+> **Where this fits:** a reference for people who write dashes by hand or with an agent. If you just want to use or make dashes, start with the
+> [setup guide](https://fxunleashed.com/start/) (wheel app, plugin, the screen's RAM patch, then dashes) and the
+> [dash designer](https://fxunleashed.com/docs/dash-designer/); to share yours, see [share and submit](https://fxunleashed.com/docs/library-submit/).
+
 A dash is one JSON file: an 800x480 page of elements the plugin draws on the FX Pro's screen with the screen's own
-commands (USB mode, [usb-mode.md](usb-mode.md)). Files live in `SimHub\PluginsData\Common\FXProRpmSync\Dashes\*.json`;
+commands (Unleashed mode, [developer reference](usb-mode.md)). Files live in `SimHub\PluginsData\Common\FXProRpmSync\Dashes\*.json`;
 the designer ([dash-designer.md](dash-designer.md)), `fxdash` and the SimHub importer write them, and people or agents can
 write them by hand. Code: `Usb/DashModel.cs` (model), `Usb/DashRenderer.cs` (drawing and checks).
 
@@ -10,9 +14,11 @@ The machine-readable version of this page: `fxdash schema` or `GET /api/schema`.
 ## The screen
 
 - 800 x 480 pixels, origin top left, 16-bit colour (RGB565: colours are rounded to 5/6/5 bits).
-- Nothing is a picture: shapes become `fill` rectangles, text is drawn by the screen in **its own fonts** (by id), and
-  images are cut into rectangles of a few colours. Flat colours draw fastest.
-- The wheel pads the whole dash (USB mode setting, default 10 px left, 20 px top): keep the layout within
+- Without the screen's RAM patch nothing is a picture: shapes become `fill` rectangles, text is drawn by the screen in **its own
+  fonts** (by id), and images are cut into rectangles of a few colours. Flat colours draw fastest. With the RAM patch (picture
+  memory, [setup guide step 3](https://fxunleashed.com/start/#3-turn-on-picture-memory)) images are kept in the screen as JPEG
+  tiles instead: full colour, drawn at once ([screen-ram.md](screen-ram.md)).
+- The wheel pads the whole dash (a setting, default 10 px left, 20 px top): keep the layout within
   (800 - left) x (480 - top), i.e. 790 x 460 by default. `check` with the padding reports anything pushed off.
 - When the dash starts, its static layer goes out at 25 KB/s (`check`'s `cost.StaticSeconds`, ~0.6 s for the built-in
   Mustang). After that only what changes is redrawn (~1-2 KB/s).
@@ -124,9 +130,10 @@ A dash is one self-contained JSON file (its pictures are inside as base64), so s
   gets a new one. Converted work (a SimHub import) asks you to confirm you may share it.
 - **A link for a library item:** **Copy link** on a library item gives `fxunleashed.com/library/#dash-<id>`: a page with
   the preview, an Install button that talks to the plugin on that PC, and a download.
-- **Everyone:** **Package for the library** writes `<id>.fxdash.zip`. Drag it into the library's
+- **Everyone:** **Package for the library** writes `<id>.fxdash.zip`. Attach it to the library's
   [Submit a dash](https://github.com/fxunleashed/fx-unleashed-library/issues/new?template=submit-dash.yml) form (no Git
-  needed). If it passes the checks it is published on the spot; to update it later, submit again with a higher Version.
+  needed, but a free GitHub account is: the form is a GitHub page). If it passes the checks it is published on the spot; to
+  update it later, submit again with a higher Version. The steps: [share and submit](https://fxunleashed.com/docs/library-submit/).
 
 ## Example
 

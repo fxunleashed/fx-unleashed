@@ -2,7 +2,10 @@ blank_issues_enabled: true
 contact_links:
   - name: Share a dash or screensaver
     url: https://github.com/fxunleashed/fx-unleashed-library/issues/new?template=submit-dash.yml
-    about: Package it in the plugin and attach it here: no Git needed.
+    about: "Package it in the plugin and attach it there: you need a free GitHub account, but no Git."
   - name: The guide
     url: https://fxunleashed.com/start/
-    about: Setup, step by step, and the troubleshooting table.
+    about: "Setup, step by step: the wheel app, the plugin, the screen's RAM patch, then dashes and lights. Includes the troubleshooting table."
+  - name: Ask in the Discord
+    url: https://discord.gg/P9Rz6fXrRc
+    about: "Questions, help and show-and-tell."

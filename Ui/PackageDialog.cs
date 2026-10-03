@@ -28,8 +28,9 @@ namespace User.FXProRpmSync
             Theme.Apply(w);
             var p = new StackPanel { Margin = new Thickness(20) };
             p.Children.Add(Theme.Title("Package \"" + d.Name + "\" for the library", 17));
-            p.Children.Add(Theme.Note("Writes a folder you add to the library with a pull request. The plugin renders its preview and measures what it " +
-                                      "sends to the wheel. Dashes with JavaScript (js: formulas, scripts) can't go in the library.", new Thickness(0, 6, 0, 12)));
+            p.Children.Add(Theme.Note("Makes a package for the library: the plugin renders its preview and measures what it sends to the wheel. You then " +
+                                      "send it with the library's form (a free GitHub account is needed) and, if it passes the checks, it is published right away. " +
+                                      "Dashes with JavaScript (js: formulas, scripts) can't go in the library.", new Thickness(0, 6, 0, 12)));
             string Slug(string s) => Regex.Replace((s ?? "").ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
             TextBox Box(string label, string value, string hint = null)
             {
@@ -79,8 +80,10 @@ namespace User.FXProRpmSync
                     var dir = LibraryInstaller.Package(d, meta, OutRoot);
                     var zip = LibraryInstaller.ZipPackage(dir);
                     var open = MessageBox.Show(w, $"Packaged as\n{zip}\n\n" +
-                                       "To publish it: open the submission form, drag that .zip into it, and submit. The library checks it " +
-                                       "and a maintainer adds it; you are credited as its author. (A folder with the same files is next to it, for a pull request.)\n\n" +
+                                       "To publish it: open the submission form (a GitHub page, so sign in to a free GitHub account), add that file to its box " +
+                                       "(drag it in from the Explorer window that opens, or use the box's \"selecting them\" link), tick the three boxes and submit. " +
+                                       "The library checks it and, if it passes, publishes it right away with you as its author; if not, it tells you what to fix. " +
+                                       "(A folder with the same files is next to it, if you'd rather send a pull request.)\n\n" +
                                        "Open the form now?",
                                     "Packaged", MessageBoxButton.YesNo, MessageBoxImage.Information);
                     try { Process.Start("explorer.exe", "/select,\"" + zip + "\""); } catch { }

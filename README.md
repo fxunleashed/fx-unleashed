@@ -20,7 +20,7 @@ It has two modes:
 | Talks to the wheel | through SimPro Manager (over the base) | directly, over the wheel's own USB cable |
 | Rev lights | each car's real shift lights | every one of the 38 LEDs, any colour, 30 frames a second |
 | Dash | the wheel's own dashes, per car, fed with SimHub's data | your own dashes (designer, SimHub import, library), per car; or the wheel's own, fed over USB |
-| Also | | screensavers and sleep, alerts and flags, encoder levels, button press lights, night mode, the dash button as button 40, ATSR-Hub or SimHub LED profiles, a screen mirror for streaming, base rotation/force per car |
+| Also | | screensavers and sleep, alerts and flags, encoder levels, button press lights, night mode, the dash button as a controller button of its own, ATSR-Hub or SimHub LED profiles, a screen mirror for streaming, base rotation/force per car |
 
 ## Unleashed mode
 
@@ -38,7 +38,11 @@ It has two modes:
   a wheel button or a Stream Deck.
 - **Updates itself:** a banner offers new versions, one click installs, one click rolls back.
 
-The full setup, step by step: [docs/setup.md](docs/setup.md) (also at [fxunleashed.com/start](https://fxunleashed.com/start/)).
+The full setup is one guide, step by step ([docs/setup.md](docs/setup.md), also at [fxunleashed.com/start](https://fxunleashed.com/start/)):
+1. [the wheel app](https://fxunleashed.com/start/#1-install-the-wheel-app) (Unleashed mode only; [download](https://github.com/fxunleashed/fx-unleashed-firmware/releases/latest)),
+2. [the plugin](https://fxunleashed.com/start/#2-install-the-plugin),
+3. [the screen's RAM patch](https://fxunleashed.com/start/#3-turn-on-picture-memory) (picture memory; optional, highly recommended),
+4. [your dashes and lights](https://fxunleashed.com/start/#4-pick-your-dashes-and-lights), then [sharing and submitting](https://fxunleashed.com/docs/library-submit/).
 
 ### The firmware
 

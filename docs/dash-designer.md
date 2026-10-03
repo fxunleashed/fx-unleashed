@@ -1,6 +1,13 @@
 # Dash designer
 
-Design dashes for the FX Pro screen (USB mode, [usb-mode.md](usb-mode.md)), import SimHub dashes and fine-tune them,
+> **Where this fits:** this is step 4 of the [setup guide](https://fxunleashed.com/start/#4-pick-your-dashes-and-lights). It needs the
+> plugin ([step 2](https://fxunleashed.com/start/#2-install-the-plugin)), and to see a dash on the wheel the wheel app
+> ([step 1](https://fxunleashed.com/start/#1-install-the-wheel-app)). The screen's RAM patch
+> ([step 3](https://fxunleashed.com/start/#3-turn-on-picture-memory), optional but highly recommended) lets dashes use full-colour
+> pictures. When your dash is done you can [share it or submit it to the library](https://fxunleashed.com/docs/library-submit/).
+> Most people only need the web designer and SimHub import sections below: the HTTP API, command line and agent parts are for tinkerers.
+
+Design dashes for the FX Pro screen (Unleashed mode, [developer reference](usb-mode.md)), import SimHub dashes and fine-tune them,
 and see changes on the wheel as you make them. Three ways in, all backed by the same code (`Usb/DashTools.cs`), so they
 agree with each other and with the wheel:
 
@@ -15,7 +22,7 @@ The dash format: [dash-format.md](dash-format.md). Designing with an AI agent: t
 
 ## Web designer (Dash Studio)
 
-SimHub → FX Unleashed → Dashes → **Designer** (or http://127.0.0.1:8899/ while SimHub runs; port in
+SimHub → FX Unleashed → Dashes → **Designer** (or **Edit in the designer** on a dash; or http://127.0.0.1:8899/ while SimHub runs; port in
 settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas not evaluated). Same look as the plugin.
 
 - **Top bar:** the dash's name (edit in place; amber dot = unsaved), undo/redo, **Edit / Exact / Demo lap** (Exact and
