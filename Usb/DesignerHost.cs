@@ -112,9 +112,25 @@ namespace User.FXProRpmSync
 
         public void DashesChanged() => Usb?.ReloadDashes();
 
-        public object LibraryInstalled() =>
-            (plugin.Settings.Usb.LibraryInstalled ?? new List<LibraryInstall>())
+        /// <summary>
+        /// What the library installed, plus the library items whose dash is already in the folder (hand-copied or imported,
+        /// see LibraryInstaller.FindLocal; reported at the library's current version so the website shows them installed).
+        /// </summary>
+        public object LibraryInstalled()
+        {
+            var s = plugin.Settings.Usb;
+            var list = (s.LibraryInstalled ?? new List<LibraryInstall>())
                 .Where(x => x.File != null && System.IO.File.Exists(x.File)).Select(x => new { id = x.Id, kind = x.Kind, version = x.Version }).ToList();
+            try
+            {
+                var local = DashLibrary.LocalIds();
+                foreach (var item in new LibraryClient(s.LibraryUrl).GetIndex().Items) // the cached copy when offline
+                    if (!list.Any(x => x.id == item.Id && x.kind == item.Kind) && LibraryInstaller.FindLocal(s, item, local) != null)
+                        list.Add(new { id = item.Id, kind = item.Kind, version = item.Version });
+            }
+            catch { }
+            return list;
+        }
 
         /// <summary>
         /// The website's Install button: the item is looked up by id in the library's own index (never a URL from the

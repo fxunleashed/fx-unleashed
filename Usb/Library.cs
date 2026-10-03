@@ -53,6 +53,10 @@ namespace User.FXProRpmSync
         /// <summary>The file written (a dash in DashLibrary.Folder or a saver in IdleScreens.Folder).</summary>
         public string File;
         public DateTime When;
+        /// <summary>Not installed from the library but already here (see LibraryInstaller.FindLocal); never saved in the settings.</summary>
+        [JsonIgnore] public bool Found;
+        /// <summary>The dash's id in the plugin: "lib-&lt;id&gt;" for an install, the local dash's own id for a found one.</summary>
+        [JsonIgnore] public string DashId;
     }
 
     /// <summary>
@@ -221,13 +225,40 @@ namespace User.FXProRpmSync
             s.LibraryInstalled.Remove(rec);
         }
 
-        public static LibraryInstall Installed(UsbSettings s, LibraryItem item) =>
-            s.LibraryInstalled?.FirstOrDefault(x => x.Id == item.Id && x.Kind == item.Kind && x.File != null && File.Exists(x.File));
-
-        public static bool UpdateAvailable(UsbSettings s, LibraryItem item)
+        /// <summary>
+        /// What the library installed, or else a dash/saver that is already here (see FindLocal). Pass the local dash ids
+        /// (DashLibrary.LocalIds) when checking many items.
+        /// </summary>
+        public static LibraryInstall Installed(UsbSettings s, LibraryItem item, IList<string> localDashIds = null)
         {
-            var rec = Installed(s, item);
-            if (rec == null) return false;
+            var rec = s.LibraryInstalled?.FirstOrDefault(x => x.Id == item.Id && x.Kind == item.Kind && x.File != null && File.Exists(x.File));
+            if (rec != null) { rec.DashId = rec.DashId ?? "lib-" + rec.Id; return rec; }
+            return FindLocal(s, item, localDashIds ?? (item.Kind == "saver" ? null : DashLibrary.LocalIds()));
+        }
+
+        /// <summary>
+        /// A dash that is in the dashes folder but didn't come through the library: copied in by hand, imported from a
+        /// file, or installed before the settings knew (its file has the item's id, "lib-&lt;id&gt;", or the "fx-&lt;id&gt;" the
+        /// first six were named before the library existed). Nothing is known about its version, so it never offers an
+        /// update, and it's the user's own file, so the panel never offers to remove it.
+        /// </summary>
+        public static LibraryInstall FindLocal(UsbSettings s, LibraryItem item, IEnumerable<string> localDashIds)
+        {
+            if (item.Kind == "saver")
+            {
+                var sv = s.Savers?.FirstOrDefault(x => x.Id == "lib-" + item.Id && x.File != null && File.Exists(x.File));
+                return sv == null ? null : new LibraryInstall { Id = item.Id, Kind = item.Kind, File = sv.File, Found = true, DashId = sv.Id };
+            }
+            var ids = localDashIds?.ToList();
+            if (ids == null) return null;
+            string hit = new[] { "lib-" + item.Id, item.Id, "fx-" + item.Id }.FirstOrDefault(n => ids.Contains(n));
+            return hit == null ? null : new LibraryInstall { Id = item.Id, Kind = item.Kind, Found = true, DashId = hit };
+        }
+
+        public static bool UpdateAvailable(UsbSettings s, LibraryItem item, IList<string> localDashIds = null)
+        {
+            var rec = Installed(s, item, localDashIds);
+            if (rec == null || rec.Found) return false;
             if (SemVer.TryParse(item.Version, out var a) && SemVer.TryParse(rec.Version, out var b)) return a.CompareTo(b) > 0;
             return !string.Equals(rec.Sha256, item.Sha256, StringComparison.OrdinalIgnoreCase);
         }

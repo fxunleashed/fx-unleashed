@@ -228,6 +228,52 @@ namespace User.FXProRpmSync
             return list;
         }
 
+        private static readonly Dictionary<string, (long Length, DateTime Written, string Id)> idCache = new Dictionary<string, (long, DateTime, string)>();
+
+        /// <summary>
+        /// The ids of the dash files in the user's folder, for "already installed" checks. Read from each file's own Id without
+        /// loading the dash (a dash with pictures can be 400 KB) and cached by size and time.
+        /// </summary>
+        public static List<string> LocalIds()
+        {
+            var ids = new List<string>();
+            try
+            {
+                if (!Directory.Exists(Folder)) return ids;
+                lock (idCache)
+                    foreach (var file in Directory.GetFiles(Folder, "*.json"))
+                    {
+                        var info = new FileInfo(file);
+                        if (!idCache.TryGetValue(file, out var c) || c.Length != info.Length || c.Written != info.LastWriteTimeUtc)
+                            idCache[file] = c = (info.Length, info.LastWriteTimeUtc, ReadId(file));
+                        ids.Add(c.Id);
+                    }
+            }
+            catch { }
+            return ids;
+        }
+
+        /// <summary>A file's Id the way Load names it (a file without one is "file:name").</summary>
+        private static string ReadId(string file)
+        {
+            try
+            {
+                using (var r = new JsonTextReader(new StreamReader(file)))
+                {
+                    if (r.Read() && r.TokenType == JsonToken.StartObject)
+                        while (r.Read() && r.TokenType == JsonToken.PropertyName)
+                        {
+                            bool isId = string.Equals((string)r.Value, "Id", StringComparison.OrdinalIgnoreCase);
+                            if (!r.Read()) break;
+                            if (isId) { if (r.TokenType == JsonToken.String && !string.IsNullOrWhiteSpace((string)r.Value)) return (string)r.Value; break; }
+                            if (r.TokenType == JsonToken.StartObject || r.TokenType == JsonToken.StartArray) r.Skip();
+                        }
+                }
+            }
+            catch { }
+            return "file:" + Path.GetFileNameWithoutExtension(file);
+        }
+
         /// <summary>Writes a built-in dash to the folder as a starting point for editing.</summary>
         public static string Export(DashDefinition d)
         {

@@ -27,6 +27,8 @@ namespace User.FXProRpmSync
         private readonly ComboBox game = new ComboBox { Width = 190 }, sort = new ComboBox { Width = 150 };
         private LibraryIndex index;
         private bool loaded;
+        /// <summary>The ids of the dashes already in the folder, read once per listing (dashes that didn't come through the library still count as installed).</summary>
+        private List<string> localIds;
 
         public LibraryPanel(FXProRpmSyncPlugin plugin, string kind, Action changed)
         {
@@ -81,7 +83,8 @@ namespace User.FXProRpmSync
                 .Where(i => g == null || (i.Games ?? new List<string>()).Contains(g, StringComparer.OrdinalIgnoreCase));
             items = sort.SelectedIndex == 1 ? items.OrderBy(i => i.Name) : items.OrderByDescending(i => i.Updated).ThenBy(i => i.Name);
             var list = items.ToList();
-            int installed = list.Count(i => LibraryInstaller.Installed(S, i) != null);
+            localIds = kind == "saver" ? null : DashLibrary.LocalIds();
+            int installed = list.Count(i => LibraryInstaller.Installed(S, i, localIds) != null);
             status.Text = list.Count == 0 ? "Nothing matches." :
                 $"{list.Count} {(kind == "saver" ? "screensaver" : "dash")}{(list.Count == 1 ? "" : kind == "saver" ? "s" : "es")}" + (installed > 0 ? $", {installed} installed" : "") +
                 ". Made by the community: installing one needs no restart.";
@@ -117,24 +120,32 @@ namespace User.FXProRpmSync
                 body.Children.Add(new TextBlock { Text = $"{item.BytesPerSecond / 1000.0:0.0} KB/s on the wheel" + (item.License != null ? "  ·  " + item.License : ""), Foreground = Theme.Text3, FontSize = 10.5, Margin = new Thickness(0, 2, 0, 0) });
 
             var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-            var rec = LibraryInstaller.Installed(S, item);
-            bool update = LibraryInstaller.UpdateAvailable(S, item);
-            if (LibraryClient.NeedsNewerPlugin(item))
+            var rec = LibraryInstaller.Installed(S, item, localIds);
+            bool update = LibraryInstaller.UpdateAvailable(S, item, localIds);
+            if (LibraryClient.NeedsNewerPlugin(item) && rec == null)
                 buttons.Children.Add(new TextBlock { Text = $"Needs plugin v{item.MinPlugin}: update the plugin (About tab)", Foreground = Theme.Amber, TextWrapping = TextWrapping.Wrap });
             else if (rec == null) buttons.Children.Add(Theme.Btn("Install", () => Install(item), primary: true, icon: ""));
             else
             {
                 if (update) buttons.Children.Add(Theme.Btn("Update to v" + item.Version, () => Install(item), primary: true, icon: ""));
-                else buttons.Children.Add(new TextBlock { Text = "Installed ✓", Foreground = Theme.Green, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
+                else buttons.Children.Add(InstalledMark(rec));
                 if (kind == "dash" && plugin.DashCarKey != null)
-                    buttons.Children.Add(Theme.Btn("Use for this car", () => UseForCar(item)));
-                buttons.Children.Add(Theme.Btn("Remove", () => { LibraryInstaller.Remove(S, item.Kind, item.Id); Done("Removed " + item.Name); }));
+                    buttons.Children.Add(Theme.Btn("Use for this car", () => UseForCar(rec.DashId ?? "lib-" + item.Id, item.Name)));
+                // a dash that was already here is the user's own file: it is removed from the dash's own tile, not from here
+                if (!rec.Found) buttons.Children.Add(Theme.Btn("Remove", () => { LibraryInstaller.Remove(S, item.Kind, item.Id); Done("Removed " + item.Name); }));
             }
             buttons.Children.Add(Theme.Btn("Copy link", () => status.Text = DashShareUi.CopyLink(item.Kind, item.Id)));
             body.Children.Add(buttons);
             var tile = Theme.CardBox(body, 10, new Thickness(0, 0, 12, 12));
             tile.Width = 262;
             return tile;
+        }
+
+        private static TextBlock InstalledMark(LibraryInstall rec)
+        {
+            var t = new TextBlock { Text = "Installed ✓", Foreground = Theme.Green, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+            if (rec.Found) t.ToolTip = "You already have this dash (" + rec.DashId + "), so it isn't installed again.";
+            return t;
         }
 
         /// <summary>The library terms, once (again if their text changes).</summary>
@@ -153,17 +164,17 @@ namespace User.FXProRpmSync
             })));
         }
 
-        private void UseForCar(LibraryItem item)
+        private void UseForCar(string dashId, string name)
         {
             var car = plugin.DashCarKey;
             if (car == null) return;
             var refs = plugin.UsbRotation(car, out bool own, out _);
             var list = own ? new List<string>(refs) : new List<string>();
-            string r = DashRef.Custom("lib-" + item.Id);
+            string r = DashRef.Custom(dashId);
             list.Remove(r);
             list.Insert(0, r);
             plugin.SetUsbRotation(car, list, 0);
-            Done(item.Name + " is now this car's dash");
+            Done(name + " is now this car's dash");
         }
 
         private void Done(string message)

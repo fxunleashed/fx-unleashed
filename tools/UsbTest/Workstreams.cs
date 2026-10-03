@@ -74,6 +74,31 @@ static class WorkstreamTests
             Check("C: removing the shown saver falls back to the logo", !System.IO.File.Exists(srec.File) && s.SaverId == SaverItem.LogoId && s.Savers.All(x => x.Id != "lib-test-saver"));
             LibraryInstaller.Remove(s, "dash", "test-dash");
             Check("C: removed", !System.IO.File.Exists(rec.File) && s.LibraryInstalled.Count == 0);
+            // dashes that are already here but didn't come through the library (hand-copied, imported, the early fx- names) count as installed
+            var s2 = new UsbSettings();
+            var halo = new LibraryItem { Id = "halo", Name = "HALO", Version = "1.0.0" };
+            var slip = new LibraryItem { Id = "slipstream", Name = "SLIPSTREAM", Version = "1.0.0" };
+            var other = new LibraryItem { Id = "apex", Name = "APEX", Version = "1.0.0" };
+            var byHand = dash.Clone(); byHand.Id = "fx-halo"; DashTools.Save(byHand);
+            var plain = dash.Clone(); plain.Id = "slipstream"; DashTools.Save(plain);
+            var noId = System.IO.Path.Combine(DashLibrary.Folder, "from-a-friend.json");
+            System.IO.File.WriteAllText(noId, "{\"Name\":\"x\",\"Elements\":[{\"Type\":\"rect\"}]}");
+            var local = DashLibrary.LocalIds();
+            Check("C: local dash ids are read from the files", local.Contains("fx-halo") && local.Contains("slipstream") && local.Contains("file:from-a-friend"), string.Join(", ", local));
+            var found = LibraryInstaller.Installed(s2, halo, local);
+            Check("C: a hand-copied fx-<id> dash shows as installed", found != null && found.Found && found.DashId == "fx-halo");
+            Check("C: a dash with the item's own id shows as installed", LibraryInstaller.Installed(s2, slip, local)?.DashId == "slipstream");
+            Check("C: a library item with no local dash is not installed", LibraryInstaller.Installed(s2, other, local) == null);
+            Check("C: a found dash never offers an update", !LibraryInstaller.UpdateAvailable(s2, halo, local));
+            Check("C: a found dash is never written to the settings", s2.LibraryInstalled == null || s2.LibraryInstalled.Count == 0);
+            // lib-<id> wins over the others when several exist, and a recorded install wins over all of them
+            var lib2 = dash.Clone(); lib2.Id = "lib-halo"; DashTools.Save(lib2);
+            Check("C: lib-<id> is preferred", LibraryInstaller.Installed(s2, halo, DashLibrary.LocalIds())?.DashId == "lib-halo");
+            var rec2 = LibraryInstaller.Install(s2, halo, dash.Clone());
+            var again = LibraryInstaller.Installed(s2, halo, DashLibrary.LocalIds());
+            Check("C: a recorded install is used as is", again != null && !again.Found && again.DashId == "lib-halo" && again.Version == "1.0.0");
+            halo.Version = "1.2.0";
+            Check("C: a recorded install still offers its update", LibraryInstaller.UpdateAvailable(s2, halo, DashLibrary.LocalIds()));
         }
         finally
         {

@@ -156,7 +156,7 @@ namespace User.FXProRpmSync
             var online = new StackPanel();
             online.Children.Add(Theme.Eyebrow("Library"));
             online.Children.Add(Theme.Note("Dashes made by the community: preview, install in a click (no restart), use for the current car."));
-            online.Children.Add(new Expander { Header = "Browse the library", Content = new LibraryPanel(plugin, "dash", BuildLibrary), Margin = new Thickness(0, 8, 0, 0) });
+            online.Children.Add(new Expander { Header = "Browse the library", Content = new LibraryPanel(plugin, "dash", BuildLibrary), Margin = new Thickness(0, 8, 0, 0), IsExpanded = true });
             Children.Add(Theme.CardBox(online));
 
             // ----- Saved cars -----
