@@ -88,12 +88,13 @@ static class GtNeoTests
         var ff = new LightEngine(neo).Render(fx, v, null, 0.5, false);
         Check("an FX Pro profile renders on the GT Neo (Levels as dim gauges without values)", ff.Length == 73 && ff[10].G > 0 && ff[10].G < 40 && ff[10].R == 0);
 
-        // spotter on the left: the left end of the rev bar
+        // spotter on the left: the left grip's buttons (5-9), not the rev bar
         var stealth = LightPresets.Find("neo-stealth").Clone();
         var sv = new DashValues { Running = true, Rpm = 3000, MaxRpm = 8000, SpotterLeft = true, FuelPercent = 50 };
         var sf = new LightEngine(neo).Render(stealth, sv, null, 0.2, false);
         var spot = LightEngine.Rgb(stealth.Alerts.First(a => a.Trigger == AlertTrigger.SpotterLeft).Color);
-        Check("GT Neo: car on the left lights the left end of the rev bar", Enumerable.Range(58, 4).All(i => sf[i].R == spot.Item1 && sf[i].G == spot.Item2) && sf[62].R + sf[62].G == 0);
+        Check("GT Neo: car on the left lights the left grip's five buttons, the right grip and the rev bar stay as they were",
+              Enumerable.Range(5, 5).All(i => sf[i].R == spot.Item1 && sf[i].G == spot.Item2) && Enumerable.Range(0, 5).All(i => !(sf[i].R == spot.Item1 && sf[i].G == spot.Item2)) && Enumerable.Range(58, 15).All(i => sf[i].R + sf[i].G + sf[i].B == 0));
     }
 
     static bool Same(LedColor a, LedColor b) => a.R == b.R && a.G == b.G && a.B == b.B;

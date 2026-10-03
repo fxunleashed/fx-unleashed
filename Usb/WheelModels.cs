@@ -87,6 +87,17 @@ namespace User.FXProRpmSync
                 [LedGroup.SideRight] = new[] { new[] { 20, 21, 22 } },
                 [LedGroup.Rev] = new[] { Range(23, 15) },
             },
+            // alerts only: a car alongside lights the whole side (buttons 0-5 are the left cluster, 6-11 the right)
+            alertLeds =
+            {
+                [LedGroup.ButtonsLeft] = Range(0, 6),
+                [LedGroup.ButtonsRight] = Range(6, 6),
+            },
+            groupNames =
+            {
+                [LedGroup.ButtonsLeft] = "Buttons, left side",
+                [LedGroup.ButtonsRight] = "Buttons, right side",
+            },
         };
 
         /// <summary>
@@ -111,9 +122,14 @@ namespace User.FXProRpmSync
             {
                 [LedGroup.SideLeft] = Range(58, 4),
                 [LedGroup.SideRight] = Range(69, 4),
+                // the grips: 0-4 the right grip, 5-9 the left grip
+                [LedGroup.ButtonsLeft] = Range(5, 5),
+                [LedGroup.ButtonsRight] = Range(0, 5),
             },
             groupNames =
             {
+                [LedGroup.ButtonsLeft] = "Left grip buttons",
+                [LedGroup.ButtonsRight] = "Right grip buttons",
                 [LedGroup.Encoders] = "Encoder rings",
                 [LedGroup.SideLeft] = "Left end of the rev lights",
                 [LedGroup.SideRight] = "Right end of the rev lights",

@@ -48,6 +48,22 @@ namespace User.FXProRpmSync
             SaveSettings();
         }
 
+        /// <summary>The spotter used to light the three small lights beside the rev bar; saved lights that still have it there move to the six buttons on its side.</summary>
+        private void UpgradeSpotterAlerts()
+        {
+            var log = new System.Collections.Generic.List<string>();
+            if (!LightsRepair.UpgradeSpotter(Settings.Usb, log)) return;
+            try
+            {
+                var copy = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync", "settings-backup-before-spotter-buttons.json");
+                Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                if (File.Exists(SettingsFile) && !File.Exists(copy)) File.Copy(SettingsFile, copy);
+            }
+            catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] settings backup failed: " + ex.Message); }
+            SimHub.Logging.Current.Info("[FXProRpmSync] the spotter now lights the six buttons on its side in saved lights: " + string.Join(", ", log));
+            SaveSettings();
+        }
+
         private static void BackupSettings(int version)
         {
             try

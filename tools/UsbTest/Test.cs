@@ -198,6 +198,9 @@ static class UsbTestMain
             var log = new System.Collections.Generic.List<string>();
             bool changed = LightsRepair.Repair(st.Usb, log);
             Console.WriteLine("changed: " + changed + "  " + string.Join(", ", log));
+            var spotLog = new System.Collections.Generic.List<string>();
+            bool spot = LightsRepair.UpgradeSpotter(st.Usb, spotLog);
+            Console.WriteLine("spotter moved to the buttons: " + spot + "  " + string.Join(", ", spotLog));
             foreach (var p in st.Usb.UserLights)
             {
                 Console.WriteLine($"{p.Name}: rev [{string.Join(",", p.Rev.Colors)}]  limiter [{string.Join(",", p.Limiter.Colors)}]  alerts {p.Alerts.Count}");

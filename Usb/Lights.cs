@@ -9,7 +9,14 @@ namespace User.FXProRpmSync
 {
     /// <summary>A wheel's LEDs in groups; which LEDs each is on which wheel comes from its WheelModel.</summary>
     [JsonConverter(typeof(StringEnumConverter))]
-    public enum LedGroup { Buttons, Encoders, SideLeft, SideRight, Rev }
+    public enum LedGroup
+    {
+        Buttons, Encoders, SideLeft, SideRight, Rev,
+        /// <summary>Alerts only: the left half of the buttons (a car on your left: the whole left side of the wheel).</summary>
+        ButtonsLeft,
+        /// <summary>Alerts only: the right half of the buttons.</summary>
+        ButtonsRight,
+    }
 
     [JsonConverter(typeof(StringEnumConverter))]
     public enum LightEffect
@@ -288,6 +295,25 @@ namespace User.FXProRpmSync
                 foreach (var g in enc.Gauges ?? new List<RingGauge>())
                     if (g != null && g.IsCustom && g.Bind != null) yield return g.Bind;
             }
+        }
+
+        /// <summary>
+        /// Saved lights from before the spotter took the buttons have it on the three small lights beside the rev bar: moves a
+        /// spotter rule that's still exactly that old default to the six buttons on its side (one the player changed is left alone).
+        /// True if it moved any.
+        /// </summary>
+        public bool UpgradeSpotterGroups()
+        {
+            bool changed = false;
+            foreach (var a in Alerts ?? new List<AlertRule>())
+            {
+                LedGroup from, to;
+                if (a.Trigger == AlertTrigger.SpotterLeft) { from = LedGroup.SideLeft; to = LedGroup.ButtonsLeft; }
+                else if (a.Trigger == AlertTrigger.SpotterRight) { from = LedGroup.SideRight; to = LedGroup.ButtonsRight; }
+                else continue;
+                if (a.Groups != null && a.Groups.Count == 1 && a.Groups[0] == from) { a.Groups[0] = to; changed = true; }
+            }
+            return changed;
         }
 
         /// <summary>
@@ -583,8 +609,10 @@ namespace User.FXProRpmSync
         /// </summary>
         public static List<AlertRule> DefaultAlerts() => new List<AlertRule>
         {
-            new AlertRule { Trigger = AlertTrigger.SpotterLeft, Color = "#FF5000", BlinkHz = 0, Groups = { LedGroup.SideLeft } },
-            new AlertRule { Trigger = AlertTrigger.SpotterRight, Color = "#FF5000", BlinkHz = 0, Groups = { LedGroup.SideRight } },
+            // a car alongside takes the whole side of the wheel (the six buttons on that side); the three small lights beside the
+            // rev bar are for warnings like TC and ABS
+            new AlertRule { Trigger = AlertTrigger.SpotterLeft, Color = "#FF5000", BlinkHz = 0, Groups = { LedGroup.ButtonsLeft } },
+            new AlertRule { Trigger = AlertTrigger.SpotterRight, Color = "#FF5000", BlinkHz = 0, Groups = { LedGroup.ButtonsRight } },
             new AlertRule { Trigger = AlertTrigger.Abs, Color = "#FFB000", BlinkHz = 12, Groups = { LedGroup.SideLeft } },
             new AlertRule { Trigger = AlertTrigger.Tc, Color = "#00A0FF", BlinkHz = 12, Groups = { LedGroup.SideRight } },
             new AlertRule { Trigger = AlertTrigger.PitLimiter, Color = "#0040FF", BlinkHz = 3, Groups = { LedGroup.Rev } },
@@ -656,6 +684,8 @@ namespace User.FXProRpmSync
                 case LedGroup.Encoders: return "Encoders";
                 case LedGroup.SideLeft: return "Left of the rev lights";
                 case LedGroup.SideRight: return "Right of the rev lights";
+                case LedGroup.ButtonsLeft: return "Buttons, left side";
+                case LedGroup.ButtonsRight: return "Buttons, right side";
                 default: return "Rev lights";
             }
         }

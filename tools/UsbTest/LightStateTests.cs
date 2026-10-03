@@ -103,6 +103,8 @@ static class LightStateTests
         Check("car data: a rising bar (not mirrored) is stretched as before", rising.SequenceEqual(new[] { 4000, 4100, 4100, 4200, 4300, 4300, 4400, 4500, 4500, 4600, 4700, 4700, 4800, 4900, 4900 }), string.Join(",", rising));
     }
 
+    static bool SameLed(LedColor a, LedColor b) => a.R == b.R && a.G == b.G && a.B == b.B && a.Brightness == b.Brightness;
+
     static void Spotter()
     {
         var fx = WheelModel.FxPro;
@@ -113,22 +115,61 @@ static class LightStateTests
         Check("spotter: nothing alongside leaves another program's lights alone (same frame)", ReferenceEquals(e.OverlaySpotter(theirs, p, none, 1), theirs));
         var left = Car(true, 3000); left.SpotterLeft = true;
         var f = e.OverlaySpotter(theirs, p, left, 1);
-        Check("spotter: a car on the left lights the left side lights over them", Enumerable.Range(17, 3).All(i => f[i].R > 100) && Enumerable.Range(20, 3).All(i => f[i].R == 10));
-        Check("spotter: everything else is theirs", Enumerable.Range(0, 17).Concat(Enumerable.Range(20, 18)).All(i => f[i].R == 10 && f[i].G == 20 && f[i].B == 30) && theirs.All(c => c.R == 10));
+        Check("spotter: a car on the left lights the six buttons on the left over them", Enumerable.Range(0, 6).All(i => f[i].R > 100) && Enumerable.Range(6, 6).All(i => f[i].R == 10));
+        Check("spotter: everything else is theirs (the small lights too)", Enumerable.Range(6, 32).All(i => f[i].R == 10 && f[i].G == 20 && f[i].B == 30) && theirs.All(c => c.R == 10));
         var right = Car(true, 3000); right.SpotterRight = true;
         var fr = e.OverlaySpotter(theirs, p, right, 1);
-        Check("spotter: a car on the right lights the right side lights", Enumerable.Range(20, 3).All(i => fr[i].R > 100) && Enumerable.Range(17, 3).All(i => fr[i].R == 10));
+        Check("spotter: a car on the right lights the six buttons on the right", Enumerable.Range(6, 6).All(i => fr[i].R > 100) && Enumerable.Range(0, 6).All(i => fr[i].R == 10) && Enumerable.Range(17, 6).All(i => fr[i].R == 10));
         var both = Car(true, 3000); both.SpotterLeft = both.SpotterRight = true;
-        Check("spotter: both sides at once", Enumerable.Range(17, 6).All(i => e.OverlaySpotter(theirs, p, both, 1)[i].R > 100));
+        Check("spotter: both sides at once", Enumerable.Range(0, 12).All(i => e.OverlaySpotter(theirs, p, both, 1)[i].R > 100));
         var abs = Car(true, 3000); abs.AbsActive = true; abs.BlueFlag = true;
         Check("spotter: only the spotter is drawn over them (no ABS or flag alerts)", ReferenceEquals(e.OverlaySpotter(theirs, p, abs, 1), theirs));
         var off = p.Clone(); foreach (var a in off.Alerts.Where(a => a.Trigger == AlertTrigger.SpotterLeft)) a.Enabled = false;
         Check("spotter: a preset with the alert switched off draws nothing", ReferenceEquals(e.OverlaySpotter(theirs, off, left, 1), theirs));
+        // where it shows: the whole side of the wheel; the small lights keep the TC / ABS kind of warning
+        var defs = LightPresets.DefaultAlerts();
+        Check("spotter defaults: the six buttons on each side", defs.First(a => a.Trigger == AlertTrigger.SpotterLeft).Groups.SequenceEqual(new[] { LedGroup.ButtonsLeft })
+              && defs.First(a => a.Trigger == AlertTrigger.SpotterRight).Groups.SequenceEqual(new[] { LedGroup.ButtonsRight }));
+        Check("spotter defaults: the small lights stay for ABS (left) and TC (right)", defs.First(a => a.Trigger == AlertTrigger.Abs).Groups.SequenceEqual(new[] { LedGroup.SideLeft })
+              && defs.First(a => a.Trigger == AlertTrigger.Tc).Groups.SequenceEqual(new[] { LedGroup.SideRight }));
+        Check("spotter: the FX Pro's left half is buttons 0-5, the right 6-11", WheelModel.FxPro.AlertLeds(LedGroup.ButtonsLeft).SequenceEqual(Enumerable.Range(0, 6)) && WheelModel.FxPro.AlertLeds(LedGroup.ButtonsRight).SequenceEqual(Enumerable.Range(6, 6)));
+        Check("spotter: the GT Neo's left grip is buttons 5-9, the right 0-4", WheelModel.GtNeo.AlertLeds(LedGroup.ButtonsLeft).SequenceEqual(Enumerable.Range(5, 5)) && WheelModel.GtNeo.AlertLeds(LedGroup.ButtonsRight).SequenceEqual(Enumerable.Range(0, 5)));
+        Check("spotter: the alert editor offers both halves, with names", WheelModel.FxPro.AlertGroups.Contains(LedGroup.ButtonsLeft) && WheelModel.GtNeo.AlertGroups.Contains(LedGroup.ButtonsRight)
+              && WheelModel.FxPro.GroupName(LedGroup.ButtonsLeft).Contains("left") && WheelModel.GtNeo.GroupName(LedGroup.ButtonsLeft).Contains("grip"));
+        Check("spotter: the new groups are saved by name", Newtonsoft.Json.JsonConvert.SerializeObject(new AlertRule { Trigger = AlertTrigger.SpotterLeft, Groups = { LedGroup.ButtonsLeft } }).Contains("ButtonsLeft"));
+        foreach (var model in WheelModel.All)
+        {
+            var eng = new LightEngine(model);
+            foreach (var preset in LightPresets.For(model))
+            {
+                var q = preset.Clone();
+                var sv = Car(true, 3000); sv.SpotterLeft = true;
+                var quiet = eng.Render(q, Car(true, 3000), null, 1.0, false, LightMoment.Of(CarState.Driving));
+                var lit = eng.Render(q, sv, null, 1.0, false, LightMoment.Of(CarState.Driving));
+                var leftLeds = model.AlertLeds(LedGroup.ButtonsLeft); var rightLeds = model.AlertLeds(LedGroup.ButtonsRight);
+                Check($"spotter: {model.Name} {preset.Name} lights the whole left side and nothing on the right", leftLeds.All(i => lit[i].R > 200 && lit[i].G > 40 && lit[i].B == 0) && rightLeds.All(i => SameLed(lit[i], quiet[i])));
+            }
+        }
+        // saved lights from before: the spotter on the small lights moves to the buttons; one the player changed stays
+        var oldSpotter = new LightProfile { Alerts = new List<AlertRule> {
+            new AlertRule { Trigger = AlertTrigger.SpotterLeft, Groups = { LedGroup.SideLeft } }, new AlertRule { Trigger = AlertTrigger.SpotterRight, Groups = { LedGroup.SideRight } },
+            new AlertRule { Trigger = AlertTrigger.Abs, Groups = { LedGroup.SideLeft } } } };
+        Check("spotter upgrade: an old default moves to the buttons, ABS stays", oldSpotter.UpgradeSpotterGroups() && oldSpotter.Alerts[0].Groups.SequenceEqual(new[] { LedGroup.ButtonsLeft })
+              && oldSpotter.Alerts[1].Groups.SequenceEqual(new[] { LedGroup.ButtonsRight }) && oldSpotter.Alerts[2].Groups.SequenceEqual(new[] { LedGroup.SideLeft }));
+        Check("spotter upgrade: only once", !oldSpotter.UpgradeSpotterGroups());
+        var custom = new LightProfile { Alerts = new List<AlertRule> {
+            new AlertRule { Trigger = AlertTrigger.SpotterLeft, Groups = { LedGroup.SideLeft, LedGroup.Encoders } }, new AlertRule { Trigger = AlertTrigger.SpotterRight, Groups = { LedGroup.Rev } } } };
+        Check("spotter upgrade: one the player set up differently is left alone", !custom.UpgradeSpotterGroups() && custom.Alerts[0].Groups.Count == 2 && custom.Alerts[1].Groups[0] == LedGroup.Rev);
+        var settings = new UsbSettings { UserLights = new List<LightProfile> { new LightProfile { Id = "u1", Name = "Mine", Alerts = new List<AlertRule> { new AlertRule { Trigger = AlertTrigger.SpotterLeft, Groups = { LedGroup.SideLeft } } } } },
+                                         Wheels = new Dictionary<string, WheelSettings> { ["gtneo"] = new WheelSettings { UserLights = new List<LightProfile> { new LightProfile { Id = "u2", Name = "Neo", Alerts = new List<AlertRule> { new AlertRule { Trigger = AlertTrigger.SpotterRight, Groups = { LedGroup.SideRight } } } } } } } };
+        var upLog = new List<string>();
+        Check("spotter upgrade: every saved profile, both wheels, with a log line each", LightsRepair.UpgradeSpotter(settings, upLog) && upLog.Count == 2 && settings.UserLights[0].Alerts[0].Groups[0] == LedGroup.ButtonsLeft
+              && settings.Wheels["gtneo"].UserLights[0].Alerts[0].Groups[0] == LedGroup.ButtonsRight && !LightsRepair.UpgradeSpotter(settings, new List<string>()));
         var small = new LedColor[10];
         Check("spotter: a frame of another size is left alone", ReferenceEquals(e.OverlaySpotter(small, p, left, 1), small));
         var neoFrame = Enumerable.Repeat(new LedColor(10, 20, 30, 90), 73).ToArray();
         var ng = new LightEngine(WheelModel.GtNeo).OverlaySpotter(neoFrame, LightPresets.Find("neo-aurora").Clone(), left, 1);
-        Check("spotter: the GT Neo shows it on the left end of its rev bar", Enumerable.Range(58, 4).All(i => ng[i].R > 100) && ng[70].R == 10);
+        Check("spotter: the GT Neo shows it on the left grip (5-9), not the right grip or the rev bar", Enumerable.Range(5, 5).All(i => ng[i].R > 100) && Enumerable.Range(0, 5).All(i => ng[i].R == 10) && Enumerable.Range(58, 15).All(i => ng[i].R == 10));
 
         Check("session: time trial, hot lap and lone qualifying are solo", DashValues.SoloSession("Time Trial") && DashValues.SoloSession("TIME_TRIAL") && DashValues.SoloSession("HotLap")
               && DashValues.SoloSession("Lone Qualify") && !DashValues.SoloSession("RACE") && !DashValues.SoloSession("Practice") && !DashValues.SoloSession(null));
@@ -230,7 +271,9 @@ static class LightStateTests
         var spot = LightPresets.Find("neon-tokyo").Clone();
         var withSpotter = Car(true, 3000); withSpotter.SpotterLeft = true;
         var sp = e.Render(spot, withSpotter, null, 1.0, false, LightMoment.Of(CarState.Driving));
-        Check("driving: a car on the left still lights the left side lights, not the right", Enumerable.Range(17, 3).All(i => !Dark(sp[i])) && Enumerable.Range(20, 3).All(i => Dark(sp[i])));
+        var noSpotter = e.Render(spot, Car(true, 3000), null, 1.0, false, LightMoment.Of(CarState.Driving));
+        Check("driving: a car on the left lights the six buttons on the left orange, leaves the right ones and the small lights alone",
+              Enumerable.Range(0, 6).All(i => sp[i].R > 200 && sp[i].G > 40 && sp[i].B == 0) && Enumerable.Range(6, 11).All(i => Same(sp[i], noSpotter[i])) && Enumerable.Range(17, 6).All(i => Dark(sp[i])));
         var parked = e.Render(LightPresets.Find("neon-tokyo").Clone(), new DashValues(), null, 1.0, false, LightMoment.Of(CarState.Idle));
         var parked2 = e.Render(LightPresets.Find("neon-tokyo").Clone(), new DashValues(), null, 2.7, false, LightMoment.Of(CarState.Idle));
         Check("driving: parked looks still animate", Enumerable.Range(0, 38).Any(i => !Same(parked[i], parked2[i])));

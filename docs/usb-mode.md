@@ -128,7 +128,13 @@ state, extras history, light engine, with the player's preset and the alerts/ext
 plays them all and draws `OUT/scenarios/*.png`. What to try with the wheel and games: [test-checklist.md](test-checklist.md);
 `tools/session-report.py` summarises a session from the log.
 
-**Alerts** added: left and right turn indicators (off by default, the side lights; the game blinks them). The spotter is ignored in
+**Spotter** (2026-10-03): a car alongside lights the **six buttons on its side** of the wheel (FX Pro buttons 0-5 left, 6-11 right; GT Neo grips 5-9
+left, 0-4 right), on every built-in preset, so it can't be missed. The three small lights beside the rev bar are kept for warnings like
+TC (right) and ABS (left), as on a real car's dash; the turn indicators (off by default) use them too. Two alert-only groups carry this
+(`LedGroup.ButtonsLeft/ButtonsRight`, offered in the alert editor); saved lights that still have the spotter on the small lights are moved
+to the buttons at start-up (`LightsRepair.UpgradeSpotter`, a copy of the settings first), one the player set up differently is left alone.
+
+**Alerts** added: left and right turn indicators (off by default, the small lights; the game blinks them). The spotter is ignored in
 time trial, hot lap and lone qualifying. SimHub works out the spotter itself for games that don't give one (a car within 10 m, 45-135
 degrees either side, over 5 km/h); a log line records each change (`[FXProRpmSync] spotter: ...`).
 
@@ -172,7 +178,7 @@ How it works (from ATSR-Hub EVO's code, decompiled with ilspycmd 9.1):
 - **LED map** (optional): 38 ATSR-Hub indexes, one per FX Pro LED in FX Pro order, `-1` = off; for layouts numbered
   differently, or to swap sides.
 - **Spotter over ATSR-Hub's lights** (`UsbSettings.SpotterOverExternal`, on by default; also over SimHub's device): a car alongside
-  draws the active preset's spotter alerts (the side lights) on top of the frame. Nothing else of the preset's alerts is drawn over it.
+  draws the active preset's spotter alerts (the six buttons on that side) on top of the frame. Nothing else of the preset's alerts is drawn over it.
   ATSR-Hub's own spotter lights buttons 0-5 (left) and 6-11 (right) in red when SimHub's spotter flag is on.
 
 ## SimHub LED device

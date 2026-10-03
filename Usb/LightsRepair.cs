@@ -41,6 +41,28 @@ namespace User.FXProRpmSync
             return changed;
         }
 
+        /// <summary>
+        /// Moves the spotter of every saved profile that still has it where it used to be (the three small lights beside the rev
+        /// bar) to the six buttons on its side. True if anything moved.
+        /// </summary>
+        public static bool UpgradeSpotter(UsbSettings s, List<string> log)
+        {
+            bool changed = false;
+            void Profiles(IEnumerable<LightProfile> ps, string where)
+            {
+                foreach (var p in ps ?? Enumerable.Empty<LightProfile>())
+                    if (p != null && p.UpgradeSpotterGroups()) { changed = true; log.Add($"{where}: {p.Name ?? p.Id}"); }
+            }
+            Profiles(s.UserLights, "lights");
+            Profiles(new[] { s.CustomLights }, "custom lights");
+            foreach (var w in s.Wheels ?? new Dictionary<string, WheelSettings>())
+            {
+                Profiles(w.Value?.UserLights, w.Key + " lights");
+                Profiles(new[] { w.Value?.CustomLights }, w.Key + " custom lights");
+            }
+            return changed;
+        }
+
         private static readonly string[] GroupDefaults = new GroupLighting().Colors.ToArray();
         private static readonly string[] RevDefaults = new RevLighting().Colors.ToArray();
         private static readonly string[] LimiterDefaults = new LimiterLook().Colors.ToArray();

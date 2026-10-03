@@ -28,6 +28,8 @@ static class ScenarioTests
     static LedColor[] Rev(LedColor[] f) => f.Skip(23).Take(15).ToArray();
     static LedColor[] Left(LedColor[] f) => f.Skip(17).Take(3).ToArray();
     static LedColor[] Right(LedColor[] f) => f.Skip(20).Take(3).ToArray();
+    static LedColor[] LeftButtons(LedColor[] f) => f.Take(6).ToArray();
+    static LedColor[] RightButtons(LedColor[] f) => f.Skip(6).Take(6).ToArray();
     static bool Same(LedColor a, LedColor b) => a.R == b.R && a.G == b.G && a.B == b.B && a.Brightness == b.Brightness;
     static int Brightest(LedColor[] f) => Enumerable.Range(0, f.Length).OrderByDescending(i => f[i].R + f[i].G + f[i].B).First();
 
@@ -61,10 +63,12 @@ static class ScenarioTests
 
         // spotter
         var sp = plays["spotter"];
-        Check("scenario spotter: car on the left lights the three left side lights orange, not the right", Left(At(sp, 3.5)).All(c => c.R > 200 && c.G > 40 && c.B == 0) && Right(At(sp, 3.5)).All(c => !On(c)));
-        Check("scenario spotter: car on the right lights the right ones", Right(At(sp, 8.5)).All(c => c.R > 200 && c.B == 0) && Left(At(sp, 8.5)).All(c => !On(c)));
-        Check("scenario spotter: both sides together", Left(At(sp, 13.5)).Concat(Right(At(sp, 13.5))).All(On));
-        Check("scenario spotter: dark when clear", Left(At(sp, 1)).Concat(Right(At(sp, 1))).Concat(Left(At(sp, 5.5))).All(c => !On(c)));
+        Check("scenario spotter: car on the left lights the six left buttons orange, the right ones stay as they were", LeftButtons(At(sp, 3.5)).All(c => c.R > 200 && c.G > 40 && c.B == 0)
+              && RightButtons(At(sp, 3.5)).Zip(RightButtons(At(sp, 1)), Same).All(x => x));
+        Check("scenario spotter: car on the right lights the six right buttons", RightButtons(At(sp, 8.5)).All(c => c.R > 200 && c.G > 40 && c.B == 0) && LeftButtons(At(sp, 8.5)).Zip(LeftButtons(At(sp, 1)), Same).All(x => x));
+        Check("scenario spotter: both sides together", LeftButtons(At(sp, 13.5)).Concat(RightButtons(At(sp, 13.5))).All(c => c.R > 200 && c.G > 40 && c.B == 0));
+        Check("scenario spotter: back to the theme when clear", At(sp, 5.5).Take(12).Zip(At(sp, 1).Take(12), Same).All(x => x));
+        Check("scenario spotter: the three small lights beside the rev bar stay dark (they're for TC and ABS)", sp.All(f => Left(f).Concat(Right(f)).All(c => !On(c))));
 
         // indicators
         var ind = plays["indicators"];

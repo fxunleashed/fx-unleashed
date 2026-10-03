@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using User.FXProRpmSync;
 
@@ -161,10 +162,15 @@ static class FeatureTests
         var p = LightPresets.Find("stealth").Clone();
         var v = new DashValues { Running = true, MaxRpm = 8000, Rpm = 3000, FuelPercent = 50 };
         Func<int, LedColor> at = led => engine.Render(p, v, null, 0.01, false)[led];
-        // spotter beats ABS on the left side lights (higher in the default list)
+        // the spotter takes the six buttons on its side, ABS keeps the three small lights beside the rev bar: no competition
         v.AbsActive = true; v.SpotterLeft = true;
         var spot = LightEngine.Rgb(p.Alerts.Find(a => a.Trigger == AlertTrigger.SpotterLeft).Color);
-        Check("spotter over ABS", at(17).R == spot.R && at(17).G == spot.G);
+        var absColour = LightEngine.Rgb(p.Alerts.Find(a => a.Trigger == AlertTrigger.Abs).Color);
+        Check("spotter lights the six buttons on its side; ABS keeps the small lights", Enumerable.Range(0, 6).All(i => at(i).R == spot.R && at(i).G == spot.G)
+              && at(17).R == absColour.R && at(17).G == absColour.G && !(at(6).R == spot.R && at(6).G == spot.G));
+        // where two alerts share a light the higher one in the list wins: put the spotter on the small lights too
+        p.Alerts.Find(a => a.Trigger == AlertTrigger.SpotterLeft).Groups.Add(LedGroup.SideLeft);
+        Check("spotter over ABS where they share lights", at(17).R == spot.R && at(17).G == spot.G);
         // reorder: ABS first now wins
         var abs = p.Alerts.Find(a => a.Trigger == AlertTrigger.Abs);
         p.Alerts.Remove(abs); p.Alerts.Insert(0, abs);

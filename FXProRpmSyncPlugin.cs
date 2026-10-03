@@ -332,6 +332,7 @@ namespace User.FXProRpmSync
             if (Settings.Feed.Overrides == null) Settings.Feed.Overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (Settings.Usb == null) Settings.Usb = new UsbSettings();
             RepairLights();
+            UpgradeSpotterAlerts();
             if (Settings.Usb.CarDashes == null) Settings.Usb.CarDashes = new Dictionary<string, UsbCarDash>();
             if (Settings.Usb.Savers == null) Settings.Usb.Savers = new List<SaverItem>();
             if (Settings.Usb.SaverRotation == null) Settings.Usb.SaverRotation = new List<string>();

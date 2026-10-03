@@ -697,6 +697,8 @@ namespace User.FXProRpmSync
                 case LedGroup.Encoders: return "Encoders";
                 case LedGroup.SideLeft: return "Left lights";
                 case LedGroup.SideRight: return "Right lights";
+                case LedGroup.ButtonsLeft: return "Left buttons";
+                case LedGroup.ButtonsRight: return "Right buttons";
                 default: return "Rev lights";
             }
         }

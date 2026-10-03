@@ -139,7 +139,7 @@ namespace User.FXProRpmSync
             new LightScenario
             {
                 Id = "spotter", Title = "Spotter: a car on each side",
-                Expect = "Car on the LEFT: the three lights left of the rev bar light orange. Car on the RIGHT: the three on the right. Both: both sides. Nothing otherwise.",
+                Expect = "Car on the LEFT: the six buttons on the left side of the wheel light orange. Car on the RIGHT: the six on the right. Both: both sides. Nothing otherwise. (The three small lights beside the rev bar stay for TC, ABS and the like.)",
                 Prepare = p => Enable(p, AlertTrigger.SpotterLeft, AlertTrigger.SpotterRight),
             }.Seg(2, "clear", (v, u) => { v.Rpm = 5000; })
              .Seg(3, "car on your LEFT", (v, u) => { v.Rpm = 5000; v.SpotterLeft = true; })
