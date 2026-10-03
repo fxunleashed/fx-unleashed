@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Share a dash or screensaver
+    url: https://github.com/fxunleashed/fx-unleashed-library/issues/new?template=submit-dash.yml
+    about: Package it in the plugin and attach it here: no Git needed.
+  - name: The guide
+    url: https://fxunleashed.com/start/
+    about: Setup, step by step, and the troubleshooting table.

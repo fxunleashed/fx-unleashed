@@ -1,0 +1,59 @@
+name: Something doesn't work
+description: A bug, a crash, a light or dash that looks wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. The more of these you can fill in, the faster it gets fixed. **Never post your wheel's
+        firmware files or anything from Simagic's installers**: the text of the plugin's log is enough.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: FX Unleashed version
+      description: Settings page, About tab (for example 0.5.0).
+    validations:
+      required: true
+  - type: input
+    id: simhub
+    attributes:
+      label: SimHub version
+      placeholder: "9.11.15"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Standard mode (through SimPro)
+        - Unleashed mode (USB)
+        - Both / not sure
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Wheel firmware build
+      description: What the Wheel tab shows ("patch build 9"), or "stock".
+  - type: input
+    id: hardware
+    attributes:
+      label: Wheel and base
+      placeholder: "FX Pro on an Alpha EVO"
+  - type: input
+    id: game
+    attributes:
+      label: Game and car, if it's about a car
+  - type: textarea
+    id: log
+    attributes:
+      label: Log lines
+      description: From SimHub's `Logs\SimHub.txt`, the lines starting `[FXProRpmSync]` around the time it went wrong.
+      render: text
