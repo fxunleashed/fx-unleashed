@@ -42,7 +42,7 @@ The full setup, step by step: [docs/setup.md](docs/setup.md) (also at [fxunleash
 
 ### The firmware
 
-Unleashed mode needs a modified version of the wheel's own app (the FXProDashes wheel app, built 4-7). **Read the
+Unleashed mode needs a modified version of the wheel's own app (the FXProDashes wheel app, builds 4 to 9, each including the one before). **Read the
 [firmware warning](docs/legal/firmware-warning.md) first.** It changes only the wheel's app (lights, screen, buttons,
 USB), never the base or force feedback; every change is emulated against the stock firmware before it's tried on a
 wheel; going back to stock is SimPro's own reinstall. How it's handed out is still being decided: this repository
