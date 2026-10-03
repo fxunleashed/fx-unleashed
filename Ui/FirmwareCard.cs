@@ -141,21 +141,21 @@ namespace User.FXProRpmSync
             };
             body.Children.Add(recovery);
 
-            // ----- the wheel app: update mode for a SimPro reinstall -----
+            // ----- the firmware: update mode for a SimPro flash -----
             var wh = new StackPanel();
-            wh.Children.Add(Theme.Note("For a wheel whose firmware misbehaves, or to go back to Simagic's stock firmware: SimPro reinstalls the wheel " +
-                "app. If SimPro can't start the install (it sits at 0% or doesn't find the wheel), put the wheel in update mode first.", new Thickness(0, 4, 0, 8)));
+            wh.Children.Add(Theme.Note("For a wheel whose firmware misbehaves, or to go back to Simagic's stock firmware: flash Simagic's original with SimPro (Settings > Update > Manual Firmware Flash). " +
+                "If SimPro can't start the flash (it sits at 0% or doesn't find the wheel), put the wheel in update mode first.", new Thickness(0, 4, 0, 8)));
             simproState = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text, Margin = new Thickness(0, 0, 0, 8) };
             wh.Children.Add(simproState);
-            wh.Children.Add(StepLine("1", "Check the line above: SimPro must have Simagic's own 1.3.11 file, or it reinstalls whatever is there."));
+            wh.Children.Add(StepLine("1", "Check the line above: SimPro's firmware folder must have Simagic's own 1.3.11 file: that is the file you flash to go back to stock."));
             wh.Children.Add(StepLine("2", "Put the wheel in update mode. It restarts into its updater and stays there, even after a power cycle, until SimPro finishes an install. Its screen and lights stop until then; the base keeps working."));
             var whRow = new WrapPanel { Margin = new Thickness(36, 0, 0, 8) };
             updateMode = Theme.Btn("Put the wheel in update mode", EnterUpdateMode);
             whRow.Children.Add(updateMode);
             whRow.Children.Add(Theme.Btn("Open SimPro", () => { try { Process.Start(SimProExe); } catch (Exception e) { MessageBox.Show("Couldn't start SimPro: " + e.Message); } }));
             wh.Children.Add(whRow);
-            wh.Children.Add(StepLine("3", "In SimPro (started directly, as this button does), open the wheel's firmware page and reinstall 1.3.11. Don't unplug or switch off until it's done."));
-            wh.Children.Add(StepLine("4", "If it sits at 0%, close SimPro completely and open it again with the wheel already in update mode, then reinstall."));
+            wh.Children.Add(StepLine("3", "In SimPro (started directly, as this button does), open Settings > Update, scroll to Manual Firmware Flash, press Flash on the FX PRO row and select Simagic's 1.3.11 file from that folder. Don't unplug or switch off until it's done."));
+            wh.Children.Add(StepLine("4", "If it sits at 0%, close SimPro completely and open it again with the wheel already in update mode, then flash again."));
             body.Children.Add(new Expander
             {
                 Header = new TextBlock { Text = "Wheel firmware recovery", FontFamily = Theme.Display, FontSize = 15 },
@@ -199,7 +199,7 @@ namespace User.FXProRpmSync
                 : recoverSpeed == 115200 ? "At 115200 the upload is slower (about 20 s)." : "The normal speed: for a screen whose dash still works.";
 
             string simpro = SimProFileState();
-            simproState.Text = (u?.WheelFound == true && u.InUpdateMode ? "The wheel is in update mode now: reinstall 1.3.11 in SimPro.\n" : "") + simpro;
+            simproState.Text = (u?.WheelFound == true && u.InUpdateMode ? "The wheel is in update mode now: flash Simagic's 1.3.11 in SimPro (Settings > Update > Manual Firmware Flash).\n" : "") + simpro;
             updateMode.IsEnabled = !busy && !FlowActive && u?.WheelFound == true && !u.InUpdateMode;
             PollPowerCycle();
         }
@@ -219,8 +219,8 @@ namespace User.FXProRpmSync
                 using (var sha = SHA256.Create()) using (var f = File.OpenRead(SimProWheelFile))
                     stock = BitConverter.ToString(sha.ComputeHash(f)).Replace("-", "").ToLowerInvariant() == StockWheelSha;
                 checkedStamp = stamp;
-                return checkedState = stock ? "✓ SimPro has Simagic's stock 1.3.11 wheel file."
-                    : "✗ SimPro's 1.3.11 wheel file isn't Simagic's stock file: a reinstall would install that file.";
+                return checkedState = stock ? "✓ SimPro's folder has Simagic's stock 1.3.11 file: flash this one to go back to stock."
+                    : "✗ the 1.3.11 file in SimPro's folder isn't Simagic's stock file: don't flash it to go back to stock.";
             }
             catch (Exception e) { return "Couldn't check SimPro's wheel file: " + e.Message; }
         }
@@ -459,7 +459,7 @@ namespace User.FXProRpmSync
         private void EnterUpdateMode()
         {
             if (!Confirm("The wheel restarts into its updater and stays there (even after a power cycle) until SimPro finishes an install. " +
-                         "Its screen and lights stop until then; the base keeps working.\n\nThen: open SimPro and reinstall wheel app 1.3.11. Go ahead?")) return;
+                         "Its screen and lights stop until then; the base keeps working.\n\nThen: open SimPro and flash Simagic's 1.3.11 (Settings > Update > Manual Firmware Flash). Go ahead?")) return;
             ShowStep(Step.Message, "", "Putting the wheel in update mode...", "", Theme.Line2);
             Run("Putting the wheel in update mode", path =>
             {
@@ -467,7 +467,7 @@ namespace User.FXProRpmSync
                 if (err != null) throw new Exception(err);
                 Thread.Sleep(3000);
                 Dispatcher.BeginInvoke(new Action(() => ShowStep(Step.Message, "", "The wheel is in update mode",
-                    "When it's back (a few seconds), open SimPro and reinstall 1.3.11.", Theme.Line2, CloseButton())));
+                    "When it's back (a few seconds), open SimPro and flash Simagic's 1.3.11 (Settings > Update > Manual Firmware Flash).", Theme.Line2, CloseButton())));
             });
         }
     }

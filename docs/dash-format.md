@@ -1,7 +1,7 @@
 # FX Pro dash format (FormatVersion 2)
 
 > **Where this fits:** a reference for people who write dashes by hand or with an agent. If you just want to use or make dashes, start with the
-> [setup guide](https://fxunleashed.com/start/) (wheel app, plugin, the screen's RAM patch, then dashes) and the
+> [setup guide](https://fxunleashed.com/start/) (custom firmware, plugin, the screen's RAM patch, then dashes) and the
 > [dash designer](https://fxunleashed.com/docs/dash-designer/); to share yours, see [share and submit](https://fxunleashed.com/docs/library-submit/).
 
 A dash is one JSON file: an 800x480 page of elements the plugin draws on the FX Pro's screen with the screen's own

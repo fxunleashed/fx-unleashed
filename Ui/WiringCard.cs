@@ -16,7 +16,7 @@ namespace User.FXProRpmSync
                 "The base powers the wheel. The wheel's USB cable carries data only: use a 5 V-blocking USB adapter, or a hub " +
                 "port with its power switch off (it cuts only the 5 V; data still flows)."));
             body.Children.Add(Section("What happens at start-up",
-                "Base on → the wheel starts on the base → about 3 s later the patched firmware (build 6+) sees the PC on its " +
+                "Base on → the wheel starts on the base → about 3 s later the custom firmware (build 6+) sees the PC on its " +
                 "cable and restarts into USB mode → the plugin waits 6 s for it to finish starting → it takes over the screen " +
                 "and lights when a game runs."));
             var warn = Section("Avoid",

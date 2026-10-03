@@ -810,7 +810,7 @@ namespace User.FXProRpmSync
             else if (status == null && (DateTime.UtcNow - appearedAt < BootGrace || buildTries > 0)) { State = "Wheel found"; Detail = "Letting it finish starting up."; }
             else if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
             else if (!status.IsSupportedApp) { State = "Unsupported wheel firmware"; Detail = $"The wheel runs app {status.VersionText}{(status.IsBootloader ? " (in update mode: reinstall it in SimPro, see Recovery below)" : "")}; USB mode needs the patched 1.3.11 app."; }
-            else if (!allowed) { State = "Firmware not confirmed"; Detail = build == 0 ? "The wheel doesn't report a patch build (stock, or builds 4-6). Confirm that it runs the patched firmware below." : "Confirm that the wheel runs the patched firmware below."; }
+            else if (!allowed) { State = "Firmware not confirmed"; Detail = build == 0 ? "The wheel doesn't report a custom firmware build (stock, or builds 4-6). Confirm that it runs the custom firmware below." : "Confirm that the wheel runs the custom firmware below."; }
             else { State = "Ready"; Detail = "Takes over the dash and lights when a game runs."; }
         }
 

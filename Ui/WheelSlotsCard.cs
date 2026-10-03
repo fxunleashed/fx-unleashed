@@ -84,9 +84,9 @@ namespace User.FXProRpmSync
             FxProControls.Normalize(S, build);
             int max = FxProControls.MaxButton(build);
             note.Text = build >= 9
-                ? "Your wheel runs patch build 9: it has 48 buttons, and 41-48 belong to these three alone. Any button a stock control uses is listed too, with its owner."
-                : "Patch build 8 only has the 40 stock buttons, and the wheel's own controls use all of them: these three share one. " +
-                  "Patch build 9 gives them buttons 41-48 of their own.";
+                ? "Your wheel runs custom firmware build 9: it has 48 buttons, and 41-48 belong to these three alone. Any button a stock control uses is listed too, with its owner."
+                : "Custom firmware build 8 only has the 40 stock buttons, and the wheel's own controls use all of them: these three share one. " +
+                  "Custom firmware build 9 gives them buttons 41-48 of their own.";
             foreach (var (box, value) in new[] { (dash, S.DashSlot), (padA, S.UpperPaddleA), (padB, S.UpperPaddleB) })
             {
                 box.Items.Clear();

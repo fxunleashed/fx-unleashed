@@ -64,7 +64,7 @@ namespace User.FXProRpmSync
             if (unknownDevice)
                 return ("Unknown USB device", "Windows shows an unknown USB device. If it's the wheel, unplug its USB cable and plug it in again.");
             if (name != null)
-                return ("Wheel on the base", $"SimPro sees the {name} on the base. With its USB cable in the PC, the patched firmware (build 6+) " +
+                return ("Wheel on the base", $"SimPro sees the {name} on the base. With its USB cable in the PC, the custom firmware (build 6+) " +
                                              "restarts it into USB mode a few seconds after it has started. Is the cable plugged in?");
             if (DateTime.UtcNow - lastOnBase < RestartWindow)
                 return ("Restarting into USB mode", "The wheel left the base; waiting for it to come up on USB.");

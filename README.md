@@ -16,7 +16,7 @@ It has two modes:
 
 | | Standard mode | Unleashed mode |
 |---|---|---|
-| Wheel firmware | stock, nothing flashed | the FX Unleashed wheel app patch ([firmware](#the-firmware)) |
+| Wheel firmware | stock, nothing flashed | the FX Unleashed custom firmware ([firmware](#the-firmware)) |
 | Talks to the wheel | through SimPro Manager (over the base) | directly, over the wheel's own USB cable |
 | Rev lights | each car's real shift lights | every one of the 38 LEDs, any colour, 30 frames a second |
 | Dash | the wheel's own dashes, per car, fed with SimHub's data | your own dashes (designer, SimHub import, library), per car; or the wheel's own, fed over USB |
@@ -39,18 +39,18 @@ It has two modes:
 - **Updates itself:** a banner offers new versions, one click installs, one click rolls back.
 
 The full setup is one guide, step by step ([docs/setup.md](docs/setup.md), also at [fxunleashed.com/start](https://fxunleashed.com/start/)):
-1. [the wheel app](https://fxunleashed.com/start/#1-install-the-wheel-app) (Unleashed mode only; [download](https://github.com/fxunleashed/fx-unleashed-firmware/releases/latest)),
+1. [the custom firmware](https://fxunleashed.com/start/#1-install-the-custom-firmware) (Unleashed mode only; [download](https://github.com/fxunleashed/fx-unleashed-firmware/releases/latest)),
 2. [the plugin](https://fxunleashed.com/start/#2-install-the-plugin),
 3. [the screen's RAM patch](https://fxunleashed.com/start/#3-turn-on-picture-memory) (picture memory; optional, highly recommended),
 4. [your dashes and lights](https://fxunleashed.com/start/#4-pick-your-dashes-and-lights), then [sharing and submitting](https://fxunleashed.com/docs/library-submit/).
 
 ### The firmware
 
-Unleashed mode needs a modified version of the wheel's own app (the FX Unleashed wheel app patch, builds 4 to 9, each including the one before). **Read the
+Unleashed mode needs a custom firmware for the wheel (the FX Unleashed custom firmware, builds 4 to 9, each including the one before). **Read the
 [firmware warning](docs/legal/firmware-warning.md) first.** It changes only the wheel's app (lights, screen, buttons,
 USB), never the base or force feedback; every change is emulated against the stock firmware before it's tried on a
-wheel; going back to stock is SimPro's own reinstall. The wheel app is published in a separate repository,
-[fx-unleashed-firmware](https://github.com/fxunleashed/fx-unleashed-firmware): it is Simagic's wheel app with our changes,
+wheel; going back to stock is flashing Simagic's original with SimPro. The custom firmware is published in a separate repository,
+[fx-unleashed-firmware](https://github.com/fxunleashed/fx-unleashed-firmware): it is Simagic's firmware with our changes,
 shared without Simagic's involvement. This repository and the plugin's releases never contain it, and the key that protects
 Simagic's firmware is not published anywhere.
 
@@ -58,10 +58,10 @@ Simagic's firmware is not published anywhere.
 
 | | |
 |---|---|
-| Wheel | Simagic **FX Pro**, wheel app 1.3.11 (tested on an Alpha EVO base). The **GT Neo** too: its rev lights in standard mode, and every light in USB mode (hold button 3 while the base powers up). |
+| Wheel | Simagic **FX Pro**, firmware 1.3.11 (tested on an Alpha EVO base). The **GT Neo** too: its rev lights in standard mode, and every light in USB mode (hold button 3 while the base powers up). |
 | SimPro Manager | **SimPro Manager 3** (tested with V3.2.2), running while you drive. |
 | SimHub | Tested with 9.11. The free version is fine. |
-| Unleashed mode | the modified wheel app, and the wheel's USB cable to the PC (best: data only, the base powers the wheel). |
+| Unleashed mode | the custom firmware, and the wheel's USB cable to the PC (best: data only, the base powers the wheel). |
 
 ## Install
 

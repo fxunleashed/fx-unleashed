@@ -68,15 +68,15 @@ namespace User.FXProRpmSync
             var steps = new StackPanel();
             steps.Children.Add(Theme.Eyebrow("Set up", Theme.Red));
             steps.Children.Add(Theme.Title("Set up Unleashed mode", 20));
-            steps.Children.Add(Theme.Note("Unleashed mode needs the FX Unleashed wheel app on the wheel and the wheel's USB cable in this PC. A wheel with " +
-                                          "a recent wheel app is recognised by itself; an older one needs the Test button once:", new Thickness(0, 6, 0, 12)));
-            steps.Children.Add(Step("1", "Install the FX Unleashed wheel app through SimPro (about 10 minutes): the guide is at fxunleashed.com/start."));
+            steps.Children.Add(Theme.Note("Unleashed mode needs the FX Unleashed custom firmware on the wheel and the wheel's USB cable in this PC. A wheel with " +
+                                          "a recent custom firmware is recognised by itself; an older one needs the Test button once:", new Thickness(0, 6, 0, 12)));
+            steps.Children.Add(Step("1", "Install the FX Unleashed custom firmware with SimPro's Manual Firmware Flash (about 10 minutes): the guide is at fxunleashed.com/start."));
             steps.Children.Add(Step("2", "Plug the wheel's USB cable into this PC.", out step2));
             steps.Children.Add(Step("3", "Press Test: the demo dash stays steady for 8 seconds. On stock firmware the wheel's own dash flickers through it (harmless)."));
             var setupButtons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             setupButtons.Children.Add(Theme.Btn("Test on the wheel (8 s)", () => Usb?.RunTest(), icon: ""));
             steps.Children.Add(setupButtons);
-            steps.Children.Add(Theme.Switch("My wheel runs the patched firmware", S.FirmwareConfirmed, v => { S.FirmwareConfirmed = v; Changed(); Refresh(); }));
+            steps.Children.Add(Theme.Switch("My wheel runs the custom firmware", S.FirmwareConfirmed, v => { S.FirmwareConfirmed = v; Changed(); Refresh(); }));
             var next = Step("4", "Then, optional but highly recommended: the screen's RAM patch (picture memory), in the Firmware card further down this page. " +
                                  "Dashes then appear at once and in full colour. The whole path is in the guide at fxunleashed.com/start.");
             next.Margin = new Thickness(0, 12, 0, 0);
@@ -218,8 +218,8 @@ namespace User.FXProRpmSync
             stateDot.Fill = SettingsControl.StateBrush(st);
             detail.Text = u?.Detail ?? "";
             firmware.Text = u?.WheelFound == true
-                ? $"FX Pro wheel app {u.WheelVersion ?? "?"}" + (u.FirmwareBuild > 0 ? $" · patch build {u.FirmwareBuild}"
-                    : S.FirmwareConfirmed ? " · patched firmware confirmed" : " · not confirmed yet")
+                ? $"FX Pro firmware {u.WheelVersion ?? "?"}" + (u.FirmwareBuild > 0 ? $" · custom firmware build {u.FirmwareBuild}"
+                    : S.FirmwareConfirmed ? " · custom firmware confirmed" : " · not confirmed yet")
                 : "Wheel not found on USB";
             var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
             string dashName = wheelDash ? (id == null ? "the wheel's own dash" : DashCatalog.NameOf(id)) : DashCache.NameOf(id);

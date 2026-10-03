@@ -4,7 +4,7 @@
 > Simagic and FX Pro are trademarks of their owner, used only to say which hardware this works with. The software is
 > provided "as is", without warranty of any kind. Use it at your own risk.
 
-Three steps: **the wheel app, the plugin, and (optional, but we highly recommend it) picture memory, the screen's RAM patch.**
+Three steps: **the custom firmware, the plugin, and (optional, but we highly recommend it) picture memory, the screen's RAM patch.**
 About 15 minutes the first time. Every step says what you should see.
 
 **Just want each car's rev lights and the wheel's own dash matched to the car?** That's *standard mode*: do step 2 only,
@@ -13,42 +13,43 @@ colour, screensavers and the dash button.
 
 ## What you need
 
-- A **Simagic FX Pro** on a **Simagic base** (tested on an Alpha EVO), wheel app **1.3.11** (SimPro shows it).
+- A **Simagic FX Pro** on a **Simagic base** (tested on an Alpha EVO), firmware **1.3.11** (SimPro shows it).
 - **SimPro Manager 3** (tested: 3.2.2) and **SimHub** 9.11 or newer (the free version is fine), on Windows 10 or 11.
 - The wheel's **USB cable** to the PC ([wiring and power](#wiring-and-power) says how).
 
-## 1. Install the wheel app
+## 1. Install the custom firmware
 
 *For Unleashed mode. About 10 minutes.*
 
-The wheel runs a small program of its own, the **wheel app**. Unleashed mode needs our version of it. It doesn't touch your base
-or your force feedback, and Simagic's original is always one SimPro reinstall away. **It is your wheel's own program, so this is
+The wheel runs its own firmware. Unleashed mode needs our **custom firmware**: Simagic's own firmware with our changes. It doesn't
+touch your base or your force feedback, and you can always flash Simagic's original back. **It is your wheel's own program, so this is
 at your own risk: please read the [short notice](https://fxunleashed.com/firmware/#risks) first.** Do it when you have ten quiet
 minutes, with the wheel on its base, the base on, and the wheel's USB cable plugged into the PC.
 
-1. **Download the wheel app:** [Download](https://github.com/fxunleashed/fx-unleashed-firmware/releases/latest). It is one small
-   file whose name starts with `FXUnleashed-wheelapp`.
+1. **Download the custom firmware:** [Download](https://github.com/fxunleashed/fx-unleashed-firmware/releases/latest). It is one
+   small file ending in `.sfu`.
 2. **Close SimPro** completely (also from its icon by the clock).
-3. **Open SimPro's wheel folder.** Press the **Windows key + R**, paste
+3. **Open SimPro's firmware folder.** Press the **Windows key + R**, paste
    `%LOCALAPPDATA%\SIMAGIC\Simpro3\firmware\wheel\fx_pro` and press Enter. A folder opens with one file in it,
-   `FXPro_App-V1.3.11.0-00000000.sfu`. That is Simagic's original.
+   `FXPro_App-V1.3.11.0-00000000.sfu`. That is Simagic's original firmware.
 4. **Keep Simagic's original:** copy that file to your Desktop. It is your way back.
 5. **Swap in ours:** rename the file you downloaded to exactly `FXPro_App-V1.3.11.0-00000000.sfu` (right-click it, Rename), drag
    it into the open folder and choose **Replace the file in the destination**. (If your file names show no `.sfu` ending, leave
    it off when you type the name.)
-6. **Install it:** start SimPro, open Device > FX Pro > Firmware and **reinstall wheel app 1.3.11**. Wait until SimPro says it's
-   done, and don't unplug or switch anything off meanwhile. (If it sits at 0% after the wheel goes into boot mode, close SimPro,
-   open it again and reinstall.)
-7. **Put Simagic's original back:** copy the file from your Desktop into the same folder and choose **Replace**, so a later SimPro
-   update can't install ours by accident.
+6. **Flash it with SimPro:** start SimPro and open **Settings > Update**. Scroll to the bottom, to **Manual Firmware Flash**. On
+   the **FX PRO** row press **Flash**, then select `FXPro_App-V1.3.11.0-00000000.sfu` in the folder from step 3 (paste that
+   folder path into the window's address bar to get there). Wait until SimPro says it's done, and don't unplug or switch anything
+   off meanwhile. (If it sits at 0% after the wheel goes into boot mode, close SimPro, open it again and flash again.)
+7. **Put Simagic's original back:** copy the file from your Desktop into the same folder and choose **Replace**. Then SimPro's own
+   copy is Simagic's again, and a later SimPro update can't flash ours by accident.
 
-**You should see** the wheel restart and work as before. (In step 2 the plugin will show "patch build" and a number.) Next:
+**You should see** the wheel restart and work as before. (In step 2 the plugin's Wheel tab will show a build number for it.) Next:
 step 2, the plugin, and then step 3, the screen's RAM patch (optional, highly recommended).
 
 <details>
 <summary>For the curious: what this file is, how to check it, how to make it yourself</summary>
 
-The file is Simagic's own wheel app 1.3.11 with our changes (lights, screen, buttons, USB). It is Simagic's software, shared by a
+The file is Simagic's own firmware 1.3.11 with our changes (lights, screen, buttons, USB). It is Simagic's software, shared by a
 community project without Simagic's involvement, and it may be taken down, so keep a copy. Its fingerprint (SHA-256) and size are
 on the [firmware page](https://fxunleashed.com/firmware/#check) if you want to check your download.
 
@@ -70,7 +71,7 @@ it was checked are on the [firmware page](https://fxunleashed.com/firmware/).
    restart SimHub.)
 4. **Standard mode works now.** For **Unleashed mode** (step 1 done): plug the wheel's USB cable into the PC with the base on,
    open FX Unleashed in SimHub, click the **Unleashed** card and confirm the warning.
-5. On the **Wheel** tab the status should say **Ready** and the wheel line **patch build** and a number. Press **Run the demo**: a demo
+5. On the **Wheel** tab the status should say **Ready** and a build number for the custom firmware on the wheel line. Press **Run the demo**: a demo
    lap plays on the wheel's screen and lights.
 6. **Next, step 3:** the screen's RAM patch makes dashes appear at once and in full colour. It's optional, but we highly
    recommend it.
@@ -78,7 +79,7 @@ it was checked are on the [firmware page](https://fxunleashed.com/firmware/).
 From now on the plugin updates itself: a banner appears when there's a new version, one click installs it, and **Roll back**
 is on the About tab.
 
-*GT Neo:* it needs no wheel app, so skip steps 1 and 3: hold button 3 while the base powers up, plug the USB cable in, and
+*GT Neo:* it needs no custom firmware, so skip steps 1 and 3: hold button 3 while the base powers up, plug the USB cable in, and
 do step 2. It is newer and less tested than the FX Pro.
 
 ## 3. Turn on picture memory
@@ -153,15 +154,14 @@ through the base. In each game, bind your wheel buttons and paddles once to that
 | F1 (EA) | Settings > Controls, Vibration & Force Feedback > edit your wheel's preset |
 
 Steering, pedals and force feedback stay on the base as before. The dash button has a button number of its own (41 with
-the current wheel app; the Wheel tab shows it and lets you change it). Some games only list 32 buttons, so bind it to a plugin
+the current custom firmware; the Wheel tab shows it and lets you change it). Some games only list 32 buttons, so bind it to a plugin
 action instead (Wheel tab > Quick controls > Wheel buttons), e.g. "Next dash".
 
 ## Updating, and going back to stock
 
 - **Plugin:** the banner offers new versions; one click installs; **Roll back** is on the About tab.
-- **Wheel app:** a newer build goes on the same way as the first (step 1). The Wheel tab shows which build the wheel runs.
-- **Back to stock:** with Simagic's original file back in SimPro's folder (you put it back at the end of step 1), reinstall wheel app 1.3.11 in SimPro. That is
-  Simagic's own app again. Reinstalling firmware always carries a small risk: don't unplug the wheel while it installs.
+- **Custom firmware:** a newer build goes on the same way as the first (step 1). The Wheel tab shows which build the wheel runs.
+- **Back to stock:** flash Simagic's original the same way as in step 1 (Settings > Update > Manual Firmware Flash, **Flash** on the FX PRO row), selecting Simagic's original file in SimPro's firmware folder (you put it back at the end of step 1). That is Simagic's own firmware again. Flashing always carries a small risk: don't unplug the wheel while it installs. Turn picture memory off first (next bullet) if you turned it on.
 - **Picture memory off:** Wheel tab > Firmware card > **Turn it off**.
 
 ## Troubleshooting
@@ -171,7 +171,7 @@ action instead (Wheel tab > Quick controls > Wheel buttons), e.g. "Next dash".
 | Status "Waiting for the wheel" | The USB cable isn't in, or the wheel is off. Plug it in with the base on. |
 | Status "Wheel on the base" for more than a few seconds | The cable isn't reaching the PC. Unplug it and plug it in again. |
 | "Unknown USB device" | The wheel missed the PC's reset: unplug the cable and plug it in again. |
-| The wheel line doesn't say "patch build" | The wheel app isn't installed (or is an old one): repeat step 1. |
+| The Wheel tab shows no build number for the custom firmware | The custom firmware isn't installed (or is an old one): repeat step 1. |
 | Screen frozen on one page, ignores everything | Full power off: base off and the cable out, then start again. |
 | Wheel turns on and off, screen garbled | USB into a wheel on a switched-off base: use a data-only cable; full power off, start again. |
 | Parts of a dash stay on screen over another | Pick the dash again, or restart the game; report it with the dash's name. |
@@ -180,7 +180,7 @@ action instead (Wheel tab > Quick controls > Wheel buttons), e.g. "Next dash".
 | Lights: "no data from ATSR-Hub" | Add the wheel in ATSR-Hub (it must be the active wheel), or clear the device in the plugin and let it pick again. |
 | Lights: "no data from SimHub's device" | Add "FX Pro wheel (USB mode)" in SimHub > Devices and give it an LED profile. |
 | "SimPro is reading <game>, not SimHub" (standard mode) | Close the game and start it again, with SimHub already running. |
-| SimPro hangs after the wheel enters boot mode | Close SimPro, start it again, reinstall: it installs to a wheel already in boot mode. |
+| SimPro hangs after the wheel enters boot mode | Close SimPro, start it again and flash again: it flashes a wheel that's already in boot mode. |
 
 Still stuck? Ask in the [Discord](https://discord.gg/P9Rz6fXrRc), or [open an issue](https://github.com/fxunleashed/fx-unleashed/issues)
 with the SimHub log (`SimHub\Logs\SimHub.txt`, the lines with `[FXProRpmSync]`).

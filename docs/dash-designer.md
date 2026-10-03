@@ -1,8 +1,8 @@
 # Dash designer
 
 > **Where this fits:** this is step 4 of the [setup guide](https://fxunleashed.com/start/#4-pick-your-dashes-and-lights). It needs the
-> plugin ([step 2](https://fxunleashed.com/start/#2-install-the-plugin)), and to see a dash on the wheel the wheel app
-> ([step 1](https://fxunleashed.com/start/#1-install-the-wheel-app)). The screen's RAM patch
+> plugin ([step 2](https://fxunleashed.com/start/#2-install-the-plugin)), and to see a dash on the wheel the custom firmware
+> ([step 1](https://fxunleashed.com/start/#1-install-the-custom-firmware)). The screen's RAM patch
 > ([step 3](https://fxunleashed.com/start/#3-turn-on-picture-memory), optional but highly recommended) lets dashes use full-colour
 > pictures. When your dash is done you can [share it or submit it to the library](https://fxunleashed.com/docs/library-submit/).
 > Most people only need the web designer and SimHub import sections below: the HTTP API, command line and agent parts are for tinkerers.

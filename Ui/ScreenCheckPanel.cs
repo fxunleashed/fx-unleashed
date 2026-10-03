@@ -72,7 +72,7 @@ namespace User.FXProRpmSync
             var u = plugin.Usb;
             if (u == null || !u.WheelFound) return "The wheel isn't connected over USB.";
             if (!u.SupportedApp) return "The wheel isn't running app 1.3.11 (or is in update mode).";
-            if (!u.FirmwarePatched) return "The wheel needs the FX Unleashed wheel app patch to reach its screen.";
+            if (!u.FirmwarePatched) return "The wheel needs the FX Unleashed custom firmware to reach its screen.";
             return null;
         }
 

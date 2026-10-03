@@ -1,11 +1,11 @@
 # USB mode: custom dashes and every light on the FX Pro
 
 Custom dash, logo screensaver, built-in light presets and ATSR-Hub lights are verified on an FX Pro running the FX
-Unleashed wheel app patch.
+Unleashed custom firmware.
 
 USB mode drives the Simagic FX Pro's screen and all 38 of its LEDs straight over the wheel's own USB cable, next to
-SimPro (which keeps doing force feedback and settings). It needs the wheel's app patched with the FX Unleashed wheel
-app patch (build 4 or later); on stock firmware nothing here works (and nothing breaks either, see [Firmware](#firmware)).
+SimPro (which keeps doing force feedback and settings). It needs the wheel's firmware replaced by the FX Unleashed custom
+firmware (build 4 or later); on stock firmware nothing here works (and nothing breaks either, see [Firmware](#firmware)).
 
 Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) · [Dash file format](#dash-file-format) ·
 [Lights](#lights) · [ATSR-Hub](#atsr-hub) · [Dash designer](dash-designer.md) · [How it talks to the wheel](#how-it-talks-to-the-wheel) · [GT Neo](#gt-neo) ·
@@ -22,16 +22,16 @@ Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) 
 
 ## Setup
 
-1. Install the FX Unleashed wheel app patch (build 9 is current; builds 4 to 9 each include the one before) through
-   SimPro, following the install steps at fxunleashed.com/start (the download and details are on fxunleashed.com/firmware).
+1. Install the FX Unleashed custom firmware (build 9 is current; builds 4 to 9 each include the one before) with
+   SimPro (Settings > Update > Manual Firmware Flash), following the install steps at fxunleashed.com/start (the download and details are on fxunleashed.com/firmware).
 2. Plug the wheel's USB cable into the PC (the wheel stays on the base as usual). The wheel only picks USB mode when it
    powers up with the cable in: one that started on the base ignores a cable plugged in later (the PC sees no
    device), so power it up with the cable in. Build 6 and later
    restart it into USB mode on its own when the cable goes in; the plugin then waits `BootGrace` (6 s) before
    talking to it.
-3. SimHub → FXPro RPM Sync → **USB mode**: tick **Use USB mode**, press **Test on the wheel (8 s)**. With the patched
+3. SimHub → FXPro RPM Sync → **USB mode**: tick **Use USB mode**, press **Test on the wheel (8 s)**. With the custom
    firmware the demo dash shows steadily; with stock firmware the wheel's own dash flickers through it.
-4. Tick **My wheel runs the patched firmware**. The status line then reads "Standing by" / "Lights on", and
+4. Tick **My wheel runs the custom firmware**. The status line then reads "Standing by" / "Lights on", and
    "Active" once a game runs.
 
 The patch can't be detected: build 4 reports the same `F1` status (app 1.3.11, run mode 0) as stock, and RAM writes have

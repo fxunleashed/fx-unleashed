@@ -237,17 +237,17 @@ namespace User.FXProRpmSync
             refusal = null;
             if (u == null || !u.WheelFound) { refusal = "The wheel isn't connected over USB."; return null; }
             if (!u.SupportedApp) { refusal = "The wheel isn't running app 1.3.11 (or is in update mode)."; return null; }
-            if (!u.FirmwarePatched) { refusal = "The wheel needs the FX Unleashed wheel app patch (build 4 or later) to reach its screen."; return null; }
+            if (!u.FirmwarePatched) { refusal = "The wheel needs the FX Unleashed custom firmware (build 4 or later) to reach its screen."; return null; }
             var last = s.ScreenFlashes?.LastOrDefault();
             if (last != null)
             {
                 var img = ScreenImage.Find(last.ImageId);
                 if (img == null) { refusal = $"This PC last flashed screen image {last.ImageId}, which this version of the plugin doesn't know."; return null; }
-                if (img.WheelApp != u.WheelVersion) { refusal = $"This PC last flashed the screen image for wheel app {img.WheelApp}; the wheel now runs {u.WheelVersion}."; return null; }
+                if (img.WheelApp != u.WheelVersion) { refusal = $"This PC last flashed the screen image for firmware {img.WheelApp}; the wheel now runs {u.WheelVersion}."; return null; }
                 return img;
             }
             var known = ScreenImage.ForWheelApp(u.WheelVersion);
-            if (known.Count != 1) { refusal = $"No screen image recorded for wheel app {u.WheelVersion}."; return null; }
+            if (known.Count != 1) { refusal = $"No screen image recorded for firmware {u.WheelVersion}."; return null; }
             return known[0];
         }
 

@@ -104,9 +104,9 @@ $body = if ($NotesFile) { Get-Content -Raw $NotesFile } else {
     "## Changes`n`n" + ((git log --no-merges --format="- %s" $range) -join "`n")
 }
 $disclaimer = (Get-Content -Raw (Join-Path $PSScriptRoot "docs\legal\disclaimer.md")).Trim()
-# every release says where the wheel app and its install guide are (the plugin zip itself never holds firmware)
-$wheelApp = (Get-Content -Raw (Join-Path $PSScriptRoot "docs\releases\_wheel-app.md")).Trim() -replace '\{BUILD\}', $FirmwareRecommended
-[IO.File]::WriteAllText($notes, "> $($disclaimer -replace "`r?`n", ' ')`n`n$($body.Trim())`n`n$wheelApp`n")
+# every release says where the custom firmware and its install guide are (the plugin zip itself never holds firmware)
+$customFirmware = (Get-Content -Raw (Join-Path $PSScriptRoot "docs\releases\_custom-firmware.md")).Trim() -replace '\{BUILD\}', $FirmwareRecommended
+[IO.File]::WriteAllText($notes, "> $($disclaimer -replace "`r?`n", ' ')`n`n$($body.Trim())`n`n$customFirmware`n")
 
 Write-Host "   $zip"
 Write-Host "   $manifestPath"

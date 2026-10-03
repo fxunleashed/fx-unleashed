@@ -6,7 +6,7 @@ data; the plugin drives the wheel in two ways:
 - **Standard mode:** per-car rev lights and a dash per car, pushed into **SimPro Manager 3** through its local API.
   Needs nothing flashed.
 - **Unleashed mode** ("USB mode", `Usb/`): custom dashes on the screen and every one of the 38 LEDs, over the wheel's
-  own USB HID. Needs the wheel running the FX Unleashed wheel app patch (see "What never goes in this repo").
+  own USB HID. Needs the wheel running the FX Unleashed custom firmware (see "What never goes in this repo").
 
 User docs: [README.md](README.md), [docs/setup.md](docs/setup.md). Developer reference for USB mode:
 [docs/usb-mode.md](docs/usb-mode.md). Repos: this one (plugin), `fx-unleashed-library` (dashes, screensavers, car
@@ -58,7 +58,7 @@ python tools/publish-check.py . --history           # nothing secret or Simagic'
 ## What never goes in this repo, a pull request or a release
 
 - Any Simagic binary or image: firmware (`.sfu`, `.tft`, `.bin`, `.hex`), original or modified, or anything extracted
-  from one. The modified wheel app is published only as a release file of the separate `fx-unleashed-firmware`
+  from one. The custom firmware is published only as a release file of the separate `fx-unleashed-firmware`
   repository (with the patch that makes the same file from a user's own copy); never in this repository or in a plugin
   release.
 - Encryption keys, decryption tools, decompiler output or disassembly, pasted or paraphrased line by line. Facts about
