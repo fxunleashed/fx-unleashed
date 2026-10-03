@@ -408,18 +408,23 @@ namespace User.FXProRpmSync
             return dll;
         }
 
-        /// <summary>SimHub's own version (null if unknown, e.g. in the tests).</summary>
+        /// <summary>
+        /// SimHub's own version (null if unknown, e.g. in the tests). SimHub sets it on SimHub.Plugins.Configuration at start-up
+        /// (the "Starting SimHub v9.12.8" of its log); the exe's file version is 1.0.0.0, so that can't be used. When it can't be
+        /// read the check is skipped: a minimum SimHub version is advice, never a reason to refuse on a guess.
+        /// </summary>
         public static Version SimHubVersion()
         {
             try
             {
-                var exe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SimHubWPF.exe");
-                if (!File.Exists(exe)) return null;
-                var fv = FileVersionInfo.GetVersionInfo(exe);
-                return new Version(fv.FileMajorPart, fv.FileMinorPart, fv.FileBuildPart);
+                return FromSimHub(SimHub.Plugins.Configuration.SimHubVersion);
             }
-            catch { return null; }
+            catch { }
+            return null;
         }
+
+        internal static Version FromSimHub(SimHub.Plugins.VersionParser v) =>
+            v != null && v.Major > 0 ? new Version(v.Major, Math.Max(0, v.Minor), Math.Max(0, v.Revision)) : null;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool DeleteFileW(string path);

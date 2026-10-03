@@ -8,6 +8,8 @@ Installing modified firmware on your wheel is at your own risk.
 - It only changes the wheel's own app (lights, screen, buttons, USB). It doesn't change your base or force feedback.
   You can go back to Simagic's stock firmware with SimPro at any time: reinstall wheel app 1.3.11 from SimPro's
   firmware page with the original file in place (see "Back to stock" in the setup guide).
+- The wheel app you install is Simagic's own software with our changes, shared by this community project without Simagic's
+  involvement. It may be taken down at any time, so keep Simagic's original file and a copy of the one you install.
 - Don't unplug or power off the wheel while it installs.
 
 To the extent the law allows, the authors aren't liable for damage to your hardware or any other loss.

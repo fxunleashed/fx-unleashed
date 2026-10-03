@@ -44,21 +44,24 @@ Unleashed mode needs a modified version of the wheel's own app. Read this before
 >   can't test every wheel, base, revision and setup.
 > - It only changes the wheel's own app (lights, screen, buttons, USB). It doesn't change your base or force
 >   feedback. You can go back to Simagic's stock firmware with SimPro at any time (step 10).
+> - The wheel app you install is Simagic's own software with our changes, shared by this community project without
+>   Simagic's involvement. It may be taken down at any time, so keep Simagic's original file and a copy of the one you
+>   install.
 > - Don't unplug or power off the wheel while it installs.
 >
 > To the extent the law allows, the authors aren't liable for damage to your hardware or any other loss.
 
 ### Install the firmware
 
-> **Status:** how the modified firmware is handed out is still being decided (it must never include Simagic's own
-> firmware file or its key). The plan is a Firmware card in the plugin that builds the modified file from *your own*
-> SimPro copy, checks it by checksum, and walks you through the steps below. Until then, the project shares builds
-> directly with testers.
+Get the wheel app from the [firmware repository's releases](https://github.com/fxunleashed/fx-unleashed-firmware/releases)
+(`FXUnleashed-wheelapp-build9.sfu`: check its SHA-256 against the one on that page), or make the identical file from your own
+SimPro copy with the patch tool in the same repository. Its [install guide](https://github.com/fxunleashed/fx-unleashed-firmware/blob/main/docs/install.md)
+has both ways, with the checksums.
 
 The firmware goes on through SimPro's own "reinstall firmware" button:
 
-1. The wheel on USB (cable in, base on). Check SimPro's copy of the wheel app is the original (the card will do this
-   by checksum).
+1. The wheel on USB (cable in, base on). Copy SimPro's original wheel app somewhere safe first: it is your way back, and
+   you put it back at the end (step 4).
 2. Put the modified file in its place (same file name, in SimPro's `firmware\wheel\fx_pro` folder), then in SimPro
    reinstall wheel app 1.3.11 (Device > FX Pro > Firmware).
 3. Wait for SimPro to finish. **Don't unplug anything.** If SimPro hangs after the wheel enters boot mode, close

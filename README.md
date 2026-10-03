@@ -45,8 +45,10 @@ The full setup, step by step: [docs/setup.md](docs/setup.md) (also at [fxunleash
 Unleashed mode needs a modified version of the wheel's own app (the FX Unleashed wheel app patch, builds 4 to 9, each including the one before). **Read the
 [firmware warning](docs/legal/firmware-warning.md) first.** It changes only the wheel's app (lights, screen, buttons,
 USB), never the base or force feedback; every change is emulated against the stock firmware before it's tried on a
-wheel; going back to stock is SimPro's own reinstall. How it's handed out is still being decided: this repository
-never contains Simagic's firmware or its key.
+wheel; going back to stock is SimPro's own reinstall. The wheel app is published in a separate repository,
+[fx-unleashed-firmware](https://github.com/fxunleashed/fx-unleashed-firmware): it is Simagic's wheel app with our changes,
+shared without Simagic's involvement. This repository and the plugin's releases never contain it, and the key that protects
+Simagic's firmware is not published anywhere.
 
 ## Requirements
 

@@ -58,8 +58,9 @@ python tools/publish-check.py . --history           # nothing secret or Simagic'
 ## What never goes in this repo, a pull request or a release
 
 - Any Simagic binary or image: firmware (`.sfu`, `.tft`, `.bin`, `.hex`), original or modified, or anything extracted
-  from one. The wheel app patch is distributed as a **patch file that applies to the user's own copy**, never as a
-  firmware file.
+  from one. The modified wheel app is published only as a release file of the separate `fx-unleashed-firmware`
+  repository (with the patch that makes the same file from a user's own copy); never in this repository or in a plugin
+  release.
 - Encryption keys, decryption tools, decompiler output or disassembly, pasted or paraphrased line by line. Facts about
   how the wheel or SimPro behave (measured on the wheel, observed on the wire or at SimPro's local API) are fine; code
   is not.

@@ -296,6 +296,7 @@ namespace User.FXProRpmSync
         public void Init(PluginManager pluginManager)
         {
             Updates = new Updater(this);
+            SimHub.Logging.Current.Info("[FXProRpmSync] v" + Updater.CurrentVersion + " on SimHub " + (Updater.SimHubVersion()?.ToString() ?? "(version unknown)"));
             Updates.StartupBegin();
             try
             {

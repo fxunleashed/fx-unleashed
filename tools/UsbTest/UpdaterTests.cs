@@ -9,6 +9,7 @@ using User.FXProRpmSync;
 /// scratch folder with a real copy of the plugin DLL, the start-up marker.</summary>
 static class UpdaterTests
 {
+    static UpdateManifest WithMin(this UpdateManifest m, string min) { m.minSimHub = min; return m; }
     static void Check(string name, bool ok, string detail = "") => FeatureTests.Check("update: " + name, ok, detail);
 
     public static void Run(string dir)
@@ -54,6 +55,13 @@ static class UpdaterTests
         Check("verify: DLL size", Throws(() => Updater.Verify(m3, v, zip, null)));
         var m4 = M(); m4.minSimHub = "99.0";
         Check("verify: SimHub too old", Throws(() => Updater.Verify(m4, v, zip, new Version(9, 11, 0))));
+        // SimHub's real version (its exe's file version is 1.0.0.0, which once made every update look "too old")
+        SimHub.Plugins.VersionParser realSimHub = "9.12.8";
+        var sh = Updater.FromSimHub(realSimHub);
+        Check("SimHub version read from SimHub's own value: 9.12.8", sh != null && sh.Major == 9 && sh.Minor == 12 && sh.Build == 8, sh?.ToString());
+        Check("verify: minimum SimHub 9.11 accepts SimHub 9.12.8", Updater.Verify(M().WithMin("9.11"), v, zip, sh).SequenceEqual(dll));
+        Check("verify: minimum SimHub 9.13 refuses SimHub 9.12.8", Throws(() => Updater.Verify(M().WithMin("9.13"), v, zip, sh)));
+        Check("SimHub version unknown (not running in SimHub): no refusal", Updater.SimHubVersion() == null && Updater.FromSimHub(null) == null);
         var noDll = Zip(("README.md", new byte[] { 1 }));
         var m5 = M(); m5.zip.sha256 = Updater.Sha256(noDll);
         Check("verify: no DLL in zip", Throws(() => Updater.Verify(m5, v, noDll, null)));

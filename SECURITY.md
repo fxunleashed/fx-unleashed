@@ -8,5 +8,6 @@ SimHub.
 If you find a way around that, or any other security problem, please report it privately: **Security > Report a
 vulnerability** on this repository (GitHub's private reporting), not a public issue. You'll get an answer in a few days.
 
-Firmware: this project never contains Simagic's firmware or its encryption key, and never will. If you think something
-in the tree or in a release shouldn't be public, report it the same way.
+Firmware: this repository and the plugin's releases never contain Simagic's firmware, and the key that protects Simagic's
+firmware is not published anywhere. The modified wheel app is published only as a release of the separate firmware repository.
+If you think something in any of our repositories or releases shouldn't be public, report it the same way.
