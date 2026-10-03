@@ -60,7 +60,7 @@ namespace User.FXProRpmSync
                 if (File.Exists(SettingsFile) && !File.Exists(copy)) File.Copy(SettingsFile, copy);
             }
             catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] settings backup failed: " + ex.Message); }
-            SimHub.Logging.Current.Info("[FXProRpmSync] the spotter now lights the six buttons on its side in saved lights: " + string.Join(", ", log));
+            SimHub.Logging.Current.Info("[FXProRpmSync] saved lights updated for the new spotter (the six buttons on its side, flashing red)" + (log.Count > 0 ? ": " + string.Join(", ", log) : ""));
             SaveSettings();
         }
 

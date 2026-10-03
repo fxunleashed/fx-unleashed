@@ -48,10 +48,11 @@ namespace User.FXProRpmSync
         public static bool UpgradeSpotter(UsbSettings s, List<string> log)
         {
             bool changed = false;
+            bool once = (s.AlertUpgrades & 1) == 0; // a steady orange spotter on the buttons flashes red, once
             void Profiles(IEnumerable<LightProfile> ps, string where)
             {
                 foreach (var p in ps ?? Enumerable.Empty<LightProfile>())
-                    if (p != null && p.UpgradeSpotterGroups()) { changed = true; log.Add($"{where}: {p.Name ?? p.Id}"); }
+                    if (p != null && p.UpgradeSpotterGroups(once)) { changed = true; log.Add($"{where}: {p.Name ?? p.Id}"); }
             }
             Profiles(s.UserLights, "lights");
             Profiles(new[] { s.CustomLights }, "custom lights");
@@ -60,6 +61,7 @@ namespace User.FXProRpmSync
                 Profiles(w.Value?.UserLights, w.Key + " lights");
                 Profiles(new[] { w.Value?.CustomLights }, w.Key + " custom lights");
             }
+            if (once) { s.AlertUpgrades |= 1; changed = true; }
             return changed;
         }
 

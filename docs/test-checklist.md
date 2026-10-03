@@ -23,7 +23,7 @@ says what to look for. The wheel must be connected in USB mode (the card says so
 |---|---|
 | Driving: still lights, dark sides | the rev bar moves; buttons and encoders hold one steady look; the 3 + 3 lights beside the rev bar are OFF |
 | Engine and menu states | idle look; dimmer in a menu; nearly dark engine off; start-up animation that settles into the driving look; limiter lights; shutdown |
-| Spotter | left car: the six buttons on the left side of the wheel orange; right car: the six on the right; both; back to the theme when clear. The three small lights beside the rev bar stay dark (they're for TC / ABS) |
+| Spotter | left car: the six buttons on the left side of the wheel FLASH red (two a second, lit first, fully dark between); right car: the six on the right; both; back to the theme when clear. The three small lights beside the rev bar stay dark (they're for TC / ABS) |
 | Turn indicators | left / right side lights blink amber with the indicator |
 | Every alert in turn | ABS, TC, 7 flags, low fuel, DRS, rev limiter, invalid lap, stalled: each lights its own part (2 s each) |
 | Pit speed bar (limit known) | pointer: cyan left of the middle below 60 km/h, green in the middle at it, red filling right above it; gone once stopped |
@@ -44,8 +44,8 @@ If one looks wrong, the picture of it from the offline run is `OUT/scenarios/<id
 
 | Feature | How | What you should see / the log |
 |---|---|---|
-| Spotter from SimHub | AMS2 (or iRacing, ACC) race with cars alongside, lights source FX Unleashed, spotter alerts on in the preset | the six buttons on that side orange; log `spotter: car on the left yes, ...`. If the lights don't show but the log does, it's the preset (alerts list); if the log never shows, SimHub isn't reporting it |
-| Spotter over ATSR-Hub | Lights from ATSR-Hub, same session | the six buttons on that side orange over ATSR's frame; the Lights tab says "+ spotter" |
+| Spotter from SimHub | AMS2 (or iRacing, ACC) race with cars alongside, lights source FX Unleashed, spotter alerts on in the preset | the six buttons on that side flashing red; log `spotter: car on the left yes, ...`. If the lights don't show but the log does, it's the preset (alerts list); if the log never shows, SimHub isn't reporting it |
+| Spotter over ATSR-Hub | Lights from ATSR-Hub, same session | the six buttons on that side flashing red over ATSR's frame; the Lights tab says "+ spotter" |
 | First lap never "invalid" | start a session, drive the first lap, watch SLIPSTREAM / APEX / NOCTURNE | no LAP INVALID on lap 1; log `lap 1 flagged invalid before any lap was completed` if the game did flag it; a cut on lap 2+ still shows it |
 | Pit speed, AMS2 / LMU | drive into the pit lane with the limiter ON, hold it for a few seconds | pointer appears about a second after the speed settles; next time on that track it's there from the start. `session-report.py` shows the learned km/h under "Learned" |
 | Pit speed, iRacing | pit lane | pointer from the first moment (iRacing gives the limit) |

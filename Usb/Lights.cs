@@ -302,7 +302,7 @@ namespace User.FXProRpmSync
         /// spotter rule that's still exactly that old default to the six buttons on its side (one the player changed is left alone).
         /// True if it moved any.
         /// </summary>
-        public bool UpgradeSpotterGroups()
+        public bool UpgradeSpotterGroups(bool once = false)
         {
             bool changed = false;
             foreach (var a in Alerts ?? new List<AlertRule>())
@@ -312,6 +312,10 @@ namespace User.FXProRpmSync
                 else if (a.Trigger == AlertTrigger.SpotterRight) { from = LedGroup.SideRight; to = LedGroup.ButtonsRight; }
                 else continue;
                 if (a.Groups != null && a.Groups.Count == 1 && a.Groups[0] == from) { a.Groups[0] = to; changed = true; }
+                if (!once || a.Groups == null || a.Groups.Count != 1 || a.Groups[0] != to) continue;
+                // once: the spotter used to be steady and orange; on the buttons it flashes red, unless it's been given another style, rate or colour
+                if (a.Style == AlertStyle.Flash && a.BlinkHz <= 0) { a.BlinkHz = 2; changed = true; }
+                if (string.Equals(a.Color, "#FF5000", StringComparison.OrdinalIgnoreCase)) { a.Color = "#FF0000"; changed = true; }
             }
             return changed;
         }
@@ -609,10 +613,10 @@ namespace User.FXProRpmSync
         /// </summary>
         public static List<AlertRule> DefaultAlerts() => new List<AlertRule>
         {
-            // a car alongside takes the whole side of the wheel (the six buttons on that side); the three small lights beside the
-            // rev bar are for warnings like TC and ABS
-            new AlertRule { Trigger = AlertTrigger.SpotterLeft, Color = "#FF5000", BlinkHz = 0, Groups = { LedGroup.ButtonsLeft } },
-            new AlertRule { Trigger = AlertTrigger.SpotterRight, Color = "#FF5000", BlinkHz = 0, Groups = { LedGroup.ButtonsRight } },
+            // a car alongside takes the whole side of the wheel (the six buttons on that side), red, flashing twice a second, lit first and
+            // fully dark between (as ATSR-Hub's does); the three small lights beside the rev bar are for warnings like TC and ABS
+            new AlertRule { Trigger = AlertTrigger.SpotterLeft, Color = "#FF0000", BlinkHz = 2, Groups = { LedGroup.ButtonsLeft } },
+            new AlertRule { Trigger = AlertTrigger.SpotterRight, Color = "#FF0000", BlinkHz = 2, Groups = { LedGroup.ButtonsRight } },
             new AlertRule { Trigger = AlertTrigger.Abs, Color = "#FFB000", BlinkHz = 12, Groups = { LedGroup.SideLeft } },
             new AlertRule { Trigger = AlertTrigger.Tc, Color = "#00A0FF", BlinkHz = 12, Groups = { LedGroup.SideRight } },
             new AlertRule { Trigger = AlertTrigger.PitLimiter, Color = "#0040FF", BlinkHz = 3, Groups = { LedGroup.Rev } },
@@ -815,11 +819,16 @@ namespace User.FXProRpmSync
         {
             var taken = new bool[Count];
             bool painted = false;
+            if (alertSince.Count > 64) alertSince.Clear(); // rules of lights since switched away from
             foreach (var a in p.Alerts)
             {
-                if (!a.Enabled || !Active(a, v)) continue;
                 if (only != null && Array.IndexOf(only, a.Trigger) < 0) continue;
-                if (limiterOn && a.Trigger == AlertTrigger.PitLimiter) continue;
+                bool on = a.Enabled && Active(a, v) && !(limiterOn && a.Trigger == AlertTrigger.PitLimiter);
+                if (!on) { alertSince.Remove(a); continue; }
+                // the alert's own clock starts when it comes on, so a flash starts lit (a car appearing beside you shows at once, not
+                // up to half a blink later) and every alert begins its cycle at the beginning
+                if (!alertSince.TryGetValue(a, out var since) || since > now) alertSince[a] = since = now;
+                double age = now - since;
                 var (r, g, b) = Rgb(a.Color);
                 var leds = a.Groups.SelectMany(Model.AlertLeds).Distinct().ToArray();
                 for (int i = 0; i < leds.Length; i++)
@@ -828,12 +837,15 @@ namespace User.FXProRpmSync
                     if (taken[led]) continue;
                     taken[led] = true;
                     painted = true;
-                    double level = AlertLevel(a, i, leds.Length, now);
+                    double level = AlertLevel(a, i, leds.Length, age);
                     frame[led] = level <= 0 ? new LedColor(0, 0, 0, 1) : new LedColor((byte)(r * level), (byte)(g * level), (byte)(b * level), 90);
                 }
             }
             return painted;
         }
+
+        /// <summary>When each alert that's on came on (engine time), so its blink starts at its beginning.</summary>
+        private readonly Dictionary<AlertRule, double> alertSince = new Dictionary<AlertRule, double>();
 
         /// <summary>
         /// The first extra whose situation holds takes the rev bar: pit speed in the pit lane, the launch aid at a standing

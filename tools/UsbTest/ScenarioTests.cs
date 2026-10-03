@@ -63,10 +63,16 @@ static class ScenarioTests
 
         // spotter
         var sp = plays["spotter"];
-        Check("scenario spotter: car on the left lights the six left buttons orange, the right ones stay as they were", LeftButtons(At(sp, 3.5)).All(c => c.R > 200 && c.G > 40 && c.B == 0)
-              && RightButtons(At(sp, 3.5)).Zip(RightButtons(At(sp, 1)), Same).All(x => x));
-        Check("scenario spotter: car on the right lights the six right buttons", RightButtons(At(sp, 8.5)).All(c => c.R > 200 && c.G > 40 && c.B == 0) && LeftButtons(At(sp, 8.5)).Zip(LeftButtons(At(sp, 1)), Same).All(x => x));
-        Check("scenario spotter: both sides together", LeftButtons(At(sp, 13.5)).Concat(RightButtons(At(sp, 13.5))).All(c => c.R > 200 && c.G > 40 && c.B == 0));
+        bool Red(LedColor[] b) => b.All(c => c.R > 200 && c.G < 30 && c.B < 30);
+        bool Black(LedColor[] b) => b.All(c => !On(c));
+        Check("scenario spotter: car on the left: the six left buttons flash red, starting lit, 250 ms on and 250 ms off",
+              Red(LeftButtons(At(sp, 2.0))) && Red(LeftButtons(At(sp, 2.2))) && Black(LeftButtons(At(sp, 2.3))) && Black(LeftButtons(At(sp, 2.45))) && Red(LeftButtons(At(sp, 2.55))) && Black(LeftButtons(At(sp, 2.85))));
+        Check("scenario spotter: ...fully dark between flashes (not the theme), about half the time", Enumerable.Range(0, 60).Count(k => Red(LeftButtons(At(sp, 2.0 + k * 0.05)))) is int lit && lit >= 26 && lit <= 34
+              && Enumerable.Range(0, 60).Count(k => Black(LeftButtons(At(sp, 2.0 + k * 0.05)))) >= 26);
+        Check("scenario spotter: ...the right buttons are the theme the whole time", Enumerable.Range(0, 60).All(k => RightButtons(At(sp, 2.0 + k * 0.05)).Zip(RightButtons(At(sp, 1)), Same).All(x => x)));
+        Check("scenario spotter: car on the right: the six right buttons flash the same way, the left ones stay", Red(RightButtons(At(sp, 7.0))) && Black(RightButtons(At(sp, 7.3))) && Red(RightButtons(At(sp, 7.55)))
+              && Enumerable.Range(0, 60).All(k => LeftButtons(At(sp, 7.0 + k * 0.05)).Zip(LeftButtons(At(sp, 1)), Same).All(x => x)));
+        Check("scenario spotter: both sides flash together", Red(LeftButtons(At(sp, 12.0))) && Red(RightButtons(At(sp, 12.0))) && Black(LeftButtons(At(sp, 12.3))) && Black(RightButtons(At(sp, 12.3))));
         Check("scenario spotter: back to the theme when clear", At(sp, 5.5).Take(12).Zip(At(sp, 1).Take(12), Same).All(x => x));
         Check("scenario spotter: the three small lights beside the rev bar stay dark (they're for TC and ABS)", sp.All(f => Left(f).Concat(Right(f)).All(c => !On(c))));
 
@@ -154,7 +160,11 @@ static class ScenarioTests
         Check("scenarios: contact sheets written to OUT/scenarios", Directory.GetFiles(Path.Combine(dir, "scenarios"), "*.png").Length == LightScenarios.All.Count);
     }
 
-    /// <summary>One row of the wheel's LEDs every half second, as the driver sees them (buttons, encoders, side lights around the rev bar).</summary>
+    /// <summary>
+    /// One row of the wheel's LEDs every half second, as the driver sees them (buttons, encoders, side lights around the rev bar). Each LED
+    /// is two halves: the left half the moment of the row, the right half 0.27 s later, so something flashing shows as a half-lit dot
+    /// (a sample every half second alone would catch a 2 a second flash at the same point of its cycle every time and look steady).
+    /// </summary>
     static void Sheet(string path, LightScenario sc, List<LedColor[]> frames)
     {
         int[][] groups = { Enumerable.Range(0, 12).ToArray(), Enumerable.Range(12, 5).ToArray(), new[] { 17, 18, 19 }, Enumerable.Range(23, 15).ToArray(), new[] { 20, 21, 22 } };
@@ -172,6 +182,7 @@ static class ScenarioTests
             {
                 double t = row * 0.5;
                 var f = frames[Math.Min(frames.Count - 1, (int)Math.Round(t / Dt))];
+                var f2 = frames[Math.Min(frames.Count - 1, (int)Math.Round((t + 0.27) / Dt))];
                 sc.ValuesAt(t, out var note);
                 int y = 26 + row * rowH;
                 g.DrawString($"{t,4:0.0}s  {note}", font, Brushes.Gainsboro, 6, y + 3);
@@ -180,10 +191,13 @@ static class ScenarioTests
                 {
                     foreach (var i in grp)
                     {
-                        var c = f[i];
-                        double k = Math.Max(0.05, Math.Min(1, c.Brightness / 90.0));
-                        var col = On(c) ? Color.FromArgb((int)(c.R * k), (int)(c.G * k), (int)(c.B * k)) : Color.FromArgb(34, 34, 40);
-                        using (var b = new SolidBrush(col)) g.FillEllipse(b, x, y + 2, r * 2 - 2, r * 2 - 2);
+                        Color Shown(LedColor c)
+                        {
+                            double k = Math.Max(0.05, Math.Min(1, c.Brightness / 90.0));
+                            return On(c) ? Color.FromArgb((int)(c.R * k), (int)(c.G * k), (int)(c.B * k)) : Color.FromArgb(34, 34, 40);
+                        }
+                        using (var b = new SolidBrush(Shown(f[i]))) g.FillPie(b, x, y + 2, r * 2 - 2, r * 2 - 2, 90, 180);
+                        using (var b = new SolidBrush(Shown(f2[i]))) g.FillPie(b, x, y + 2, r * 2 - 2, r * 2 - 2, -90, 180);
                         using (var pen = new Pen(Color.FromArgb(70, 70, 80))) g.DrawEllipse(pen, x, y + 2, r * 2 - 2, r * 2 - 2);
                         x += pitch;
                     }

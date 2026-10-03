@@ -147,7 +147,7 @@ static class LightStateTests
                 var quiet = eng.Render(q, Car(true, 3000), null, 1.0, false, LightMoment.Of(CarState.Driving));
                 var lit = eng.Render(q, sv, null, 1.0, false, LightMoment.Of(CarState.Driving));
                 var leftLeds = model.AlertLeds(LedGroup.ButtonsLeft); var rightLeds = model.AlertLeds(LedGroup.ButtonsRight);
-                Check($"spotter: {model.Name} {preset.Name} lights the whole left side and nothing on the right", leftLeds.All(i => lit[i].R > 200 && lit[i].G > 40 && lit[i].B == 0) && rightLeds.All(i => SameLed(lit[i], quiet[i])));
+                Check($"spotter: {model.Name} {preset.Name} lights the whole left side and nothing on the right", leftLeds.All(i => lit[i].R > 200 && lit[i].G < 30 && lit[i].B < 30) && rightLeds.All(i => SameLed(lit[i], quiet[i])));
             }
         }
         // saved lights from before: the spotter on the small lights moves to the buttons; one the player changed stays
@@ -165,6 +165,38 @@ static class LightStateTests
         var upLog = new List<string>();
         Check("spotter upgrade: every saved profile, both wheels, with a log line each", LightsRepair.UpgradeSpotter(settings, upLog) && upLog.Count == 2 && settings.UserLights[0].Alerts[0].Groups[0] == LedGroup.ButtonsLeft
               && settings.Wheels["gtneo"].UserLights[0].Alerts[0].Groups[0] == LedGroup.ButtonsRight && !LightsRepair.UpgradeSpotter(settings, new List<string>()));
+        // the flash: 2 a second (250 ms lit, 250 ms dark, fully dark: not the theme), lit first when the car appears whatever the clock says
+        Check("spotter defaults: red", defs.Where(a => a.Trigger == AlertTrigger.SpotterLeft || a.Trigger == AlertTrigger.SpotterRight).All(a => a.Color == "#FF0000"));
+        Check("spotter defaults: flash, two a second", defs.Where(a => a.Trigger == AlertTrigger.SpotterLeft || a.Trigger == AlertTrigger.SpotterRight).All(a => a.BlinkHz == 2 && a.Style == AlertStyle.Flash));
+        var fe = new LightEngine(WheelModel.FxPro);
+        var fp = LightPresets.Find("synthwave").Clone();
+        var clear = Car(true, 3000); var beside = Car(true, 3000); beside.SpotterLeft = true;
+        bool Flashing(double now, DashValues val) { var fr = fe.Render(fp, val, null, now, false, LightMoment.Of(CarState.Driving)); return Enumerable.Range(0, 6).All(i => fr[i].R > 200 && fr[i].G < 30 && fr[i].B < 30); }
+        bool Blacked(double now, DashValues val) { var fr = fe.Render(fp, val, null, now, false, LightMoment.Of(CarState.Driving)); return Enumerable.Range(0, 6).All(i => fr[i].R + fr[i].G + fr[i].B == 0); }
+        fe.Render(fp, clear, null, 10.0, false, LightMoment.Of(CarState.Driving));
+        // 10.30 is in a dark half of a clock that started at 0 (10.3 * 4 = 41.2), yet the flash starts lit
+        Check("spotter flash: lit the moment the car appears, even where a fixed clock would be dark", Flashing(10.30, beside));
+        Check("spotter flash: dark 250 ms later, lit 500 ms later", Blacked(10.56, beside) && Flashing(10.81, beside));
+        Check("spotter flash: fully dark between flashes (the theme doesn't show through)", Blacked(11.06, beside));
+        fe.Render(fp, clear, null, 11.2, false, LightMoment.Of(CarState.Driving));
+        Check("spotter flash: starts again from lit when the next car appears", Flashing(11.45, beside) && Blacked(11.72, beside));
+        // upgrade: saved steady spotters flash, once; a style or rate the player chose stays
+        var steady = new LightProfile { Alerts = new List<AlertRule> {
+            new AlertRule { Trigger = AlertTrigger.SpotterLeft, BlinkHz = 0, Groups = { LedGroup.SideLeft } },               // the old default
+            new AlertRule { Trigger = AlertTrigger.SpotterRight, BlinkHz = 0, Groups = { LedGroup.ButtonsRight } } } };      // moved already, still steady
+        Check("spotter upgrade: a steady spotter moves to the buttons and flashes", steady.UpgradeSpotterGroups(once: true) && steady.Alerts.All(a => a.BlinkHz == 2) && steady.Alerts[0].Groups[0] == LedGroup.ButtonsLeft);
+        var colours = new LightProfile { Alerts = new List<AlertRule> {
+            new AlertRule { Trigger = AlertTrigger.SpotterLeft, BlinkHz = 2, Color = "#FF5000", Groups = { LedGroup.ButtonsLeft } },       // the old orange default
+            new AlertRule { Trigger = AlertTrigger.SpotterRight, BlinkHz = 2, Color = "#00FF40", Groups = { LedGroup.ButtonsRight } } } };   // one the player chose
+        Check("spotter upgrade: the old orange turns red, a colour the player chose stays", colours.UpgradeSpotterGroups(once: true) && colours.Alerts[0].Color == "#FF0000" && colours.Alerts[1].Color == "#00FF40");
+        var chosen = new LightProfile { Alerts = new List<AlertRule> {
+            new AlertRule { Trigger = AlertTrigger.SpotterLeft, BlinkHz = 5, Groups = { LedGroup.ButtonsLeft } },
+            new AlertRule { Trigger = AlertTrigger.SpotterRight, BlinkHz = 0, Style = AlertStyle.Pulse, Groups = { LedGroup.ButtonsRight } } } };
+        Check("spotter upgrade: another rate or style is left alone", !chosen.UpgradeSpotterGroups(once: true) && chosen.Alerts[0].BlinkHz == 5 && chosen.Alerts[1].BlinkHz == 0);
+        var once = new UsbSettings { UserLights = new List<LightProfile> { new LightProfile { Id = "s", Name = "S", Alerts = new List<AlertRule> { new AlertRule { Trigger = AlertTrigger.SpotterLeft, BlinkHz = 0, Groups = { LedGroup.ButtonsLeft } } } } } };
+        bool firstRun = LightsRepair.UpgradeSpotter(once, new List<string>());
+        once.UserLights[0].Alerts[0].BlinkHz = 0; // the player turns the flash off afterwards
+        Check("spotter upgrade: the flash is applied once; a later choice of steady sticks", firstRun && once.AlertUpgrades == 1 && !LightsRepair.UpgradeSpotter(once, new List<string>()) && once.UserLights[0].Alerts[0].BlinkHz == 0);
         var small = new LedColor[10];
         Check("spotter: a frame of another size is left alone", ReferenceEquals(e.OverlaySpotter(small, p, left, 1), small));
         var neoFrame = Enumerable.Repeat(new LedColor(10, 20, 30, 90), 73).ToArray();
@@ -272,8 +304,8 @@ static class LightStateTests
         var withSpotter = Car(true, 3000); withSpotter.SpotterLeft = true;
         var sp = e.Render(spot, withSpotter, null, 1.0, false, LightMoment.Of(CarState.Driving));
         var noSpotter = e.Render(spot, Car(true, 3000), null, 1.0, false, LightMoment.Of(CarState.Driving));
-        Check("driving: a car on the left lights the six buttons on the left orange, leaves the right ones and the small lights alone",
-              Enumerable.Range(0, 6).All(i => sp[i].R > 200 && sp[i].G > 40 && sp[i].B == 0) && Enumerable.Range(6, 11).All(i => Same(sp[i], noSpotter[i])) && Enumerable.Range(17, 6).All(i => Dark(sp[i])));
+        Check("driving: a car on the left lights the six buttons on the left red, leaves the right ones and the small lights alone",
+              Enumerable.Range(0, 6).All(i => sp[i].R > 200 && sp[i].G < 30 && sp[i].B < 30) && Enumerable.Range(6, 11).All(i => Same(sp[i], noSpotter[i])) && Enumerable.Range(17, 6).All(i => Dark(sp[i])));
         var parked = e.Render(LightPresets.Find("neon-tokyo").Clone(), new DashValues(), null, 1.0, false, LightMoment.Of(CarState.Idle));
         var parked2 = e.Render(LightPresets.Find("neon-tokyo").Clone(), new DashValues(), null, 2.7, false, LightMoment.Of(CarState.Idle));
         Check("driving: parked looks still animate", Enumerable.Range(0, 38).Any(i => !Same(parked[i], parked2[i])));

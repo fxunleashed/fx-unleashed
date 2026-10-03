@@ -291,6 +291,9 @@ namespace User.FXProRpmSync
         /// <summary>Launch aid targets per car ("Game | CarId"): what to hold at a standing start (RevExtrasOptions.Launch).</summary>
         public Dictionary<string, LaunchTarget> CarLaunch = new Dictionary<string, LaunchTarget>();
 
+        /// <summary>One-time upgrades of saved alerts done (bit 1: a steady orange spotter on the buttons flashes red), so a player's later choice sticks.</summary>
+        public int AlertUpgrades;
+
         /// <summary>Pit speed limits in km/h per "Game | Track", learned from the speed the pit limiter holds (RevExtrasState).</summary>
         public Dictionary<string, double> PitSpeeds = new Dictionary<string, double>();
 

@@ -129,7 +129,7 @@ plays them all and draws `OUT/scenarios/*.png`. What to try with the wheel and g
 `tools/session-report.py` summarises a session from the log.
 
 **Spotter** (2026-10-03): a car alongside lights the **six buttons on its side** of the wheel (FX Pro buttons 0-5 left, 6-11 right; GT Neo grips 5-9
-left, 0-4 right), on every built-in preset, so it can't be missed. The three small lights beside the rev bar are kept for warnings like
+left, 0-4 right), on every built-in preset, so it can't be missed, **red and flashing twice a second** (250 ms lit, lit first, then fully dark: ATSR-Hub's spotter does the same; every alert's cycle starts when it comes on). The three small lights beside the rev bar are kept for warnings like
 TC (right) and ABS (left), as on a real car's dash; the turn indicators (off by default) use them too. Two alert-only groups carry this
 (`LedGroup.ButtonsLeft/ButtonsRight`, offered in the alert editor); saved lights that still have the spotter on the small lights are moved
 to the buttons at start-up (`LightsRepair.UpgradeSpotter`, a copy of the settings first), one the player set up differently is left alone.
