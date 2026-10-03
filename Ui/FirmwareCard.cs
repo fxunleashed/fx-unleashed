@@ -313,7 +313,7 @@ namespace User.FXProRpmSync
                          "1. The plugin sends the screen's new header (about 10 seconds).\n" +
                          "2. You watch the wheel's screen: it checks itself, then restarts into its dash if it worked (its \"Update Successed\" flashes by too fast to see), or stops on \"Update Failed\". You say which.\n" +
                          "3. You power-cycle the wheel: base off AND USB unplugged for 5 seconds, then both back.\n" +
-                         "4. The plugin checks the screen (green or red) and you're done.\n\n" +
+                         "4. The plugin checks the screen (a green card in the middle of red means picture memory is on, a solid red screen means it's off) and tells you the result.\n\n" +
                          "Wheel on the base, USB plugged in, no game running. Don't unplug or switch off before step 3. Go ahead?")) return;
 
             // From now on the screen's picture memory is unknown: nothing may use it until the check at the end says so,

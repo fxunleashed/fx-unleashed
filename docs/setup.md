@@ -96,7 +96,9 @@ recovery** in the same card, which puts Simagic's original back: nothing is lost
 can sit with the wheel for five minutes.
 
 1. Wheel on the base, USB in, **no game running**. SimHub > FX Unleashed > **Wheel** tab.
-2. Press **Check my screen (safe, 5 s)**. A green card on a red screen means it already has picture memory: you're done.
+2. Press **Check my screen (safe, 5 s)**. The screen turns red. If a **green card** appears in the middle, the RAM patch is already
+   installed: skip the rest of this step and go on to step 4. If it stays a **solid red** screen, the patch isn't installed yet:
+   carry on with the steps below.
 3. In the **Firmware** card ("Screen memory and recovery"): open *Before you start: the risks*, switch on **I've read the risks
    and want to go ahead**, then press **Turn picture memory on**.
 4. Follow the steps the plugin shows. It sends the change (10 seconds), then the screen checks itself (up to a minute) and
