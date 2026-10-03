@@ -312,6 +312,26 @@ static class WorkstreamTests
         var raw = new System.Drawing.Color[38]; raw[23] = System.Drawing.Color.Lime; raw[5] = none;
         var r = SimHubLedDevice.ToFrame(strip, new System.Drawing.Color[0], new System.Drawing.Color[0], raw, new System.Drawing.Color[0], 1, 1, 1);
         Check("D: individual LEDs override the groups", r[23].G == 255 && r[23].R == 0 && r[17].R == 255);
+        // the device's maps against the wheel model, so the two can't drift: every one of the 38 LEDs is reachable from exactly one
+        // SimHub source, and each source lands in its own group in the model's order (the model is what the presets and ATSR-Hub use too)
+        var model = WheelModel.FxPro;
+        int One(LedColor[] frame) { var on = Enumerable.Range(0, frame.Length).Where(i => frame[i].Brightness > 0).ToList(); return on.Count == 1 ? on[0] : -1; }
+        var white = System.Drawing.Color.White; var empty = new System.Drawing.Color[0];
+        var reached = new System.Collections.Generic.List<int>();
+        var stripLeds = new System.Collections.Generic.List<int>(); var buttonLeds = new System.Collections.Generic.List<int>(); var encoderLeds = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < 21; i++) { var one = new System.Drawing.Color[21]; one[i] = white; stripLeds.Add(One(SimHubLedDevice.ToFrame(one, empty, empty, empty, empty, 1, 1, 1))); }
+        for (int i = 0; i < 12; i++) { var one = new System.Drawing.Color[12]; one[i] = white; buttonLeds.Add(One(SimHubLedDevice.ToFrame(empty, one, empty, empty, empty, 1, 1, 1))); }
+        for (int i = 0; i < 5; i++) { var one = new System.Drawing.Color[5]; one[i] = white; encoderLeds.Add(One(SimHubLedDevice.ToFrame(empty, empty, one, empty, empty, 1, 1, 1))); }
+        reached.AddRange(stripLeds); reached.AddRange(buttonLeds); reached.AddRange(encoderLeds);
+        Check("D: all 38 wheel LEDs are reachable, each from exactly one SimHub source", reached.Distinct().Count() == 38 && reached.All(i => i >= 0 && i < 38), string.Join(",", reached));
+        Check("D: strip 0-2 = the left side lights, top to bottom (the model's SideLeft)", stripLeds.Take(3).SequenceEqual(model.Leds(LedGroup.SideLeft)));
+        Check("D: strip 3-17 = the rev lights, left to right (the model's Rev)", stripLeds.Skip(3).Take(15).SequenceEqual(model.Leds(LedGroup.Rev)));
+        Check("D: strip 18-20 = the right side lights, top to bottom (the model's SideRight)", stripLeds.Skip(18).SequenceEqual(model.Leds(LedGroup.SideRight)));
+        Check("D: the 12 buttons are the model's Buttons, in order", buttonLeds.SequenceEqual(model.Leds(LedGroup.Buttons)));
+        Check("D: the 5 encoders (ABS, TC, BB, DIFF, MAP) are the model's Encoders, in order", encoderLeds.SequenceEqual(model.Leds(LedGroup.Encoders)));
+        Check("D: a SimHub colour with no alpha or no colour lights nothing", One(SimHubLedDevice.ToFrame(new[] { System.Drawing.Color.FromArgb(0, 255, 0, 0), System.Drawing.Color.Black }, empty, empty, empty, empty, 1, 1, 1)) == -1);
+        Check("D: brightness 0 lights nothing, and over 1 is capped at the firmware's 90", One(SimHubLedDevice.ToFrame(new[] { white }, empty, empty, empty, empty, 0, 1, 1)) == -1
+              && SimHubLedDevice.ToFrame(new[] { white }, empty, empty, empty, empty, 5, 1, 1)[17].Brightness == 90);
         if (System.Environment.GetEnvironmentVariable("UI_DEVICE") == "1")
         {
             try { var inst = reg[0].Factory(); System.Console.WriteLine("D: created " + (inst?.GetType().FullName ?? "null")); }

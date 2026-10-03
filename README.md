@@ -29,7 +29,7 @@ It has two modes:
   [library](https://fxunleashed.com/library/) in a click. Pick one or more per car; the dash button steps through them.
 - **Every light:** presets and an editor per group (rev lights, side lights, buttons, encoders), each car's real shift
   lights, alerts (flags, spotter, pit limiter, ABS/TC, low fuel, invalid lap, custom alerts from any SimHub value) in
-  your order, encoder rings that show their setting, buttons that light while pressed. Or let ATSR-Hub or any SimHub
+  your order, encoder rings that show their setting, buttons that light while pressed. Or let ATSR-Hub (we publish its FX Pro profile: [lights guide](https://fxunleashed.com/docs/lights/)) or any SimHub
   LED profile drive them (the wheel shows up in SimHub's Devices).
 - **Between sessions:** screensavers (the logo, a clock, start lights, your last session, a picture, a library item)
   and sleep.

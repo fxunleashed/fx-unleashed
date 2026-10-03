@@ -122,9 +122,10 @@ Simagic's header back.
   [how to submit](https://fxunleashed.com/docs/library-submit/).
 - **Lights tab:** pick a preset or edit one per group (rev lights, side lights, buttons, encoders), per car and per game. Rev
   lights follow each car's real shift lights where the data exists. Alerts (flags, spotter, pit limiter, ABS/TC, low fuel...)
-  come in the order you choose. ATSR-Hub or any SimHub LED profile can drive the lights instead (SimHub > Devices > add
-  "FX Pro wheel (USB mode)", then Lights tab > SimHub device).
-- **Idle & sleep tab:** screensavers between sessions (the logo, a clock, your own picture, a library item) and sleep.
+  come in the order you choose. ATSR-Hub or any SimHub LED profile can drive the lights instead: the [lights guide](https://fxunleashed.com/docs/lights/)
+  has the steps (SimHub > Devices > add "FX Pro wheel (USB mode)", the ATSR-Hub profile to download, and where each light lands).
+- **Idle & sleep tab:** screensavers between sessions (the logo, a clock, your own picture, a library item) and sleep. It has its own
+  screensaver library, separate from the dashes; **Share...** on one of your own screensavers submits it.
 - **Wheel tab > Quick controls:** a brightness ceiling for every light, night mode, and wheel buttons for next dash and more.
 - **Streaming tab:** an OBS browser source with the wheel's screen and lights.
 

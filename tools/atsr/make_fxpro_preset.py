@@ -54,7 +54,7 @@ def main():
     rpm[14]['Coordinates'] = [2 * b[0] - a[0], 2 * b[1] - a[1]]  # where ATSR-Hub draws the 15th rev LED
     s['RPMCount'] = 15
     s['VID'], s['PID'] = '0483', '0529'
-    j['presetName'] = 'Simagic FX Pro (FXPro RPM Sync USB mode)'
+    j['presetName'] = 'Simagic FX Pro (FX Unleashed)'
 
     covered = sorted(i for k in ei for e in ei[k] if e['IsElement'] for i in range(e['Index'], e['Index'] + e['LEDCount']))
     assert covered == list(range(38)), covered

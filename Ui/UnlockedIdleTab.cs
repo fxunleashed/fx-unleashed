@@ -75,9 +75,10 @@ namespace User.FXProRpmSync
             Children.Add(saverCard);
 
             var online = new StackPanel();
-            online.Children.Add(Theme.Eyebrow("Library"));
-            online.Children.Add(Theme.Note("Screensavers made by the community: install one and pick it above."));
-            online.Children.Add(new Expander { Header = "Browse the library", Content = new LibraryPanel(plugin, "saver", BuildGallery), Margin = new Thickness(0, 8, 0, 0) });
+            online.Children.Add(Theme.Eyebrow("Screensaver library"));
+            online.Children.Add(Theme.Note("Screensavers made by the community, apart from the dashes: install one and pick it above. Made your own (a picture or a dash)? " +
+                                           "Press Share… on its tile above to package it for the library."));
+            online.Children.Add(new Expander { Header = "Browse the screensaver library", Content = new LibraryPanel(plugin, "saver", BuildGallery), Margin = new Thickness(0, 8, 0, 0), IsExpanded = true });
             var onlineCard = Theme.CardBox(online);
             Children.Add(onlineCard);
             bool hasScreen = plugin.ActiveModel.HasScreen;
@@ -164,6 +165,14 @@ namespace User.FXProRpmSync
                         BuildGallery();
                     };
                     frame.Children.Add(remove);
+                    var share = new Button
+                    {
+                        Content = "Share…", Height = 24, Padding = new Thickness(8, 0, 8, 0), FontSize = 11,
+                        HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 6, 0, 0),
+                        ToolTip = "Package this screensaver for the library, to share it with everyone",
+                    };
+                    share.Click += (s, e) => PackageSaver(captured);
+                    frame.Children.Add(share);
                 }
                 var id = item.Id;
                 bool isDefault = item.Id == IdleScreens.Find(S, S.SaverId).Id;
@@ -214,6 +223,16 @@ namespace User.FXProRpmSync
                 case SaverKind.Image: return "Picture";
                 default: return "Dash";
             }
+        }
+
+        /// <summary>"Share…" on one of your own screensavers: the Package dialog, as a screensaver (the library keeps them apart from dashes).</summary>
+        private void PackageSaver(SaverItem item)
+        {
+            var owner = Window.GetWindow(this);
+            var d = IdleScreens.DashFor(item, DashCache.All())?.Clone();
+            if (d == null) { MessageBox.Show(owner, "This screensaver can't be packaged.", "Package for the library"); return; }
+            if (!string.IsNullOrWhiteSpace(item.Name)) d.Name = item.Name;
+            PackageDialog.Show(owner, d, "saver");
         }
 
         private void AddPicture()

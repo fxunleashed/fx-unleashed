@@ -31,6 +31,14 @@ namespace User.FXProRpmSync
             p.Children.Add(Theme.Note("Makes a package for the library: the plugin renders its preview and measures what it sends to the wheel. You then " +
                                       "send it with the library's form (a free GitHub account is needed) and, if it passes the checks, it is published right away. " +
                                       "Dashes with JavaScript (js: formulas, scripts) can't go in the library.", new Thickness(0, 6, 0, 12)));
+            // a dash is shown while you race; a screensaver between sessions: the library keeps them apart, so say which this is
+            string chosen = kind == "saver" ? "saver" : "dash";
+            var kindBox = new ComboBox { Width = 380 };
+            kindBox.Items.Add("A dash (shown while you race)");
+            kindBox.Items.Add("A screensaver (shown between sessions)");
+            kindBox.SelectedIndex = chosen == "saver" ? 1 : 0;
+            kindBox.SelectionChanged += (s, e) => chosen = kindBox.SelectedIndex == 1 ? "saver" : "dash";
+            p.Children.Add(Theme.Field("What is it?", kindBox, 170));
             string Slug(string s) => Regex.Replace((s ?? "").ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
             TextBox Box(string label, string value, string hint = null)
             {
@@ -66,7 +74,7 @@ namespace User.FXProRpmSync
                 string[] List(TextBox b) => b.Text.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
                 var meta = new LibraryItem
                 {
-                    Id = id.Text.Trim(), Kind = kind, Version = version.Text.Trim(), Name = name.Text.Trim(), Author = author.Text.Trim(), Description = desc.Text.Trim(),
+                    Id = id.Text.Trim(), Kind = chosen, Version = version.Text.Trim(), Name = name.Text.Trim(), Author = author.Text.Trim(), Description = desc.Text.Trim(),
                     Games = List(games).ToList(), Cars = List(cars).ToList(), Tags = List(tags).ToList(),
                     License = (license.Text ?? "").Trim(), Source = string.IsNullOrWhiteSpace(source.Text) ? null : source.Text.Trim(),
                     Permission = string.IsNullOrWhiteSpace(permission.Text) ? null : permission.Text.Trim(),

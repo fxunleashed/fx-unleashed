@@ -197,7 +197,9 @@ editor, any SimHub LED profile, and ATSR-Hub through SimHub drive its lights (`U
 - Every frame SimHub computes goes through `FXProLedDriver.Display` to `UsbController.PublishDevice`, used when the Lights
   tab says "Lights come from: SimHub device" (the LED ceiling and press lights still apply). Connected = USB mode on and
   the wheel found.
-- **Not yet tried inside SimHub on the wheel.** When it is, the ATSR-Hub bridge below can go.
+- **Checked** (2026-10-03): the mapping is tested against the wheel model (every LED reachable from exactly one source, groups and order), SimHub's own
+  code passes brightness as 0-1 and orders `LedSplit(3, 15, 3)` left, centre, right, and on the wheel SimHub's default button and encoder colours lit exactly
+  LEDs 0-16. The rev bar and side lights are covered by the tests only (SimHub's profiles keep them off out of a game). User guide: [lights.md](lights.md).
 
 ## How it talks to the wheel
 

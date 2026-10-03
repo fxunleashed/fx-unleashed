@@ -140,6 +140,7 @@ namespace User.FXProRpmSync
             {
                 if (i < 0 || i >= f.Length || c.A == 0 || (c.R | c.G | c.B) == 0) return;
                 double k = Math.Max(0, Math.Min(1, brightness)) * c.A / 255.0;
+                if (k <= 0) return; // brightness 0 in SimHub is off, not "dimmest"
                 f[i] = new LedColor(c.R, c.G, c.B, (byte)Math.Max(1, Math.Round(90 * k)));
             }
             for (int i = 0; i < leds.Length && i < StripMap.Length; i++) Set(StripMap[i], leds[i], rpmBrightness);
