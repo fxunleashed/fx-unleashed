@@ -130,6 +130,7 @@ namespace User.FXProRpmSync
                     buttons.Children.Add(Theme.Btn("Use for this car", () => UseForCar(item)));
                 buttons.Children.Add(Theme.Btn("Remove", () => { LibraryInstaller.Remove(S, item.Kind, item.Id); Done("Removed " + item.Name); }));
             }
+            buttons.Children.Add(Theme.Btn("Copy link", () => status.Text = DashShareUi.CopyLink(item.Kind, item.Id)));
             body.Children.Add(buttons);
             var tile = Theme.CardBox(body, 10, new Thickness(0, 0, 12, 12));
             tile.Width = 262;
@@ -137,15 +138,7 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>The library terms, once (again if their text changes).</summary>
-        private bool TermsAccepted()
-        {
-            string hash = Legal.Hash(Legal.LibraryTerms);
-            if (S.LibraryTermsAccepted == hash) return true;
-            var ok = MessageBox.Show(Window.GetWindow(this), Legal.Unwrap(Legal.LibraryTerms) + "\n\nInstall from the library?", "FX Unleashed library",
-                                     MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.No) == MessageBoxResult.Yes;
-            if (ok) { S.LibraryTermsAccepted = hash; plugin.SaveSettings(); }
-            return ok;
-        }
+        private bool TermsAccepted() => TermsGate.Accepted(Window.GetWindow(this), plugin, "Install from the library?", "FX Unleashed library");
 
         private void Install(LibraryItem item)
         {

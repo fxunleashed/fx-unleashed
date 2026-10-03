@@ -40,6 +40,7 @@ namespace User.FXProRpmSync
             var id = Box("Id", Slug(d.Name), "lower case letters, digits and dashes; the folder's name");
             var name = Box("Name", d.Name);
             var author = Box("Author", d.Author);
+            var version = Box("Version", "1.0.0", "x.y.z. Publishing an update to something you already published? Raise it, or players won't see the update");
             var desc = Box("Description", d.Description);
             var games = Box("Games", "", "comma separated, as SimHub names them (e.g. LMU, IRacing, AssettoCorsaCompetizione)");
             var cars = Box("Cars", "", "comma separated (optional)");
@@ -49,6 +50,7 @@ namespace User.FXProRpmSync
             license.SelectedIndex = 0;
             p.Children.Add(Theme.Field("Licence", license, 170));
             var source = Box("Based on", d.Source, "if you converted someone else's dash: which one (you need their permission)");
+            var permission = Box("Permission", "", "for converted work: a link to where its author agreed to it being shared (required with \"Based on\")");
             bool rights = false;
             var ack = Theme.Switch("I made this, or I have its author's permission to share it under this licence", false, v => rights = v);
             ack.Margin = new Thickness(0, 10, 0, 4);
@@ -63,19 +65,27 @@ namespace User.FXProRpmSync
                 string[] List(TextBox b) => b.Text.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
                 var meta = new LibraryItem
                 {
-                    Id = id.Text.Trim(), Kind = kind, Name = name.Text.Trim(), Author = author.Text.Trim(), Description = desc.Text.Trim(),
+                    Id = id.Text.Trim(), Kind = kind, Version = version.Text.Trim(), Name = name.Text.Trim(), Author = author.Text.Trim(), Description = desc.Text.Trim(),
                     Games = List(games).ToList(), Cars = List(cars).ToList(), Tags = List(tags).ToList(),
                     License = (license.Text ?? "").Trim(), Source = string.IsNullOrWhiteSpace(source.Text) ? null : source.Text.Trim(),
+                    Permission = string.IsNullOrWhiteSpace(permission.Text) ? null : permission.Text.Trim(),
                 };
+                if (!Regex.IsMatch(meta.Version ?? "", @"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")) { status.Text = "The version looks like 1.0.0 (three numbers with dots)."; return; }
+                if (meta.Source != null && meta.Permission == null) { status.Text = "This is based on someone else's work: add a link to where its author agreed to it being shared (Permission). Without it the library can't take it."; return; }
                 if (string.IsNullOrEmpty(meta.Name) || string.IsNullOrEmpty(meta.Author) || string.IsNullOrEmpty(meta.License)) { status.Text = "Name, author and licence are needed."; return; }
                 try
                 {
                     status.Text = "Rendering and measuring (a minute of demo lap)...";
                     var dir = LibraryInstaller.Package(d, meta, OutRoot);
-                    try { Process.Start("explorer.exe", "\"" + dir + "\""); } catch { }
-                    MessageBox.Show(w, $"Packaged in\n{dir}\n\nTo publish it: add the folder \"{Path.GetFileName(Path.GetDirectoryName(dir))}\\{meta.Id}\" to the library " +
-                                       $"repo with a pull request ({LibraryRepoUrl}, see CONTRIBUTING.md). The library checks it again before it goes in.",
-                                    "Packaged", MessageBoxButton.OK, MessageBoxImage.Information);
+                    var zip = LibraryInstaller.ZipPackage(dir);
+                    var open = MessageBox.Show(w, $"Packaged as\n{zip}\n\n" +
+                                       "To publish it: open the submission form, drag that .zip into it, and submit. The library checks it " +
+                                       "and a maintainer adds it; you are credited as its author. (A folder with the same files is next to it, for a pull request.)\n\n" +
+                                       "Open the form now?",
+                                    "Packaged", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                    try { Process.Start("explorer.exe", "/select,\"" + zip + "\""); } catch { }
+                    if (open == MessageBoxResult.Yes)
+                        try { Process.Start(LibraryRepoUrl + "/issues/new?template=submit-dash.yml"); } catch { }
                     w.Close();
                 }
                 catch (Exception ex) { status.Text = "Not packaged: " + ex.Message; }

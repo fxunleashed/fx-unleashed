@@ -48,6 +48,11 @@ namespace User.FXProRpmSync
         public UnlockedDashesTab(FXProRpmSyncPlugin plugin)
         {
             this.plugin = plugin;
+            // dash files dropped anywhere on the tab are imported (a panel only receives drops when it has a background)
+            Background = Brushes.Transparent;
+            AllowDrop = true;
+            DragOver += (s, e) => { e.Effects = DroppedDashFiles(e).Any() ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
+            Drop += (s, e) => { var files = DroppedDashFiles(e).ToList(); e.Handled = true; if (files.Count > 0) ImportFiles(files); };
             preview = new LiveDashPreview(previewImage, () => plugin.Usb, d => S.RamFor(d.Id));
 
             // ----- The list -----
@@ -90,6 +95,7 @@ namespace User.FXProRpmSync
             var lib = new StackPanel();
             var libHead = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
             var tools = new StackPanel { Orientation = Orientation.Horizontal };
+            tools.Children.Add(Theme.Btn("Import a file…", () => ImportFiles(null)));
             tools.Children.Add(Theme.Btn("Designer", () => OpenDesigner(null), icon: ""));
             tools.Children.Add(Theme.Btn("Folder", OpenDashFolder, icon: ""));
             tools.Children.Add(Theme.Btn("Reload", () => { DashCache.All(force: true); BuildLibrary(); Usb?.ReloadDashes(); }, icon: ""));
@@ -536,7 +542,12 @@ namespace User.FXProRpmSync
             {
                 focusButtons.Children.Add(Theme.Btn("Edit in the designer", () => OpenDesigner(d.Id), icon: ""));
                 if (d.BuiltIn) focusButtons.Children.Add(Theme.Btn("Save a copy", () => SaveCopy(d), icon: ""));
-                else if (!d.Id.StartsWith("lib-")) focusButtons.Children.Add(Theme.Btn("Package for the library", () => PackageDialog.Show(Window.GetWindow(this), d, "dash"), icon: ""));
+                else if (d.Id.StartsWith("lib-")) focusButtons.Children.Add(Theme.Btn("Copy link", () => { focusProblems.Text = DashShareUi.CopyLink("dash", d.Id.Substring(4)); }));
+                else
+                {
+                    focusButtons.Children.Add(Theme.Btn("Share…", () => DashShareUi.Share(Window.GetWindow(this), d)));
+                    focusButtons.Children.Add(Theme.Btn("Package for the library", () => PackageDialog.Show(Window.GetWindow(this), d, "dash"), icon: ""));
+                }
             }
             ShowFocusRam(wheel ? null : d);
             demoChip.Visibility = wheel ? Visibility.Collapsed : Visibility.Visible;
@@ -617,6 +628,23 @@ namespace User.FXProRpmSync
         {
             try { System.IO.Directory.CreateDirectory(DashLibrary.Folder); Process.Start("explorer.exe", DashLibrary.Folder); }
             catch (Exception ex) { MessageBox.Show(ex.Message, "FX Unleashed"); }
+        }
+
+        private static IEnumerable<string> DroppedDashFiles(DragEventArgs e) =>
+            e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] f ? f.Where(DashShareUi.IsDashFile) : Enumerable.Empty<string>();
+
+        /// <summary>Imports dash files (a picker when none are given), then shows the last one added.</summary>
+        private void ImportFiles(IEnumerable<string> files)
+        {
+            var owner = Window.GetWindow(this);
+            var done = files == null ? DashShareUi.ImportWithPicker(owner, plugin) : DashShareUi.Import(owner, plugin, files);
+            if (done.Count == 0) return;
+            DashCache.All(force: true);
+            BuildLibrary();
+            Usb?.ReloadDashes();
+            focus = DashRef.Custom(done.Last().Dash.Id);
+            RefreshBadges();
+            ShowFocus();
         }
 
         private void SaveCopy(DashDefinition d)

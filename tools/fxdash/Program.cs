@@ -34,9 +34,10 @@ internal static class FxDash
                                              convert a SimHub dash (report on stdout)
   fxdash serve [--port 8899]                 run the designer in the browser (no wheel; SimHub formulas not evaluated)
   fxdash package DASH.json LIBRARY_DIR --id ID --author NAME --license SPDX [--kind dash|saver] [--name N]
-                 [--description D] [--games a,b] [--cars a,b] [--tags a,b] [--version 1.0.0] [--source S]
+                 [--description D] [--games a,b] [--cars a,b] [--tags a,b] [--version 1.0.0] [--source S --permission URL]
                                              a library item: <dir>/dashes/<id>/{dash.json, meta.json, preview.png}
-                                             (as the plugin's Package for the library; refuses js:/scripts)
+                                             (as the plugin's Package for the library; refuses js:/scripts) and <dir>/<id>.fxdash.zip, the
+                                             file the library's Submit a dash form takes
 
   Options: --simhub DIR (SimHub's folder, default: SIMHUB_INSTALL_PATH or C:\Program Files (x86)\SimHub)";
 
@@ -150,10 +151,12 @@ internal static class FxDash
                         Id = O("id") ?? throw new Exception("--id needed"), Kind = O("kind") ?? "dash",
                         Name = O("name") ?? dash.Name, Author = O("author") ?? dash.Author ?? throw new Exception("--author needed"),
                         Description = O("description") ?? dash.Description, License = O("license") ?? throw new Exception("--license needed"),
-                        Games = L("games"), Cars = L("cars"), Tags = L("tags"), Version = O("version") ?? "1.0.0", Source = O("source"),
+                        Games = L("games"), Cars = L("cars"), Tags = L("tags"), Version = O("version") ?? "1.0.0", Source = O("source"), Permission = O("permission"),
                     };
+                    if (meta.Source != null && meta.Permission == null) throw new Exception("--source needs --permission: where the original's author agreed (the library refuses converted work without it)");
                     var dir = LibraryInstaller.Package(dash, meta, pos[2]);
-                    return Out(new { written = Path.GetFullPath(dir), meta = JsonConvert.DeserializeObject(File.ReadAllText(Path.Combine(dir, "meta.json"))) });
+                    var zip = LibraryInstaller.ZipPackage(dir);
+                    return Out(new { written = Path.GetFullPath(dir), zip = Path.GetFullPath(zip), meta = JsonConvert.DeserializeObject(File.ReadAllText(Path.Combine(dir, "meta.json"))) });
                 }
                 default:
                     Console.WriteLine(Usage);

@@ -12,6 +12,7 @@ static class WorkstreamTests
         LedDevice();
         BaseSettingsTests();
         LibraryTests();
+        ShareTests();
         ServerOrigins();
         RealLibrary();
     }
@@ -28,6 +29,14 @@ static class WorkstreamTests
             var meta = new LibraryItem { Id = "test-dash", Name = "Test dash", Author = "tester", License = "CC-BY-4.0", Games = { "LMU" }, Version = "1.0.0" };
             var dir = LibraryInstaller.Package(dash, meta, lib);
             Check("C: package writes dash.json, meta.json, preview.png", new[] { "dash.json", "meta.json", "preview.png" }.All(f => System.IO.File.Exists(System.IO.Path.Combine(dir, f))));
+            var zipFile = LibraryInstaller.ZipPackage(dir);
+            string[] zipped; using (var za = System.IO.Compression.ZipFile.OpenRead(zipFile)) zipped = za.Entries.Select(e => e.FullName).OrderBy(x => x).ToArray();
+            Check("C: the package zip holds <id>/dash.json, meta.json, preview.png (what the submission form takes)",
+                  zipped.SequenceEqual(new[] { "test-dash/dash.json", "test-dash/meta.json", "test-dash/preview.png" }) && zipFile.EndsWith("test-dash.fxdash.zip"), string.Join(", ", zipped));
+            var conv = dash.Clone(); conv.Id = "conv";
+            var convDir = LibraryInstaller.Package(conv, new LibraryItem { Id = "conv-dash", Name = "Conv", Author = "t", License = "CC0-1.0", Source = "https://example.com/a", Permission = "https://example.com/ok" }, lib);
+            var convMeta = System.IO.File.ReadAllText(System.IO.Path.Combine(convDir, "meta.json"));
+            Check("C: converted work's Source and Permission reach meta.json", convMeta.Contains("\"Source\": \"https://example.com/a\"") && convMeta.Contains("\"Permission\": \"https://example.com/ok\""));
             var m = Newtonsoft.Json.JsonConvert.DeserializeObject<LibraryItem>(System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "meta.json")));
             Check("C: meta has sha256 and measured budget", m.Sha256?.Length == 64 && m.BytesPerSecond > 0 && m.BytesStatic > 0, $"{m.BytesPerSecond} B/s, {m.BytesStatic} B");
             var index = new LibraryIndex { Items = { m } };
@@ -65,6 +74,74 @@ static class WorkstreamTests
             Check("C: removing the shown saver falls back to the logo", !System.IO.File.Exists(srec.File) && s.SaverId == SaverItem.LogoId && s.Savers.All(x => x.Id != "lib-test-saver"));
             LibraryInstaller.Remove(s, "dash", "test-dash");
             Check("C: removed", !System.IO.File.Exists(rec.File) && s.LibraryInstalled.Count == 0);
+        }
+        finally
+        {
+            DashLibrary.Root = oldRoot;
+            try { System.IO.Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    /// <summary>Sharing a dash as a file: export, import, never overwriting, the library's rules, links.</summary>
+    static void ShareTests()
+    {
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fxu-sharetest-" + System.Guid.NewGuid().ToString("N"));
+        string simhub = System.IO.Path.Combine(root, "simhub"), inbox = System.IO.Path.Combine(root, "inbox");
+        var oldRoot = DashLibrary.Root;
+        try
+        {
+            DashLibrary.Root = simhub;
+            System.IO.Directory.CreateDirectory(inbox);
+            var mine = BuiltInDashes.MustangGt3().Clone();
+            mine.Id = "my-dash"; mine.Name = "My dash"; mine.Author = "me"; mine.Source = null;
+
+            var path = DashShare.Export(mine, System.IO.Path.Combine(inbox, "my-dash.json"));
+            Check("share: export names the file <name>.fxdash.json", path.EndsWith(".fxdash.json") && System.IO.File.Exists(path) && System.IO.Path.GetFileName(path) == "my-dash.fxdash.json", path);
+            Check("share: the file is plain JSON a person can read", System.IO.File.ReadAllText(path).Contains("\"Name\": \"My dash\""));
+
+            var r = DashShare.Import(path);
+            Check("share: import saves the dash under its own id", r.Dash.Id == "my-dash" && !r.Renamed && !r.AlreadyThere && System.IO.File.Exists(r.File) && DashLibrary.Load(null).Any(x => x.Id == "my-dash" && x.Author == "me"));
+            Check("share: an imported dash says where it came from", DashLibrary.Load(null).First(x => x.Id == "my-dash").Source == "Imported from a file");
+
+            int files = System.IO.Directory.GetFiles(DashLibrary.Folder).Length;
+            var again = DashShare.Import(path);
+            Check("share: the same dash twice adds nothing", again.AlreadyThere && System.IO.Directory.GetFiles(DashLibrary.Folder).Length == files);
+
+            var changed = mine.Clone(); changed.Elements[0].X += 1;
+            string before = System.IO.File.ReadAllText(r.File);
+            var r2 = DashShare.Import(DashShare.Export(changed, System.IO.Path.Combine(inbox, "changed")));
+            Check("share: a different dash with a taken id gets a new id and nothing is overwritten",
+                  r2.Renamed && r2.Dash.Id == "my-dash-2" && System.IO.File.ReadAllText(r.File) == before, r2.Dash.Id);
+
+            var asBuiltIn = mine.Clone(); asBuiltIn.Id = BuiltInDashes.MustangGt3().Id;
+            var r3 = DashShare.Import(DashShare.Export(asBuiltIn, System.IO.Path.Combine(inbox, "builtin")));
+            Check("share: a file can't take a built-in dash's id", r3.Dash.Id != BuiltInDashes.MustangGt3().Id && DashLibrary.Load(null).Count(x => x.Id == BuiltInDashes.MustangGt3().Id) == 1, r3.Dash.Id);
+
+            var lib = mine.Clone(); lib.Id = "lib-cool-dash"; lib.Name = "Cool";
+            Check("share: a shared copy never takes a library item's lib- id", DashShare.Import(DashShare.Export(lib, System.IO.Path.Combine(inbox, "lib"))).Dash.Id == "cool-dash");
+
+            var noId = mine.Clone(); noId.Id = null; noId.Name = "Night Stint 24h!";
+            Check("share: no id: made from the name", DashShare.Import(DashShare.Export(noId, System.IO.Path.Combine(inbox, "noid"))).Dash.Id == "night-stint-24h");
+
+            // refusals: what the library refuses, the receiver refuses
+            string Refusal(string file, string content) { var f = System.IO.Path.Combine(inbox, file); System.IO.File.WriteAllText(f, content); try { DashShare.Read(f); return null; } catch (System.Exception ex) { return ex.Message; } }
+            var js = mine.Clone(); js.Elements[0].Bind = "js:return 1";
+            Check("share: a js: formula is refused", (Refusal("js.fxdash.json", DashTools.Serialize(js)) ?? "").Contains("js:"));
+            var sf = mine.Clone(); sf.ScriptsFolder = "x";
+            Check("share: a scripts folder is refused", Refusal("sf.fxdash.json", DashTools.Serialize(sf)) != null);
+            var nf = mine.Clone(); nf.FormatVersion = DashDefinition.CurrentFormat + 1;
+            Check("share: a newer dash format is refused, not half-loaded", (Refusal("nf.fxdash.json", DashTools.Serialize(nf)) ?? "").Contains("newer"));
+            Check("share: not JSON", Refusal("x.fxdash.json", "hello") == "this isn't a dash file");
+            Check("share: JSON that isn't a dash", Refusal("y.fxdash.json", "{\"a\":1}") != null && Refusal("z.fxdash.json", "[1,2]") != null);
+            Check("share: a dash with no elements", Refusal("e.fxdash.json", "{\"Id\":\"x\",\"Elements\":[]}") != null);
+            Check("share: a file over the size limit", (Refusal("big.fxdash.json", new string(' ', LibraryClient.MaxDashBytes + 10)) ?? "").Contains("too big"));
+            bool exportJs = false; try { DashShare.Export(js, System.IO.Path.Combine(inbox, "nojs")); } catch { exportJs = true; }
+            Check("share: a dash with js: isn't exported (the receiver would refuse it)", exportJs && !System.IO.File.Exists(System.IO.Path.Combine(inbox, "nojs.fxdash.json")));
+            Check("share: nothing refused was saved", DashLibrary.Load(null).All(x => x.Id != "x" && x.Elements.All(e => e.Bind != "js:return 1")));
+
+            Check("share: slugs", DashShare.Slug("Night Stint 24h!") == "night-stint-24h" && DashShare.Slug("a") == null && DashShare.Slug("  ") == null && DashShare.Slug(new string('a', 100)).Length == 64);
+            Check("share: library links match the website's pages", DashShare.LinkFor("dash", "slipstream") == "https://fxunleashed.com/library/#dash-slipstream"
+                  && DashShare.LinkFor("saver", "paddock-clock") == "https://fxunleashed.com/library/#saver-paddock-clock");
         }
         finally
         {

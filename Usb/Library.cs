@@ -25,6 +25,8 @@ namespace User.FXProRpmSync
         public string License;
         /// <summary>Where it came from if converted (then the author's permission is needed, see TERMS).</summary>
         public string Source;
+        /// <summary>For converted work: where its author agreed to it being shared (a link). Required with Source.</summary>
+        public string Permission;
         public DateTime Created, Updated;
         public int FormatVersion = DashDefinition.CurrentFormat;
         public string MinPlugin;
@@ -261,6 +263,18 @@ namespace User.FXProRpmSync
             File.WriteAllText(Path.Combine(dir, "meta.json"), JsonConvert.SerializeObject(meta, Formatting.Indented,
                 new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore, DateFormatString = "yyyy-MM-dd" }));
             return dir;
+        }
+
+        /// <summary>
+        /// The package folder as one file, "&lt;id&gt;.fxdash.zip" next to it: what the library's "Submit a dash" form takes
+        /// (a maintainer-free path: the form's workflow checks it and opens the pull request).
+        /// </summary>
+        public static string ZipPackage(string packageDir)
+        {
+            var zip = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(packageDir)), Path.GetFileName(packageDir) + ".fxdash.zip");
+            if (File.Exists(zip)) File.Delete(zip);
+            System.IO.Compression.ZipFile.CreateFromDirectory(packageDir, zip, System.IO.Compression.CompressionLevel.Optimal, includeBaseDirectory: true);
+            return zip;
         }
     }
 }

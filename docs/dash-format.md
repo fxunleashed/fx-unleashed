@@ -113,6 +113,21 @@ backgrounds). Errors: text wider/taller than its box, missing glyphs, unknown ty
 Warnings: overlapping always-shown text, values without `Samples`, unknown data keys, busy value backgrounds, slow
 static layers.
 
+## Sharing a dash
+
+A dash is one self-contained JSON file (its pictures are inside as base64), so sharing is just sending the file.
+
+- **A file for a friend:** in the plugin's Dashes tab pick your dash and press **Share...**. It writes `<id>.fxdash.json`
+  and puts the file on the clipboard, so you can paste it into Discord or an email. The other person drops it onto the
+  Dashes tab, or presses **Import a file...**. The plugin applies the same rules as for the library (format, size, no
+  scripts, nothing newer than it understands); an imported dash never overwrites one you have: if its id is taken it
+  gets a new one. Converted work (a SimHub import) asks you to confirm you may share it.
+- **A link for a library item:** **Copy link** on a library item gives `fxunleashed.com/library/#dash-<id>`: a page with
+  the preview, an Install button that talks to the plugin on that PC, and a download.
+- **Everyone:** **Package for the library** writes `<id>.fxdash.zip`. Drag it into the library's
+  [Submit a dash](https://github.com/fxunleashed/fx-unleashed-library/issues/new?template=submit-dash.yml) form (no Git
+  needed). If it passes the checks it is published on the spot; to update it later, submit again with a higher Version.
+
 ## Example
 
 ```json
