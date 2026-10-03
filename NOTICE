@@ -11,6 +11,8 @@ by the user to their own copy of Simagic's firmware; Simagic's firmware and its 
 Credits
 - Car rev light data: Lovely Car Data by Lovely Sim Racing and contributors
   (https://github.com/Lovely-Sim-Racing/lovely-car-data), CC BY-NC-SA 4.0. Downloaded at runtime, not bundled.
+- The built-in LMGT3 Ford Mustang GT3 dash is after the SimHub dash of the same name by Redadeg (lmu-dashboards.com),
+  used with the author's permission.
 - assets/Simagic_FX-Pro.atsrdevice (a layout for ATSR-Hub EVO by ATSR-Alex) is generated from ATSR-Hub's
   GSI FPE-V2 device preset by tools/atsr.
 - SimHub by Wotever hosts the plugin; its DLLs are referenced at build time and not redistributed.

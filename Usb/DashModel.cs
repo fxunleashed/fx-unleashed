@@ -275,6 +275,7 @@ namespace User.FXProRpmSync
             {
                 Id = MustangId,
                 Name = "LMGT3 Ford Mustang GT3",
+                Author = "after Redadeg's SimHub dash, with permission",
                 BuiltIn = true,
             };
             var el = d.Elements;

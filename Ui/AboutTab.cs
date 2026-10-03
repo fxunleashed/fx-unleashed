@@ -85,6 +85,7 @@ namespace User.FXProRpmSync
             foreach (var c in new[]
             {
                 "Car rev light data: Lovely Car Data by Lovely Sim Racing and contributors (github.com/Lovely-Sim-Racing/lovely-car-data), CC BY-NC-SA 4.0. Downloaded at runtime, not bundled.",
+                "The built-in LMGT3 Ford Mustang GT3 dash is after the SimHub dash of the same name by Redadeg (lmu-dashboards.com), used with the author's permission.",
                 "ATSR-Hub EVO by ATSR-Alex: the FX Pro layout file for it is generated from ATSR-Hub's GSI FPE-V2 device preset.",
                 "SimHub by Wotever: the host for everything here, and the source of every game's data.",
             })

@@ -7,7 +7,7 @@
     <RootNamespace>User.FXProRpmSync</RootNamespace>
     <LangVersion>latest</LangVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.3.0-beta.1</Version>
+    <Version>0.5.0-beta.1</Version>
     <Product>FX Unleashed</Product>
     <Authors>ziadkadry99</Authors>
     <Copyright>Copyright (c) 2026 ziadkadry99. GPL-3.0-or-later.</Copyright>

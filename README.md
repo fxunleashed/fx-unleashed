@@ -224,6 +224,7 @@ Set `SIMHUB_INSTALL_PATH` if SimHub isn't in `C:\Program Files (x86)\SimHub\`. D
 - **Car rev light data:** [Lovely Car Data](https://github.com/Lovely-Sim-Racing/lovely-car-data) by Lovely Sim Racing
   and contributors, [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), downloaded at runtime,
   not bundled.
+- **Built-in Mustang dash:** after the SimHub dash "LMGT3 Ford Mustang GT3" by Redadeg ([lmu-dashboards.com](https://lmu-dashboards.com)), used with the author's permission.
 - **Logo and drawings:** our own (`tools/brand/make_brand.py`).
 
 FX Unleashed is an independent community project, not affiliated with or endorsed by Simagic. Simagic, FX Pro and
