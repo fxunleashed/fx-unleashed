@@ -22,7 +22,7 @@ screensavers, the dash button) and needs modified wheel firmware. If you only wa
 ## 2. Install the plugin
 
 1. Close SimHub.
-2. Download the latest release (fxunleashed.com or the GitHub releases page) and unzip it.
+2. Download the latest release from the [releases page](https://github.com/fxunleashed/fx-unleashed/releases) (the newest is on top; the zip is under *Assets*) and unzip it.
 3. Copy `User.FXProRpmSync.dll` into SimHub's folder (usually `C:\Program Files (x86)\SimHub\`).
 4. Start SimHub. It asks whether to enable the new plugin: say **yes**.
 
