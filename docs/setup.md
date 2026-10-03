@@ -4,7 +4,7 @@
 > Simagic and FX Pro are trademarks of their owner, used only to say which hardware this works with. The software is
 > provided "as is", without warranty of any kind. Use it at your own risk.
 
-Three steps: **the wheel app, the plugin, and (optional, but we highly recommend it) picture memory for the screen.**
+Three steps: **the wheel app, the plugin, and (optional, but we highly recommend it) picture memory, the screen's RAM patch.**
 About 15 minutes the first time. Every step says what you should see.
 
 **Just want each car's rev lights and the wheel's own dash matched to the car?** That's *standard mode*: do step 2 only,
@@ -42,7 +42,8 @@ minutes, with the wheel on its base, the base on, and the wheel's USB cable plug
 7. **Put Simagic's original back:** copy the file from your Desktop into the same folder and choose **Replace**, so a later SimPro
    update can't install ours by accident.
 
-**You should see** the wheel restart and work as before. (In step 2 the plugin will show "patch build" and a number.)
+**You should see** the wheel restart and work as before. (In step 2 the plugin will show "patch build" and a number.) Next:
+step 2, the plugin, and then step 3, the screen's RAM patch (optional, highly recommended).
 
 <details>
 <summary>For the curious: what this file is, how to check it, how to make it yourself</summary>
@@ -71,6 +72,8 @@ it was checked are on the [firmware page](https://fxunleashed.com/firmware/).
    open FX Unleashed in SimHub, click the **Unleashed** card and confirm the warning.
 5. On the **Wheel** tab the status should say **Ready** and the wheel line **patch build** and a number. Press **Run the demo**: a demo
    lap plays on the wheel's screen and lights.
+6. **Next, step 3:** the screen's RAM patch makes dashes appear at once and in full colour. It's optional, but we highly
+   recommend it.
 
 From now on the plugin updates itself: a banner appears when there's a new version, one click installs it, and **Roll back**
 is on the About tab.
@@ -80,7 +83,8 @@ do step 2. It is newer and less tested than the FX Pro.
 
 ## 3. Turn on picture memory
 
-***Optional, but highly recommended.*** *About 3 minutes. Needs step 1.*
+***Optional, but highly recommended.*** *About 3 minutes. Needs steps 1 and 2.* This is the screen's **RAM patch**: the plugin
+installs it for you, from its own Wheel tab, and walks you through it.
 
 Without it, dashes are drawn live and take a few seconds to appear, with fewer colours. With it the screen keeps each dash's
 pictures **in its own memory**: full colour, drawn at once, instant switching between dashes, and screensavers look their best.
