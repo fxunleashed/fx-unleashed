@@ -23,6 +23,8 @@ namespace User.FXProRpmSync
         void TestLeds(string[] colours, int brightness, double seconds);
         /// <summary>The demo lap on the wheel with a dash ("c:id" / "w:page" / a plugin dash id); null stops it.</summary>
         void Demo(string dash);
+        /// <summary>The light scenarios ("Try the lights"), or plays one (`id`) / stops the playing one (`stop`); returns the list and what's playing.</summary>
+        object Scenario(string id, bool stop);
         /// <summary>Current SimHub values (null when no game), for rendering with live data.</summary>
         DashValues LiveValues();
         void DashesChanged();
@@ -31,7 +33,7 @@ namespace User.FXProRpmSync
         /// <summary>Installs a library item by id after asking the user in the plugin; the item comes from the library itself.</summary>
         object LibraryInstall(string kind, string id);
         /// <summary>Screen RAM drive: status; "waits" (arm/packet/done ms) or "clear" (developer hooks for tuning).</summary>
-        object Ram(string op, int? arm, int? packet, int? done);
+        object Ram(string op, int? arm, int? packet, int? done, int? budgetKb = null, int? overhead = null);
         /// <summary>SimHub properties by name, as SimHub has them now (TimeSpans in seconds).</summary>
         object Props(string[] names);
         /// <summary>A SimHub formula evaluated now with SimHub's own engine: {value, type} or {error}.</summary>
@@ -252,13 +254,15 @@ namespace User.FXProRpmSync
             ("GET", "/api/wheel/ram", "the screen's RAM drive: files, bytes, upload waits (plugin only)"),
             ("POST", "/api/wheel/ram/waits?arm=MS&packet=MS&done=MS", "upload waits for this session, for tuning (plugin only)"),
             ("POST", "/api/wheel/ram/clear", "delete the plugin's files from the screen's RAM; the dash loads again (plugin only)"),
+            ("POST", "/api/wheel/ram/budget?kb=N&overhead=BYTES", "how much the plugin fills (KB, each file counted as its size + overhead) for this session, for tuning (plugin only)"),
             ("POST", "/api/wheel/demo?dash=c:ID|w:PAGE|rotation|off", "the demo lap on the wheel with that dash, e.g. w:12 for the wheel's own dash page 12; rotation = the default rotation, cycled with the dash button (plugin only)"),
+            ("GET", "/api/wheel/scenario[?id=ID|stop=1]", "the light scenarios (\"Try the lights\": pit lane, launch, spotter, alerts, ...) and what's playing; id plays one on the wheel, stop=1 ends it (plugin only)"),
             ("GET", "/api/library/status", "plugin version (for the website's Install button)"),
             ("GET", "/api/library/installed", "library items installed: [{id, kind, version}]"),
             ("POST", "/api/library/install?kind=dash|saver&id=ID", "install a library item by id (asks the user in the plugin first; the plugin downloads it from the library itself)"),
-            ("GET", "/mirror[?bg=transparent&leds=0&all=1&fps=N&label=0]", "screen mirror page for OBS: the wheel's screen and lights (plugin only)"),
+            ("GET", "/mirror", "screen mirror page for OBS: the wheel's screen and lights; how it looks is set in the plugin (plugin only)"),
             ("GET", "/api/wheel/frame.png", "what the plugin last drew on the wheel's screen (204 while the wheel shows its own screen)"),
-            ("GET", "/api/wheel/mirror", "mirror state: held, dark, wheelDash, version, 38 LEDs {c, b}"),
+            ("GET", "/api/wheel/mirror", "mirror state: options (frame, lights, background), held, dark, wheelDash, version, 38 LEDs {c, b}"),
             ("POST", "/api/wheel/leds[?brightness=1-90&seconds=N]", "body = 38 LED colours [\"#RRGGBB\" or null], in the wheel's LED order: shown for N s (plugin only)"),
         };
 
@@ -369,12 +373,12 @@ namespace User.FXProRpmSync
                 var names = (r.Q("names") ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim()).ToArray();
                 return Json(host.Props(names));
             }
-            if (path == "/api/wheel/ram" || path == "/api/wheel/ram/waits" || path == "/api/wheel/ram/clear")
+            if (path == "/api/wheel/ram" || path == "/api/wheel/ram/waits" || path == "/api/wheel/ram/clear" || path == "/api/wheel/ram/budget")
             {
                 if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);
                 int? Q(string k) => r.Q(k) == null ? (int?)null : r.QI(k, 0);
-                string op = path.EndsWith("/waits") ? "waits" : path.EndsWith("/clear") ? "clear" : null;
-                return Json(host.Ram(op, Q("arm"), Q("packet"), Q("done")));
+                string op = path.EndsWith("/waits") ? "waits" : path.EndsWith("/clear") ? "clear" : path.EndsWith("/budget") ? "budget" : null;
+                return Json(host.Ram(op, Q("arm"), Q("packet"), Q("done"), Q("kb"), Q("overhead")));
             }
             if (path == "/api/wheel/demo")
             {
@@ -383,6 +387,11 @@ namespace User.FXProRpmSync
                 WheelTelemetry.TestFlag = r.Q("flag") == null ? (int?)null : r.QI("flag", 0);
                 host.Demo(string.IsNullOrEmpty(dash) || dash == "off" ? null : dash);
                 return Json(new { demo = dash, status = host.WheelStatus() });
+            }
+            if (path == "/api/wheel/scenario")
+            {
+                if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);
+                return Json(host.Scenario(r.Q("id"), r.Q("stop") == "1" || r.Q("stop") == "true"));
             }
             if (path == "/api/wheel/leds")
             {

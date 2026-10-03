@@ -276,11 +276,13 @@ namespace User.FXProRpmSync
             public string CarModel;
             public double MaxRpm;
             public double Redline;
+            /// <summary>The game's own shift light numbers (iRacing), or none.</summary>
+            public ShiftAnchors Anchors;
             public bool Restore;
 
             public bool SameAs(Target o) =>
                 o != null && o.Restore == Restore && o.CarKey == CarKey &&
-                Math.Abs(o.MaxRpm - MaxRpm) < 100 && Math.Abs(o.Redline - Redline) < 50;
+                Math.Abs(o.MaxRpm - MaxRpm) < 100 && Math.Abs(o.Redline - Redline) < 50 && o.Anchors.SameAs(Anchors);
         }
 
         /// <summary>The settings format this version writes (see FXProRpmSyncSettings.SettingsVersion).</summary>
@@ -311,6 +313,7 @@ namespace User.FXProRpmSync
 
         private void InitCore()
         {
+            UiProfiler.StartIfWanted(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync"));
             MigrateOldSettings();
             Settings = this.ReadCommonSettings("GeneralSettings", () => new FXProRpmSyncSettings { SettingsVersion = CurrentSettingsVersion });
             MigrateSettings(Settings);
@@ -328,6 +331,7 @@ namespace User.FXProRpmSync
             if (Settings.Feed == null) Settings.Feed = new FeedSettings();
             if (Settings.Feed.Overrides == null) Settings.Feed.Overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (Settings.Usb == null) Settings.Usb = new UsbSettings();
+            RepairLights();
             if (Settings.Usb.CarDashes == null) Settings.Usb.CarDashes = new Dictionary<string, UsbCarDash>();
             if (Settings.Usb.Savers == null) Settings.Usb.Savers = new List<SaverItem>();
             if (Settings.Usb.SaverRotation == null) Settings.Usb.SaverRotation = new List<string>();
@@ -377,6 +381,9 @@ namespace User.FXProRpmSync
             RegisterQuickControls();
             RegisterFeedProblem();
             Usb = new UsbController(this);
+            if (Settings.Usb.Mirror == null) Settings.Usb.Mirror = new MirrorSettings();
+            ScreenMirror.Options = () => Settings.Usb.Mirror;
+            DashPictures.WarmUp(Settings.Usb); // the galleries' pictures, on disk before the pages first open
             // the FX Pro as a SimHub LED device (Usb/SimHubLedDevice.cs): its frames come in here
             SimHubLedDevice.Sink = f => { if (Settings.Usb.LightsFrom == User.FXProRpmSync.LightsSource.SimHubDevice) Usb?.PublishDevice(f); };
             SimHubLedDevice.IsConnected = () => Settings.Usb.Enabled && Usb?.Model == WheelModel.FxPro && Usb?.WheelFound == true;
@@ -515,6 +522,7 @@ namespace User.FXProRpmSync
                 CarModel = d.CarModel,
                 MaxRpm = max,
                 Redline = red,
+                Anchors = string.Equals(data.GameName, "IRacing", StringComparison.OrdinalIgnoreCase) ? ReadShiftAnchors(pluginManager) : default(ShiftAnchors),
             };
             lock (sync)
             {
@@ -523,6 +531,17 @@ namespace User.FXProRpmSync
                 pending = t;
             }
             wake.Set();
+        }
+
+        /// <summary>iRacing's shift light numbers for the player's car (session info: first light, shift, last light, blink); none when not given.</summary>
+        private static ShiftAnchors ReadShiftAnchors(PluginManager pm)
+        {
+            double Get(string name)
+            {
+                try { return pm.GetPropertyValue("DataCorePlugin.GameRawData.SessionData.DriverInfo." + name) is IConvertible c ? c.ToDouble(System.Globalization.CultureInfo.InvariantCulture) : 0; }
+                catch { return 0; }
+            }
+            return new ShiftAnchors { First = Get("DriverCarSLFirstRPM"), Shift = Get("DriverCarSLShiftRPM"), Last = Get("DriverCarSLLastRPM"), Blink = Get("DriverCarSLBlinkRPM") };
         }
 
         /// <summary>SimHub's gear ("R", "N", "1".."10") as a SimPro/car data gear key.</summary>
@@ -1002,8 +1021,11 @@ namespace User.FXProRpmSync
             this.SaveCommonSettings("GeneralSettings", Settings);
         }
 
-        public System.Windows.Controls.Control GetWPFSettingsControl(PluginManager pluginManager) =>
-            InitError != null ? (System.Windows.Controls.Control)new StartupFailedControl(this) : new SettingsControl(this);
+        public System.Windows.Controls.Control GetWPFSettingsControl(PluginManager pluginManager)
+        {
+            using (UiProfiler.Time("settings page"))
+                return InitError != null ? (System.Windows.Controls.Control)new StartupFailedControl(this) : new SettingsControl(this);
+        }
 
         private async Task WorkerLoop(CancellationToken ct)
         {
@@ -1220,6 +1242,23 @@ namespace User.FXProRpmSync
                       + (game.ReportedAs != null ? $", as {game.Car.CarId})" : ")")
                     : $"car database, {profile.MatchedBy} ({profile.LedNumber} LEDs" + (layout.Gears != null ? ", per gear)" : ")");
             }
+            else if (t.Anchors.Valid)
+            {
+                // the game's own numbers (iRacing draws them as a bar): the pattern placed on them, not a guess from the redline
+                string what = $"the game's own shift lights ({t.Anchors.First:0}-{t.Anchors.Last:0} rpm" + (t.Anchors.Blink > t.Anchors.Last ? $", flash at {t.Anchors.Blink:0})" : ")");
+                if (unlocked)
+                {
+                    var lights = ActiveLightsFor(t.CarKey);
+                    layout = lights.Rev.ForAnchors(t.Anchors);
+                    source = $"not in car database: {what}, laid out as {lights.Name}'s rev lights";
+                }
+                else
+                {
+                    var style = Settings.Fallback;
+                    layout = RpmLightsMapper.FromStyleAnchors(style, original, t.Anchors);
+                    source = $"not in car database: {what}, laid out as {LedPatterns.Catalog.First(c => c.Kind == style.Pattern).Title}";
+                }
+            }
             else if (t.Redline > 0)
             {
                 if (unlocked)
@@ -1255,6 +1294,9 @@ namespace User.FXProRpmSync
             }
             LightsSource = source;
             CurrentLightsLayout = layout;
+            // one line per car change: which data built the lights (what "the lights look off in this car" needs first)
+            SimHub.Logging.Current.Info($"[FXProRpmSync] car {t.CarKey}: {source}; rev LEDs at {string.Join(",", layout.Rpm)}"
+                + (layout.FlashRpm > 0 ? $"; flash {layout.FlashRpm}" + (layout.FlashDark ? " (lights blink out)" : "") : "; no flash"));
             if (unlocked)
             {
                 // The USB lights show it (LightEngine); SimPro's preset is left alone.

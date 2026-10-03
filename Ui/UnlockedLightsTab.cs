@@ -50,7 +50,9 @@ namespace User.FXProRpmSync
             { CarState.Driving, CarState.PitLimiter, CarState.Starting, CarState.Idle, CarState.Menu, CarState.EngineOff, CarState.Stopping };
         // the per-car pit limiter card: what's being set up, shown on the previews while it's edited
         private LimiterLook carLimiterDraft;
-        private StackPanel carLimiterPanel;
+        private StackPanel carLimiterPanel, carLaunchPanel;
+        private TextBlock scenarioStatus;
+        private string launchCar = "";
         private CarState lookState = CarState.Idle;
 
         private readonly Stopwatch clock = Stopwatch.StartNew();
@@ -61,6 +63,7 @@ namespace User.FXProRpmSync
 
         public UnlockedLightsTab(FXProRpmSyncPlugin plugin)
         {
+            UiProfiler.Lap(null);
             this.plugin = plugin;
             model = plugin.ActiveModel;
             big = new WheelView(model) { Width = 600 };
@@ -91,10 +94,15 @@ namespace User.FXProRpmSync
                 neo ? "Off: the wheel's own lights while no game runs." : "Off: SimPro's lights while no game runs.");
             idle.Margin = new Thickness(0, 0, 40, 6);
             opts.Children.Add(idle);
+            var spotter = Theme.Switch("Spotter over ATSR-Hub / SimHub lights", S.SpotterOverExternal, v => { S.SpotterOverExternal = v; Changed(); },
+                "On: a car alongside lights this preset's spotter alerts (the side lights) over those lights. Nothing else of the preset's alerts is drawn over them.");
+            spotter.Margin = new Thickness(0, 0, 40, 6);
+            opts.Children.Add(spotter);
             src.Children.Add(opts);
             liveNote = new TextBlock { Foreground = Theme.Text3, FontSize = 11.5, Margin = new Thickness(0, 6, 0, 0) };
             src.Children.Add(liveNote);
             Children.Add(Theme.CardBox(src));
+            UiProfiler.Lap("lights source card");
 
             // ----- SimHub's own GT Neo device (it fights our lights while both drive the wheel) -----
             var sh = new StackPanel();
@@ -145,6 +153,7 @@ namespace User.FXProRpmSync
             atsrPanel.Children.Add(atsrState);
             var atsrCard = Theme.CardBox(atsrPanel);
             Children.Add(atsrCard);
+            UiProfiler.Lap("lights simhub+atsr cards");
             atsrPanel.Tag = atsrCard;
 
             // ----- Built-in: the big wheel + presets + editor -----
@@ -196,13 +205,24 @@ namespace User.FXProRpmSync
             gallery = new WrapPanel();
             builtIn.Children.Add(new ScrollViewer { Content = gallery, MaxHeight = 410, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
             builtIn.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 14, 0, 16) });
+            UiProfiler.Lap("lights preview + gallery shell");
             builtIn.Children.Add(perCar = new LightsForCarPanel(plugin));
+            UiProfiler.Lap("lights per car panel");
             Children.Add(Theme.CardBox(builtIn));
 
             // ----- Pit limiter lights for this car (no sim publishes them, so they're set up here once) -----
             carLimiterPanel = new StackPanel();
             Children.Add(Theme.CardBox(carLimiterPanel));
+            UiProfiler.Lap("lights car limiter");
             BuildCarLimiter();
+
+            // ----- Launch aid for this car -----
+            carLaunchPanel = new StackPanel();
+            Children.Add(Theme.CardBox(carLaunchPanel));
+            BuildCarLaunch();
+
+            // ----- Try the lights: scripted situations on the wheel -----
+            Children.Add(Theme.CardBox(BuildScenarioCard()));
 
             // ----- Editor (your own) -----
             editor = new StackPanel();
@@ -214,10 +234,12 @@ namespace User.FXProRpmSync
             editor.Children.Add(groupEditor);
             var editorCard = Theme.CardBox(editor);
             Children.Add(editorCard);
+            UiProfiler.Lap("lights editor");
             editor.Tag = editorCard;
 
             // ----- Buttons light while pressed (any lights source) -----
             Children.Add(Theme.CardBox(new ButtonLightsCard(plugin, Changed)));
+            UiProfiler.Lap("lights button card");
 
             frameTimer.Tick += (s, e) => RenderFrame();
             slowTimer.Tick += (s, e) => RefreshState();
@@ -227,13 +249,16 @@ namespace User.FXProRpmSync
                 frameTimer.Start(); slowTimer.Start();
                 if (!model.HasScreen) return;
                 var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
-                big.Screen.Source = wheelDash ? null : DashPictures.Still(DashCache.Find(id) ?? BuiltInDashes.MustangGt3());
+                big.Screen.Source = wheelDash ? null : DashPictures.Still(DashCache.Find(id) ?? BuiltInDashes.MustangGt3(), S.RamFor(id ?? BuiltInDashes.MustangId));
             };
             Unloaded += (s, e) => { frameTimer.Stop(); slowTimer.Stop(); if (saveTimer.IsEnabled) { saveTimer.Stop(); plugin.SaveSettings(); } };
 
             ShowSource();
+            UiProfiler.Lap("lights timers + ShowSource");
             BuildGallery();
+            UiProfiler.Lap("lights BuildGallery");
             if (S.LightsFrom == LightsSource.AtsrHub) RefreshAtsrDevices();
+            UiProfiler.Lap("lights ATSR devices");
         }
 
         /// <summary>Everything shown depends on the source (the SimHub card, the lights state): redraw what's cheap.</summary>
@@ -284,6 +309,13 @@ namespace User.FXProRpmSync
         {
             // the per-car limiter card follows the car being driven (not while something is being edited)
             if (carLimiterDraft == null && (plugin.DashCarKey ?? "") != limiterCar) { limiterCar = plugin.DashCarKey ?? ""; BuildCarLimiter(); }
+            if ((plugin.DashCarKey ?? "") != launchCar) { launchCar = plugin.DashCarKey ?? ""; BuildCarLaunch(); }
+            if (scenarioStatus != null)
+            {
+                var playing = Usb?.ScenarioNow;
+                scenarioStatus.Text = playing != null ? $"Playing \"{playing.Title}\"  ·  {Usb.ScenarioElapsed:0} of {playing.Seconds:0} s  ·  {Usb.ScenarioNote}"
+                                    : Usb?.Active == true ? "Pick one to play on the wheel." : "The wheel isn't connected in USB mode right now (the Wheel tab says why).";
+            }
             var u = Usb;
             liveNote.Text = !S.LightsEnabled ? "The wheel shows SimPro's lights."
                           : u?.Active == true ? "On the wheel now: " + u.LightsState + "."
@@ -336,7 +368,7 @@ namespace User.FXProRpmSync
 
         private void AddPreset(LightProfile p)
         {
-            var view = new WheelView(model, glow: false) { Width = 196 };
+            var view = new WheelView(model, glow: false, lite: true) { Width = 196 };
             var body = new StackPanel();
             body.Children.Add(new Border { Background = Theme.B("#07080A"), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 10, 8, 8), Child = view });
             var name = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
@@ -521,6 +553,112 @@ namespace User.FXProRpmSync
                     list.Children.Add(line);
                 }
                 panel.Children.Add(new Expander { Header = $"Every car with its own ({all.Count})", Content = list, Margin = new Thickness(0, 6, 0, 0) });
+            }
+        }
+
+        /// <summary>One button per scripted situation (LightScenarios): plays it on the wheel and says what to look for.</summary>
+        private FrameworkElement BuildScenarioCard()
+        {
+            var panel = new StackPanel();
+            panel.Children.Add(Theme.Eyebrow("Try the lights on the wheel"));
+            panel.Children.Add(Theme.Note("Plays a scripted situation on the wheel without a game: pit lane, a standing start, a car alongside, every alert, the engine states, " +
+                "cars with mirrored or blinking-out lights. It goes through the same code as a real session, with your selected preset (an alert or extra a scenario shows is " +
+                "switched on in a copy for the test). Each one says what you should see. It ends by itself."));
+            scenarioStatus = new TextBlock { Foreground = Theme.Text2, FontSize = 12.5, Margin = new Thickness(0, 6, 0, 10), TextWrapping = TextWrapping.Wrap };
+            panel.Children.Add(scenarioStatus);
+            var stop = Theme.Btn("Stop", () => { Usb?.StopScenario(); RefreshState(); });
+            stop.Margin = new Thickness(0, 0, 0, 10);
+            panel.Children.Add(stop);
+            foreach (var sc in LightScenarios.All)
+            {
+                var id = sc.Id;
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
+                var play = Theme.Btn($"Play ({sc.Seconds:0} s)", () => { if (Usb != null) Usb.PlayScenario(id); RefreshState(); }, primary: true);
+                DockPanel.SetDock(play, Dock.Right);
+                play.VerticalAlignment = VerticalAlignment.Top;
+                play.Margin = new Thickness(12, 0, 0, 0);
+                row.Children.Add(play);
+                var text = new StackPanel();
+                text.Children.Add(new TextBlock { Text = sc.Title, FontWeight = FontWeights.SemiBold, Foreground = Theme.Text });
+                text.Children.Add(new TextBlock { Text = sc.Expect, Foreground = Theme.Text2, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
+                row.Children.Add(text);
+                panel.Children.Add(row);
+            }
+            return panel;
+        }
+
+        /// <summary>What to hold at a standing start in the car being driven (the launch aid, UsbSettings.CarLaunch).</summary>
+        private void BuildCarLaunch()
+        {
+            var panel = carLaunchPanel;
+            panel.Children.Clear();
+            panel.Children.Add(Theme.Eyebrow("Launch aid for this car"));
+            panel.Children.Add(Theme.Note("At a standing start in first gear (under 30 km/h, not in the pit lane) the rev bar shows a pointer against the target: amber below it, " +
+                "green on it, red above. Switch it on in your lights (Rev bar extras), then set what to hold here. With no target saved it aims at 70% of the car's max revs."));
+            string key = plugin.DashCarKey, name = plugin.CurrentCarNameForDash;
+            if (key == null)
+            {
+                panel.Children.Add(new TextBlock { Text = "Start a game to set up the car you're driving.", Foreground = Theme.Text2, Margin = new Thickness(0, 4, 0, 10) });
+                return;
+            }
+            var saved = plugin.LaunchFor(key);
+            var t = (saved ?? new LaunchTarget()).Clone();
+            panel.Children.Add(Theme.Title((name ?? key) + (saved != null ? "  ·  saved" : ""), 16));
+            var mode = new ComboBox { Width = 240 };
+            foreach (var (m, label) in new[] { (LaunchMode.Rpm, "Revs"), (LaunchMode.Throttle, "Throttle"), (LaunchMode.Clutch, "Clutch bite point") })
+                mode.Items.Add(new ComboBoxItem { Content = label, Tag = m });
+            mode.SelectedItem = mode.Items.Cast<ComboBoxItem>().First(i => (LaunchMode)i.Tag == t.Mode);
+            var value = new TextBox { Width = 90, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            var unit = new TextBlock { Foreground = Theme.Text2, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            bool loadingBox = false;
+            void Show()
+            {
+                loadingBox = true;
+                value.Text = t.Mode == LaunchMode.Rpm ? (t.Rpm > 0 ? t.Rpm.ToString() : "") : (t.Mode == LaunchMode.Throttle ? t.ThrottlePercent : t.BitePercent).ToString();
+                unit.Text = t.Mode == LaunchMode.Rpm ? "rpm" + (t.Rpm > 0 ? "" : "  (70% of max)") : "%";
+                loadingBox = false;
+            }
+            mode.SelectionChanged += (s, e) => { if (mode.SelectedItem is ComboBoxItem i) { t.Mode = (LaunchMode)i.Tag; Show(); } };
+            value.TextChanged += (s, e) =>
+            {
+                if (loadingBox) return;
+                int.TryParse(value.Text, out var v);
+                if (t.Mode == LaunchMode.Rpm) t.Rpm = Math.Max(0, Math.Min(30000, v));
+                else if (t.Mode == LaunchMode.Throttle) t.ThrottlePercent = Math.Max(0, Math.Min(100, v));
+                else t.BitePercent = Math.Max(0, Math.Min(100, v));
+            };
+            Show();
+            panel.Children.Add(Theme.Field("Watch", mode));
+            var valueRow = new StackPanel { Orientation = Orientation.Horizontal };
+            valueRow.Children.Add(value);
+            valueRow.Children.Add(unit);
+            panel.Children.Add(Theme.Field("Target", valueRow));
+            var row = new WrapPanel { Margin = new Thickness(0, 4, 0, 6) };
+            row.Children.Add(Theme.Btn("Use the revs now", () =>
+            {
+                var rpm = plugin.PluginManager?.LastData?.NewData?.Rpms ?? 0;
+                if (rpm > 300) { t.Mode = LaunchMode.Rpm; t.Rpm = (int)(Math.Round(rpm / 50) * 50); mode.SelectedItem = mode.Items.Cast<ComboBoxItem>().First(i => (LaunchMode)i.Tag == LaunchMode.Rpm); Show(); }
+            }));
+            row.Children.Add(Theme.Btn("Save for this car", () => { plugin.SetCarLaunch(key, t); BuildCarLaunch(); }, primary: true));
+            if (saved != null) row.Children.Add(Theme.Btn("Remove this car's", () => { plugin.SetCarLaunch(key, null); BuildCarLaunch(); }));
+            panel.Children.Add(row);
+            var all = S.CarLaunch ?? new Dictionary<string, LaunchTarget>();
+            if (all.Count > 0)
+            {
+                var list = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+                foreach (var kv in all.OrderBy(k => k.Key))
+                {
+                    var carKey = kv.Key;
+                    var line = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+                    var remove = Theme.Btn("Remove", () => { plugin.SetCarLaunch(carKey, null); BuildCarLaunch(); });
+                    DockPanel.SetDock(remove, Dock.Right);
+                    line.Children.Add(remove);
+                    string what = kv.Value.Mode == LaunchMode.Rpm ? (kv.Value.Rpm > 0 ? kv.Value.Rpm + " rpm" : "70% of max revs")
+                                : kv.Value.Mode + " " + (kv.Value.Mode == LaunchMode.Throttle ? kv.Value.ThrottlePercent : kv.Value.BitePercent) + "%";
+                    line.Children.Add(new TextBlock { Text = carKey + "  ·  " + what, Foreground = Theme.Text2, VerticalAlignment = VerticalAlignment.Center });
+                    list.Children.Add(line);
+                }
+                panel.Children.Add(new Expander { Header = $"Every car with a target ({all.Count})", Content = list, Margin = new Thickness(0, 6, 0, 0) });
             }
         }
 
@@ -713,6 +851,33 @@ namespace User.FXProRpmSync
             groupEditor.Children.Add(new Border { Height = 1, Background = Theme.Line, Margin = new Thickness(0, 6, 0, 16) });
             groupEditor.Children.Add(Theme.Field("Rev bar tint", Theme.SliderField(0, 30, p.RevTint, 1, v => v < 0.5 ? "off" : $"{v:0}% glow in the theme colour",
                 v => { if (!loading) { p.RevTint = (int)v; Changed(); } })));
+
+            groupEditor.Children.Add(Theme.Eyebrow("While driving"));
+            var still = Theme.Switch("Hold still", p.StillWhileDriving, v => { if (!loading) { p.StillWhileDriving = v; Changed(); previewState = CarState.Driving; BuildStateChips(); } },
+                "On: the buttons and encoders show one still frame of their effect instead of animating. Off: they keep moving.");
+            still.Margin = new Thickness(170, 0, 0, 10);
+            groupEditor.Children.Add(still);
+            var sides = Theme.Switch("Side lights dark", p.SidesDarkWhileDriving, v => { if (!loading) { p.SidesDarkWhileDriving = v; Changed(); previewState = CarState.Driving; BuildStateChips(); } },
+                "On: the lights beside the rev bar stay off while you drive and only light for alerts (spotter, flags).");
+            sides.Margin = new Thickness(170, 0, 0, 10);
+            groupEditor.Children.Add(sides);
+
+            groupEditor.Children.Add(Theme.Eyebrow("Rev bar extras"));
+            groupEditor.Children.Add(Theme.Note("The rev bar shows these instead of the shift lights while they last; the shift lights win again near the shift point."));
+            if (p.Extras == null) p.Extras = new RevExtrasOptions();
+            void Extra(string label, string hint, bool value, Action<bool> set)
+            {
+                var sw = Theme.Switch(label, value, v => { if (!loading) { set(v); Changed(); } }, hint);
+                sw.Margin = new Thickness(170, 0, 0, 10);
+                groupEditor.Children.Add(sw);
+            }
+            Extra("Pit speed bar", "In the pit lane, moving: a pointer for your speed against the limit (the middle is the limit, red over it). The limit comes from the game, or is learned from the pit limiter.",
+                p.Extras.PitSpeed, v => p.Extras.PitSpeed = v);
+            Extra("Lift and coast (LMU)", "The bar fills from both ends with the lift-and-coast progress.", p.Extras.LiftCoast, v => p.Extras.LiftCoast = v);
+            Extra("Fuel while refuelling", "Stopped with fuel going in, the bar shows the tank filling.", p.Extras.Refuel, v => p.Extras.Refuel = v);
+            Extra("Brake bias change", "After you change the bias, a pointer shows how far it moved from where it started.", p.Extras.BrakeBias, v => p.Extras.BrakeBias = v);
+            Extra("Launch aid", "Standing start in first gear: a pointer for revs (or throttle, or clutch) against this car's target, set in the launch card above. Amber below it, green on it, red above.",
+                p.Extras.Launch, v => p.Extras.Launch = v);
         }
 
         private void BuildAlerts(LightProfile p)

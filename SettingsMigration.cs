@@ -32,6 +32,22 @@ namespace User.FXProRpmSync
             SimHub.Logging.Current.Info($"[FXProRpmSync] settings migrated from format {from} to {CurrentSettingsVersion}");
         }
 
+        /// <summary>Undoes the lights' growth from the old load bugs (LightsRepair), keeping a copy of the file first.</summary>
+        private void RepairLights()
+        {
+            var log = new System.Collections.Generic.List<string>();
+            if (!LightsRepair.Repair(Settings.Usb, log)) return;
+            try
+            {
+                var copy = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync", "settings-backup-before-lights-repair.json");
+                Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                if (File.Exists(SettingsFile) && !File.Exists(copy)) File.Copy(SettingsFile, copy);
+            }
+            catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] settings backup failed: " + ex.Message); }
+            SimHub.Logging.Current.Info("[FXProRpmSync] repaired saved lights that had grown on every start: " + string.Join(", ", log));
+            SaveSettings();
+        }
+
         private static void BackupSettings(int version)
         {
             try

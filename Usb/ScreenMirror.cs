@@ -21,6 +21,9 @@ namespace User.FXProRpmSync
         private static LedColor[] leds;
         private static string wheelDash; // the wheel's own dash on the screen (page id), or null
 
+        /// <summary>How the page looks (the plugin's settings; the defaults when nothing is set, e.g. in tests).</summary>
+        public static Func<MirrorSettings> Options = () => new MirrorSettings();
+
         /// <summary>A command as sent to the wheel (after FxHostScreen's own filtering).</summary>
         public static void Cmd(string cmd)
         {
@@ -72,12 +75,15 @@ namespace User.FXProRpmSync
             }
         }
 
-        /// <summary>For the mirror page: who owns the screen and the 38 LEDs as #RRGGBB with brightness 0-90.</summary>
+        /// <summary>For the mirror page: how it should look, who owns the screen and the 38 LEDs as #RRGGBB with brightness 0-90.</summary>
         public static object State()
         {
+            object options;
+            try { options = (Options?.Invoke() ?? new MirrorSettings()).ForPage(); } catch { options = new MirrorSettings().ForPage(); }
             lock (lk)
                 return new
                 {
+                    options,
                     held,
                     dark,
                     wheelDash = held || wheelDash == null ? null : DashCatalog.NameOf(wheelDash),

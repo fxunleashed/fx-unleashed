@@ -19,6 +19,11 @@ namespace User.FXProRpmSync
         public string FlashColor = LedPalette.Blue;
         /// <summary>0 = solid, otherwise SimPro blink units.</summary>
         public int FlashBlinkUnits;
+        /// <summary>
+        /// The flash is the shift lights blinking out and back in, not a colour (a car whose redline has no colour of its own
+        /// but a blink interval: most F1, LMU and ACC cars). USB mode only; SimPro's redline can only flash a colour.
+        /// </summary>
+        public bool FlashDark;
 
         /// <summary>Optional per-gear LED/flash RPMs ("R","N","1"..) for wheels with SimPro's Advanced mode.</summary>
         public Dictionary<string, GearCurve> Gears;
@@ -79,7 +84,7 @@ namespace User.FXProRpmSync
             double shift = Math.Max(1, ShiftRpm);
             var p = new LedLayout
             {
-                FlashColor = FlashRpm > 0 ? FlashColor : null,
+                FlashColor = FlashRpm > 0 && !FlashDark ? FlashColor : null,
                 FlashBlinks = FlashBlinkUnits > 0,
             };
             for (int i = 0; i < Rpm.Length; i++)
@@ -114,7 +119,12 @@ namespace User.FXProRpmSync
                 if (car.OffRpm != null && !off && src < car.OffRpm.Length && car.OffRpm[src] > 0)
                     (layout.OffRpm ?? (layout.OffRpm = new int[RpmLightsMapper.WheelLeds]))[j] = car.OffRpm[src];
             }
-            layout.FlashRpm = redColor != null && defaultCurve[0] > 0 ? defaultCurve[0] : 0;
+            // The flash: the redline colour, or (no colour but a blink interval) the lit lights blinking out and back. It can't
+            // come before the last light (a few records have a redline below their last LED).
+            bool dark = redColor == null && car.RedlineBlinkIntervalMs > 0;
+            bool flashes = defaultCurve[0] > 0 && (redColor != null || dark);
+            layout.FlashRpm = flashes ? Math.Max(defaultCurve[0], layout.Rpm.Max()) : 0;
+            layout.FlashDark = flashes && dark;
             layout.FlashColor = redColor ?? LedPalette.Blue;
             layout.FlashBlinkUnits = car.RedlineBlinkIntervalMs > 0
                 ? Math.Max(1, (int)Math.Round(car.RedlineBlinkIntervalMs / RpmLightsMapper.BlinkMsPerUnit)) : 0;
@@ -125,10 +135,11 @@ namespace User.FXProRpmSync
                 foreach (var gear in RpmLightsMapper.SimProGears)
                 {
                     var curve = car.GearRpm.TryGetValue(gear, out var c) ? c : defaultCurve;
-                    var gc = new GearCurve { FlashRpm = layout.FlashRpm > 0 ? curve[0] : 0 };
+                    var gc = new GearCurve();
                     for (int j = 0; j < RpmLightsMapper.WheelLeds; j++)
                         // 0 in a gear's curve = lit from idle (e.g. the Porsche Cup's 1st gear), not unused.
                         gc.Rpm[j] = layout.Rpm[j] > 0 ? Math.Max(1, curve[map[j]]) : 0;
+                    gc.FlashRpm = layout.FlashRpm > 0 ? Math.Max(curve[0], gc.Rpm.Max()) : 0;
                     layout.Gears[gear] = gc;
                 }
             }
@@ -144,20 +155,27 @@ namespace User.FXProRpmSync
         internal static int[] SourceMap(CarLedProfile car, int[] curve)
         {
             int n = car.LedNumber, w = RpmLightsMapper.WheelLeds;
-            var map = new int[w];
-            if (n <= 1) { for (int j = 0; j < w; j++) map[j] = 1; return map; }
             bool Off(int src) => src >= curve.Length || curve[src] <= 0 || RpmLightsMapper.ToSimProColor(car.Colors[src]) == null;
-            int offCount = Enumerable.Range(1, n).Count(Off), lit = n - offCount;
+            var map = Stretch(n, w, Off);
+            return Mirrored(n, w, Off, curve, map) ?? map;
+        }
+
+        /// <summary>`n` lights (1..n, `off` = unused) over `w` slots, keeping order: each unused light takes one slot, the lit ones share the rest.</summary>
+        private static int[] Stretch(int n, int w, Func<int, bool> off)
+        {
+            var map = new int[w];
+            if (n <= 1 || w <= 1) { for (int j = 0; j < w; j++) map[j] = 1; return map; }
+            int offCount = Enumerable.Range(1, n).Count(off), lit = n - offCount;
             if (n >= w || lit == 0 || offCount >= w)
             {
                 for (int j = 0; j < w; j++) map[j] = 1 + (int)Math.Round(j * (n - 1) / (double)(w - 1));
                 return map;
             }
-            // each unused LED takes one slot, the lit ones share the rest; slot j shows the LED whose span holds its middle
+            // slot j shows the LED whose span holds its middle
             double litWidth = (w - offCount) / (double)lit;
             var ends = new double[n];
             double at = 0;
-            for (int i = 0; i < n; i++) { at += Off(i + 1) ? 1 : litWidth; ends[i] = at; }
+            for (int i = 0; i < n; i++) { at += off(i + 1) ? 1 : litWidth; ends[i] = at; }
             for (int j = 0; j < w; j++)
             {
                 double mid = j + 0.5;
@@ -168,12 +186,62 @@ namespace User.FXProRpmSync
             return map;
         }
 
+        /// <summary>
+        /// A car whose lights are mirrored (the same rpm at both ends, working in) stays mirrored on the wheel. An even number
+        /// of lights stretched over the wheel's odd 15 by the rule above comes out a step ahead on one side (the Ligier JS P320's
+        /// 10: 1 2 2 3 4 4 5 6 6 7 8 8 9 10 10), so the left half is stretched, the middle takes the innermost light (the
+        /// middle one of an odd car) and the right half mirrors the left. Null = the car isn't mirrored, or already is on the
+        /// wheel, and the rule above stands (the BMW M4 GT3's gaps came out right and were checked in the game).
+        /// </summary>
+        private static int[] Mirrored(int n, int w, Func<int, bool> off, int[] curve, int[] map)
+        {
+            if (n < 3 || n >= w || w % 2 == 0) return null;
+            int R(int src) => off(src) ? 0 : curve[src];
+            for (int i = 1; i <= n / 2; i++)
+                if (off(i) != off(n + 1 - i) || R(i) != R(n + 1 - i)) return null;      // the car isn't mirrored
+            int half = w / 2;
+            bool mirroredAlready = true;
+            for (int j = 0; j < half; j++) if (R(map[j]) != R(map[w - 1 - j])) mirroredAlready = false;
+            if (mirroredAlready) return null;
+            var left = Stretch(n / 2, half, off);
+            var result = new int[w];
+            for (int j = 0; j < half; j++) { result[j] = left[j]; result[w - 1 - j] = n + 1 - left[j]; }
+            result[half] = n % 2 == 1 ? (n + 1) / 2 : n / 2;
+            return result;
+        }
+
         /// <summary>A car data colour ("#AARRGGBB", "#RRGGBB" or a name) as "#RRGGBB"; null when transparent or near black (off).</summary>
         internal static string ExactColour(string s)
         {
             if (RpmLightsMapper.ToSimProColor(s) == null) return null;
             var c = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(s.Trim());
             return $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+        }
+
+        /// <summary>
+        /// A pattern laid on a car's own shift light numbers: its first lit LED at `first`, its last at `last`, the others between in
+        /// the pattern's order (LEDs that share a place in the pattern share an rpm), the flash at `blink` (at `last` when the game gives none).
+        /// </summary>
+        public static RpmLayout FromAnchors(LedLayout pattern, double first, double last, double blink, int flashBlinkUnits)
+        {
+            var layout = new RpmLayout();
+            var lit = pattern.Fractions.Where(f => f > 0).ToList();
+            double lo = lit.Count > 0 ? lit.Min() : 0, hi = lit.Count > 0 ? lit.Max() : 1;
+            for (int i = 0; i < RpmLightsMapper.WheelLeds; i++)
+            {
+                double f = pattern.Fractions[i];
+                if (f <= 0) { layout.Rpm[i] = 0; layout.Colors[i] = LedPalette.Off; continue; }
+                double k = hi > lo ? (f - lo) / (hi - lo) : 1;
+                layout.Rpm[i] = Math.Max(1, (int)Math.Round(first + (last - first) * k));
+                layout.Colors[i] = pattern.Colors[i];
+            }
+            if (pattern.FlashColor != null)
+            {
+                layout.FlashRpm = (int)Math.Round(blink > last ? blink : last);
+                layout.FlashColor = pattern.FlashColor;
+                layout.FlashBlinkUnits = pattern.FlashBlinks ? flashBlinkUnits : 0;
+            }
+            return layout;
         }
 
         /// <summary>From a pattern (fractions of the shift point), with the shift point at shiftRpm.</summary>
@@ -194,6 +262,20 @@ namespace User.FXProRpmSync
             }
             return layout;
         }
+    }
+
+    /// <summary>
+    /// A car's own shift light numbers where the game gives them instead of a light layout (iRacing: the first light, the last
+    /// light and where the bar blinks; its "shift" rpm sits between them and isn't used). 0 = not given.
+    /// </summary>
+    public struct ShiftAnchors
+    {
+        public double First, Shift, Last, Blink;
+
+        /// <summary>A usable ramp: a first light below a last one.</summary>
+        public bool Valid => First > 0 && Last > First;
+
+        public bool SameAs(ShiftAnchors o) => Math.Abs(o.First - First) < 1 && Math.Abs(o.Last - Last) < 1 && Math.Abs(o.Blink - Blink) < 1;
     }
 
     public class GearCurve

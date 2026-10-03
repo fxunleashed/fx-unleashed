@@ -68,6 +68,101 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>
+        /// Does the screen have picture memory (the RAM drive)? Safe on any screen, at any time. The screen turns red, then a
+        /// small green picture is uploaded to `ram/` and drawn in the middle: green = picture memory, red = none, no change =
+        /// the screen doesn't take commands at the normal speed (no pages after an upload: Screen recovery).
+        /// Why it's safe without the drive: `twfile` then fails and the screen stays in command mode (TJC simulator, CodeRun
+        /// case 6), so the picture's bytes reach the command parser. The parser only runs a command at a terminator, three
+        /// 0xFF bytes in a row, and this picture is checked to have no two 0xFF bytes in a row (ProbePicture; a JPEG's data
+        /// escapes 0xFF as FF 00, its headers are small numbers) and to fit one packet (the packet header has only FF FE).
+        /// So the bytes pile up as one unfinished command; Unstick's 4 KB of zeros, abort packet and lone terminator then end
+        /// it as a single bad command, ignored. (A first version found the file with `findfile` and drew green with
+        /// `fill ...,480*sys2`: the FX Pro's screen build doesn't take variables there, 2026-10-02, so it always showed red.)
+        /// </summary>
+        public static void ProbeRam(string path)
+        {
+            var jpeg = ProbePicture();
+            using (var c = new FxConnection(path))
+            using (var host = new FxHostScreen(c))
+            {
+                host.Take();
+                Thread.Sleep(300);
+                try
+                {
+                    host.Cmd("sleep=0"); host.Flush();   // asleep, it ignores everything else
+                    Thread.Sleep(300);
+                    host.Cmd(""); host.Flush();          // a lone terminator clears a half-received command
+                    Thread.Sleep(50);
+                    host.Cmd("page 0"); host.Cmd("vis 255,0"); host.Cmd("dim=100");
+                    // the screen repaints its page (page 0's Check1 picture) after it receives a file: hold its refresh and
+                    // draw the red again after the upload, as the plugin does while loading pictures (UsbController.Held)
+                    host.Cmd("ref_stop");
+                    host.Cmd("cls 63488");
+                    host.Cmd("twfile \"ram/" + ProbeFile + "\"," + jpeg.Length);
+                    host.Flush();
+                    host.Pause(Math.Max(60, ScreenRam.ArmMs));
+                    var pk = new byte[12 + jpeg.Length];
+                    pk[0] = 0x3A; pk[1] = 0xA1; pk[2] = 0xBB; pk[3] = 0x44; pk[4] = 0x7F; pk[5] = 0xFF; pk[6] = 0xFE;
+                    pk[7] = 0; pk[8] = 0; pk[9] = 0; pk[10] = (byte)jpeg.Length; pk[11] = (byte)(jpeg.Length >> 8);
+                    Array.Copy(jpeg, 0, pk, 12, jpeg.Length);
+                    host.Raw(pk);
+                    host.Pause(Math.Max(80, ScreenRam.DoneMs));
+                    // back to command mode whatever happened (as after every batch of pictures, ScreenRam.Unstick)
+                    host.Raw(new byte[Packet]);
+                    host.Pause(60);
+                    host.Raw(new byte[] { 0x3A, 0xA1, 0xBB, 0x44, 0x7F, 0xFF, 0xFE, 0, 0xFF, 0xFF, 0, 0 });
+                    host.Pause(60);
+                    host.Raw(new byte[] { 0xFF, 0xFF, 0xFF });
+                    host.Pause(60);
+                    host.Cmd("cls 63488");
+                    host.Cmd("sets \"ramv: " + (400 - ProbeW / 2) + ", " + (240 - ProbeH / 2) + ", ram/" + ProbeFile + "\"");
+                    host.Cmd("ref_star");
+                    host.Flush();
+                    Thread.Sleep(5000);
+                    host.Cmd("delfile \"ram/" + ProbeFile + "\"");
+                    host.Cmd("delfile \"ram/" + ProbeFile + ".tm\"");
+                    host.Flush();
+                    host.Pause(100);                     // a delete repaints the page on the next refresh: let it pass
+                }
+                finally
+                {
+                    try { host.Cmd("ref_star"); host.Flush(); } catch { } // never leave the screen's refresh held
+                    try { host.Release(); } catch { }
+                }
+            }
+        }
+
+        public const string ProbeFile = "fxprobe.jpg";
+        private const int ProbeW = 320, ProbeH = 192;
+
+        /// <summary>
+        /// The check's picture: a plain green card, 320 x 192. Refused (throws) unless it fits one packet and has no
+        /// two 0xFF bytes in a row, the guarantee that makes the check harmless on a screen without picture memory.
+        /// </summary>
+        public static byte[] ProbePicture()
+        {
+            byte[] jpeg;
+            using (var bmp = new System.Drawing.Bitmap(ProbeW, ProbeH))
+            {
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    g.Clear(System.Drawing.Color.FromArgb(0x00, 0xC8, 0x50)); // plain: text edges cost kilobytes and the colour is the answer
+                }
+                jpeg = ScreenTiles.Jpeg(bmp, 60);
+            }
+            if (!SafeForParser(jpeg)) throw new InvalidOperationException("the check's picture isn't safe to send (" + jpeg.Length + " bytes)");
+            return jpeg;
+        }
+
+        /// <summary>One packet, and no two 0xFF bytes in a row (so never a command terminator, FF FF FF).</summary>
+        public static bool SafeForParser(byte[] b)
+        {
+            if (b == null || b.Length == 0 || b.Length > Packet) return false;
+            for (int i = 0; i + 1 < b.Length; i++) if (b[i] == 0xFF && b[i + 1] == 0xFF) return false;
+            return true;
+        }
+
+        /// <summary>
         /// Uploads image block 0. `screenAt`: the speed the screen listens at (512000 normally; 9600 for a screen without
         /// pages, 115200 for one left at its saved speed). `progress(text, fraction)` is called from this thread. After the
         /// last packet the screen is held (the wheel's own output kept away from it) until `holdUntil` is set or 3 minutes

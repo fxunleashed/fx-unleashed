@@ -1699,7 +1699,7 @@ namespace User.FXProRpmSync
             if (ramTiles != null)
             {
                 cost.RamBytes = ramTiles.Bytes; cost.RamFiles = ramTiles.FileCount;
-                if (cost.RamBytes > ScreenRam.Budget)
+                if (cost.RamBytes + cost.RamFiles * ScreenRam.FileOverhead > ScreenRam.Budget)
                     Add("warning", null, $"takes {DashRam.Text(cost.RamBytes)} of the screen's RAM drive ({ScreenRam.Budget / 1024} KB): on a wheel with it, it's drawn with rectangles instead; fewer or smaller pictures and gradients fit");
             }
             foreach (var n in dynamic.Where(n => n.Kind == "value"))

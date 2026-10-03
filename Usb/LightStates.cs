@@ -111,6 +111,7 @@ namespace User.FXProRpmSync
     {
         public LimiterStyle Style = LimiterStyle.Alternate;
         /// <summary>First colour, and the second one styles that use two (Alternate, Checker; else unused). "#000000" = dark.</summary>
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)] // saved list replaces the default (not appended to it)
         public List<string> Colors = new List<string> { "#0040FF", "#000000" };
         /// <summary>Cycles per second.</summary>
         public double Hz = 3;
@@ -191,6 +192,8 @@ namespace User.FXProRpmSync
         public double Progress;
         /// <summary>This car's pit limiter lights (UsbSettings.CarLimiters), or null = the preset's.</summary>
         public LimiterLook CarLimiter;
+        /// <summary>The facts the rev bar extras need (RevExtrasState), or null = none.</summary>
+        public RevExtrasInput Extras;
 
         public static LightMoment Of(CarState s, double progress = 0, LimiterLook car = null) => new LightMoment { State = s, Progress = progress, CarLimiter = car };
     }

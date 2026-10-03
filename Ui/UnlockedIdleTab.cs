@@ -196,7 +196,7 @@ namespace User.FXProRpmSync
                 Theme.Select(tile, isDefault);
                 gallery.Children.Add(tile);
                 var it = item;
-                Dispatcher.BeginInvoke(new Action(() => img.Source = DashPictures.Saver(it)), DispatcherPriority.Background);
+                DashPictures.ShowSaver(img, it, S.ScreenRamDrive);
             }
         }
 

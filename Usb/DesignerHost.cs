@@ -65,10 +65,11 @@ namespace User.FXProRpmSync
             return result;
         }
 
-        public object Ram(string op, int? arm, int? packet, int? done)
+        public object Ram(string op, int? arm, int? packet, int? done, int? budgetKb = null, int? overhead = null)
         {
             var u = Usb ?? throw new Exception("USB mode isn't running");
             if (op == "waits") u.RamWaits(arm, packet, done);
+            if (op == "budget") u.RamBudget(budgetKb, overhead);
             if (op == "clear") u.RamClear();
             return u.RamInfo();
         }
@@ -79,6 +80,18 @@ namespace User.FXProRpmSync
             if (dash == null) { u.SetDemo(false); return; }
             if (dash == "rotation") { u.SetDemo(true, null); return; } // the car's / default rotation (dash button cycles)
             u.SetDemo(true, dash.StartsWith("c:") ? dash.Substring(2) : dash);
+        }
+
+        public object Scenario(string id, bool stop)
+        {
+            var u = Usb ?? throw new Exception("USB mode isn't running");
+            if (stop) u.StopScenario();
+            else if (!string.IsNullOrEmpty(id) && !u.PlayScenario(id)) throw new Exception("no such scenario: " + id);
+            return new
+            {
+                playing = u.ScenarioNow?.Id, note = u.ScenarioNote, seconds = Math.Round(u.ScenarioElapsed, 1),
+                scenarios = LightScenarios.All.Select(s => new { s.Id, s.Title, s.Seconds, s.Expect }).ToList(),
+            };
         }
 
         public void TestLeds(string[] colours, int brightness, double seconds)

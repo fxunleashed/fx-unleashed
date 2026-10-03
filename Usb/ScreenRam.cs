@@ -25,16 +25,29 @@ namespace User.FXProRpmSync
     {
         /// <summary>The drive's size in the RAM-drive image (header 0x48).</summary>
         public const int Drive = 0x60000;
-        /// <summary>What the plugin fills: the drive less room for a file's temporary copy (`twfile` writes NAME.tm, then
-        /// renames) and the drive's own entries. Never more: a `twfile` the drive can't take would leave the file's data
-        /// to the screen's command parser.</summary>
-        public const int Budget = Drive - 48 * 1024;
+        /// <summary>
+        /// What the plugin fills, in "accounted" bytes: each file counts its size plus <see cref="FileOverhead"/>. The drive
+        /// spends more than a file's data on it (its entry, alignment), and the first budget counted data only (336 KB):
+        /// loads at 144-147 files / 333 KB came out with holes in the dash (2026-10-01/02, three times) while 119-124 files /
+        /// 276-285 KB were fine, so the file count matters, not just the bytes. Never fill more than the drive takes: a
+        /// `twfile` it can't take leaves the file's data to the screen's command parser. The default is just above the
+        /// largest state seen clean; both numbers can be tuned for a session (POST /api/wheel/ram/budget).
+        /// </summary>
+        public const int DefaultBudget = 350 * 1024;
+        public static int Budget = DefaultBudget;
+        /// <summary>Per file, on top of its bytes: the entry, alignment, the screen's bookkeeping (a guess, to be tuned).</summary>
+        public const int DefaultFileOverhead = 512;
+        public static int FileOverhead = DefaultFileOverhead;
+        public static int Accounted(int size) => size + FileOverhead;
         public const int Packet = 4096;
 
         // Waits, in ms. On the wheel (2026-09-30, rotation of 84 files): 60/30/60 and 30/15/40 clean (16 s); 15/5/20 lost
         // files (holes in the dash, the screen swallowing commands until Unstick); 0/0/0 stuck the screen until a power
         // cycle. Background preloading doubles them.
         public static int ArmMs = 30, PacketMs = 15, DoneMs = 40;
+
+        /// <summary>Files evicted to make room since the counter was last reset (logged with each batch).</summary>
+        public int Evicted;
 
         private readonly Func<ScreenRamState> state;
         private readonly Dictionary<string, double> lastUsed = new Dictionary<string, double>();
@@ -45,7 +58,10 @@ namespace User.FXProRpmSync
         private ScreenRamState S => state();
 
         public bool Has(string name) => S.Files.ContainsKey(name);
-        public int Used => S.Files.Values.Sum();
+        /// <summary>Accounted bytes (each file's size plus the overhead).</summary>
+        public int Used => S.Files.Values.Sum(sz => Accounted(sz));
+        /// <summary>Just the files' bytes.</summary>
+        public int DataBytes => S.Files.Values.Sum();
         public int Count => S.Files.Count;
 
         /// <summary>The wheel lost power (or we can't tell): nothing is on the screen.</summary>
@@ -100,15 +116,19 @@ namespace User.FXProRpmSync
         /// </summary>
         public bool Upload(FxHostScreen screen, ScreenTile t, ICollection<string> keep, double now)
         {
-            int size = t.Jpeg.Length;
-            if (size > Budget) return false;
-            while (Used + size > Budget)
+            int size = t.Jpeg.Length, need = Accounted(size);
+            if (need > Budget) return false;
+            while (Used + need > Budget)
             {
                 var victim = S.Files.Keys.Where(k => !keep.Contains(k))
                     .OrderBy(k => lastUsed.TryGetValue(k, out var u) ? u : double.NegativeInfinity).FirstOrDefault();
                 if (victim == null) return false;
-                screen.Cmd("delfile \"ram/" + victim + "\"");
-                S.Files.Remove(victim); lastUsed.Remove(victim);
+                // Paced like any other delete (Delete waits for the screen). They used to go out back to back with no wait: the
+                // screen is slow to take a delete, a burst of them (and the twfile right after) loses commands, and the file
+                // that follows never arrives while we record it as there. The two loads that came out with holes on the wheel
+                // (2026-10-01 23:32 and 2026-10-02 00:35) both had to evict many files; loads onto an empty drive were clean.
+                Delete(screen, victim);
+                Evicted++;
             }
             screen.Flush();
             S.Files.Remove(t.Name); // not there until it's complete

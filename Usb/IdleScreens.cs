@@ -47,7 +47,7 @@ namespace User.FXProRpmSync
         public static string Id(string r) { var id = r == null || r.Length < 2 ? null : r.Substring(2); return string.IsNullOrEmpty(id) ? null : id; }
 
         public static string Name(string r) =>
-            IsWheel(r) ? (Id(r) == null ? "Wheel's own dash" : DashCatalog.NameOf(Id(r))) : DashLibrary.Load(null).FirstOrDefault(d => d.Id == Id(r))?.Name ?? Id(r);
+            IsWheel(r) ? (Id(r) == null ? "Wheel's own dash" : DashCatalog.NameOf(Id(r))) : DashCache.NameOf(Id(r));
     }
 
     [JsonConverter(typeof(StringEnumConverter))]

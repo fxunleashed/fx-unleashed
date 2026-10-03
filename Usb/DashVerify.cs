@@ -28,12 +28,16 @@ namespace User.FXProRpmSync
         public List<VerifyFlash> Flashes = new List<VerifyFlash>();
         /// <summary>The elements that send the most, with what they send per second (including what they make redraw).</summary>
         public List<VerifyTraffic> Traffic = new List<VerifyTraffic>();
+        /// <summary>Every second of the run: the bytes sent and what sent the most in it.</summary>
+        public List<VerifySecond> Timeline = new List<VerifySecond>();
         /// <summary>The busiest second: when, and what sent the most in it (bytes).</summary>
         public double WorstSecondAt;
         public Dictionary<string, long> WorstSecondBy = new Dictionary<string, long>();
         /// <summary>null when every checked update matched a full redraw; else when and where it first didn't.</summary>
         public string RedrawMismatch;
     }
+
+    public sealed class VerifySecond { public double Second; public int Bytes; public Dictionary<string, long> By = new Dictionary<string, long>(); }
 
     public sealed class VerifyFlash { public double Time; public int Pixels; public string Box; public List<string> Elements = new List<string>(); }
 
@@ -42,7 +46,7 @@ namespace User.FXProRpmSync
     public static class DashVerify
     {
         /// <summary>Runs the demo lap for `seconds` (the dash updated 10 times a second, as on the wheel).</summary>
-        public static VerifyResult Run(DashDefinition d, int left = 10, int top = 20, double seconds = 120, int compareEvery = 10)
+        public static VerifyResult Run(DashDefinition d, int left = 10, int top = 20, double seconds = 120, int compareEvery = 10, bool tiles = false)
         {
             var res = new VerifyResult { Seconds = seconds };
             using (var screen = new WatchScreen())
@@ -51,6 +55,7 @@ namespace User.FXProRpmSync
                 string current = "(start)";
                 r.Trace = t => { if (t.StartsWith("#")) current = Trim(t, d); };
                 screen.Owner = () => current;
+                if (tiles) { r.EnableTiles(); r.UseTiles(true); } // as on a wheel with the RAM drive
                 r.DrawAll();
                 var demo = new UsbDemo(d) { BudgetMs = null };
                 var bytesBy = new Dictionary<string, long>();
@@ -89,6 +94,12 @@ namespace User.FXProRpmSync
                     if (k % 30 == 0)
                     {
                         int sec = (int)(screen.Bytes - secStart);
+                        res.Timeline.Add(new VerifySecond
+                        {
+                            Second = Math.Round(now, 1), Bytes = sec,
+                            By = bytesBy.Select(kv => (kv.Key, V: kv.Value - (secBy.TryGetValue(kv.Key, out var b1) ? b1 : 0))).Where(x => x.V > 0)
+                                .OrderByDescending(x => x.V).Take(4).ToDictionary(x => x.Key, x => x.V)
+                        });
                         if (sec > res.WorstSecondBytes)
                         {
                             res.WorstSecondBytes = sec; res.WorstSecondAt = Math.Round(now, 1);
@@ -102,6 +113,7 @@ namespace User.FXProRpmSync
                         using (var full = new PreviewScreen())
                         {
                             var fr = new DashRenderer(full, d, left, top);
+                            if (tiles) { fr.EnableTiles(); fr.UseTiles(true); }
                             fr.DrawAll(); fr.Update(v, now);
                             var diff = Diff(screen.P.Bitmap, full.Bitmap);
                             if (diff.Width > 0) res.RedrawMismatch = $"at {now:0.0}s, in {Rect(diff, left, top)} (dash coordinates): the screen no longer shows what a full redraw would";

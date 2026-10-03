@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 
 namespace User.FXProRpmSync
@@ -68,6 +69,44 @@ namespace User.FXProRpmSync
 
         /// <param name="glow">Halos and the neon outline (the big view); off for the small gallery ones.</param>
         public WheelView(bool glow = true) : this(WheelModel.FxPro, glow) { }
+
+        /// <param name="lite">
+        /// Gallery tiles: everything but the LEDs is one shared picture (StaticLayer), so a tile is ~40 elements instead of
+        /// ~130 (the Lights page shows a dozen or more). No marks, presses or clutch bars; implies no glow.
+        /// </param>
+        public WheelView(WheelModel model, bool glow, bool lite) : this(model, glow && !lite)
+        {
+            if (!lite) return;
+            var layer = StaticLayer(Model);
+            if (layer == null) return;
+            canvas.Children.Clear();
+            canvas.Children.Add(new Image { Source = layer, Width = W, Height = H, IsHitTestVisible = false });
+            foreach (var core in cores) if (core != null) canvas.Children.Add(core);
+        }
+
+        private static readonly Dictionary<string, ImageSource> layers = new Dictionary<string, ImageSource>();
+
+        /// <summary>The wheel without its LEDs, drawn once per model (UI thread).</summary>
+        private static ImageSource StaticLayer(WheelModel model)
+        {
+            if (layers.TryGetValue(model.Id, out var cached)) return cached;
+            ImageSource img = null;
+            try
+            {
+                var v = new WheelView(model, glow: false);
+                foreach (var core in v.cores) if (core != null) core.Visibility = Visibility.Hidden;
+                v.canvas.Measure(new Size(W, H));
+                v.canvas.Arrange(new Rect(0, 0, W, H));
+                v.canvas.UpdateLayout();
+                const double scale = 1.5; // sharp on high-DPI screens too
+                var bmp = new RenderTargetBitmap((int)(W * scale), (int)(H * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+                bmp.Render(v.canvas);
+                bmp.Freeze();
+                img = bmp;
+            }
+            catch (Exception ex) { SimHub.Logging.Current.Debug("[FXProRpmSync] wheel picture: " + ex.Message); }
+            return layers[model.Id] = img;
+        }
 
         public WheelView(WheelModel model, bool glow = true)
         {

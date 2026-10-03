@@ -164,10 +164,10 @@ namespace User.FXProRpmSync
         /// <summary>Bytes on the drive for one dash.</summary>
         public static int Bytes(DashDefinition d) => TilesOf(d)?.Bytes ?? 0;
 
-        /// <summary>Bytes on the drive for several dashes together (tiles they share counted once).</summary>
+        /// <summary>What several dashes take on the drive together, in accounted bytes (files they share counted once).</summary>
         public static int Bytes(IEnumerable<DashDefinition> dashes) =>
             dashes.Where(d => d != null).Select(TilesOf).Where(t => t != null).SelectMany(t => t.Files)
-                  .GroupBy(f => f.Name).Sum(g => g.First().Jpeg.Length);
+                  .GroupBy(f => f.Name).Sum(g => ScreenRam.Accounted(g.First().Jpeg.Length));
 
         /// <summary>"36 KB".</summary>
         public static string Text(int bytes) => bytes <= 0 ? "0 KB" : $"{Math.Max(1, (bytes + 512) / 1024)} KB";

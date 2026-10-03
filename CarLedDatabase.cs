@@ -66,7 +66,38 @@ namespace User.FXProRpmSync
                 return exact;
             }
 
+            var named = FindByWords(cars, carId);
+            if (named != null)
+            {
+                var p = await Load(named).ConfigureAwait(false);
+                if (p != null) { p.MatchedBy = "same name"; return p; }
+            }
+
             return await FindSibling(cars, carId).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// SimHub's car id and the database's don't always agree on punctuation (AMS2: "Ligier JS P320" against
+        /// "ligier_js_p320"), so compare them as plain words, the way the database names its files. Only one entry
+        /// matching counts; two cars that read the same are never guessed between.
+        /// </summary>
+        internal static JToken FindByWords(JArray cars, string carId)
+        {
+            var key = Slug(carId);
+            if (key.Length == 0) return null;
+            var hits = cars.Where(c => Slug((string)c["carId"]) == key || Slug((string)c["carName"]) == key).ToList();
+            return hits.Count == 1 ? hits[0] : null;
+        }
+
+        /// <summary>Lower case, accents dropped, every run of other characters one dash: "Ligier JS P320" and "ligier_js_p320" both give "ligier-js-p320".</summary>
+        internal static string Slug(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            var d = s.Normalize(NormalizationForm.FormD);
+            var plain = new StringBuilder(d.Length);
+            foreach (var ch in d)
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark) plain.Append(ch);
+            return System.Text.RegularExpressions.Regex.Replace(plain.ToString().ToLowerInvariant(), "[^0-9a-z]+", "-").Trim('-');
         }
 
         /// <summary>
@@ -158,7 +189,7 @@ namespace User.FXProRpmSync
             }
         }
 
-        private static CarLedProfile Parse(JObject d)
+        internal static CarLedProfile Parse(JObject d)
         {
             var n = d.Value<int?>("ledNumber") ?? 0;
             var colors = (d["ledColor"] as JArray)?.Select(c => (string)c).ToArray();

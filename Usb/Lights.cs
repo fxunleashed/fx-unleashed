@@ -55,6 +55,8 @@ namespace User.FXProRpmSync
     {
         Abs, Tc, PitLimiter, BlueFlag, YellowFlag, LowFuel, Drs,
         WhiteFlag, GreenFlag, CheckeredFlag, BlackFlag, OrangeFlag, SpotterLeft, SpotterRight, RevLimiter, InvalidLap, Stalled,
+        /// <summary>The game's turn indicators (road cars, trucks), blinking as the car's do.</summary>
+        IndicatorLeft, IndicatorRight,
         /// <summary>Any SimHub property or formula (AlertRule.Condition).</summary>
         Custom,
     }
@@ -131,6 +133,7 @@ namespace User.FXProRpmSync
     public class GroupLighting
     {
         public LightEffect Effect = LightEffect.Solid;
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)] // saved list replaces the default (not appended to it)
         public List<string> Colors = new List<string> { "#FFFFFF" };
         /// <summary>Seconds per breath / wave / sweep.</summary>
         public double Period = 4;
@@ -195,6 +198,7 @@ namespace User.FXProRpmSync
         public bool UseCarData = true;
         /// <summary>Otherwise: first LED at this % of the shift point, colours by thirds.</summary>
         public double StartPercent = 75;
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)] // saved list replaces the default (not appended to it)
         public List<string> Colors = new List<string> { "#00FF40", "#FFB000", "#FF0020" };
         public string FlashColor = "#0040FF";
         /// <summary>Blinks per second at the shift point (0 = steady).</summary>
@@ -221,6 +225,13 @@ namespace User.FXProRpmSync
                 layout.Colors[i] = cols[Math.Min(cols.Count - 1, (int)(ranks[i] * cols.Count))];
             }
             return layout;
+        }
+
+        /// <summary>The pattern laid on a car's own shift light numbers (iRacing's first light, last light and blink rpm).</summary>
+        public RpmLayout ForAnchors(ShiftAnchors a)
+        {
+            int units = FlashHz > 0 ? Math.Max(1, (int)Math.Round(1000 / (2 * FlashHz * RpmLightsMapper.BlinkMsPerUnit))) : 0;
+            return RpmLayout.FromAnchors(Layout(), a.First, a.Last, a.Blink, units);
         }
 
         /// <summary>The layout in real RPM for a shift point (for the plugin's per-car lights and overrides).</summary>
@@ -254,6 +265,12 @@ namespace User.FXProRpmSync
         public LimiterLook Limiter = new LimiterLook();
         /// <summary>While driving, the rev bar's unlit LEDs glow in the theme's colour at this % (0 = dark, as before).</summary>
         public int RevTint;
+        /// <summary>While driving (and on the pit limiter) the buttons and encoders hold one still frame of their effect instead of animating.</summary>
+        public bool StillWhileDriving = true;
+        /// <summary>While driving the side lights stay dark: they're there for alerts (spotter, flags), which still light them.</summary>
+        public bool SidesDarkWhileDriving = true;
+        /// <summary>What the rev bar shows instead of the shift lights in some situations (pit lane, refuelling, LMU lift and coast, a brake bias change, a launch).</summary>
+        public RevExtrasOptions Extras = new RevExtrasOptions();
 
         public StateLook LookFor(CarState s) => Looks != null && Looks.TryGetValue(s, out var l) && l != null ? l : StateLook.Default(s);
 
@@ -299,6 +316,7 @@ namespace User.FXProRpmSync
             c.Alerts = Alerts.Select(a => a.Clone()).ToList();
             c.Looks = (Looks ?? new Dictionary<CarState, StateLook>()).ToDictionary(k => k.Key, k => k.Value?.Clone());
             c.Limiter = (Limiter ?? new LimiterLook()).Clone();
+            c.Extras = (Extras ?? new RevExtrasOptions()).Clone();
             return c;
         }
     }
@@ -582,6 +600,9 @@ namespace User.FXProRpmSync
             new AlertRule { Trigger = AlertTrigger.RevLimiter, Color = "#FF0020", BlinkHz = 12, Enabled = false, Groups = { LedGroup.Rev } },
             new AlertRule { Trigger = AlertTrigger.InvalidLap, Color = "#FF0020", BlinkHz = 0, Enabled = false, Groups = { LedGroup.Encoders } },
             new AlertRule { Trigger = AlertTrigger.Stalled, Color = "#FF0020", BlinkHz = 1, Style = AlertStyle.Pulse, Enabled = false, Groups = { LedGroup.Buttons } },
+            // the game blinks the indicator itself, so these follow it (steady while it's on)
+            new AlertRule { Trigger = AlertTrigger.IndicatorLeft, Color = "#FFA000", BlinkHz = 0, Enabled = false, Groups = { LedGroup.SideLeft } },
+            new AlertRule { Trigger = AlertTrigger.IndicatorRight, Color = "#FFA000", BlinkHz = 0, Enabled = false, Groups = { LedGroup.SideRight } },
         };
 
         public static string AlertName(AlertTrigger t)
@@ -605,6 +626,8 @@ namespace User.FXProRpmSync
                 case AlertTrigger.RevLimiter: return "On the rev limiter";
                 case AlertTrigger.InvalidLap: return "Lap invalidated";
                 case AlertTrigger.Stalled: return "Engine stalled";
+                case AlertTrigger.IndicatorLeft: return "Left indicator";
+                case AlertTrigger.IndicatorRight: return "Right indicator";
                 case AlertTrigger.Custom: return "Custom";
                 default: return t.ToString();
             }
@@ -683,11 +706,17 @@ namespace User.FXProRpmSync
             double dim = look != null ? Math.Max(0, Math.Min(100, look.Brightness)) / 100.0 : 1;
             var frame = new LedColor[Count];
             byte max = (byte)Math.Max(1, Math.Min(90, p.MaxBrightness));
+            bool driving = !parked; // in the car: starting and stopping too, so the start-up settles into the look it ends in
             foreach (LedGroup g in Model.Groups)
             {
                 var l = p.Group(g);
                 double level = max * Math.Max(0, Math.Min(100, l.Brightness)) / 100.0 * dim;
                 if (look != null && level < 0.5) { foreach (var led in Model.Leds(g)) frame[led] = new LedColor(0, 0, 0, 1); continue; }
+                if (driving && p.SidesDarkWhileDriving && (g == LedGroup.SideLeft || g == LedGroup.SideRight))
+                {
+                    foreach (var led in Model.Leds(g)) frame[led] = new LedColor(0, 0, 0, 1);
+                    continue;
+                }
                 byte bright = (byte)Math.Max(1, Math.Round(level));
                 if (l.Effect == LightEffect.Rpm)
                 {
@@ -716,11 +745,14 @@ namespace User.FXProRpmSync
                     // without level lights shows its colours steady
                     var ambient = look?.Effect != null ? LookLighting(look, l)
                                 : l.Effect == LightEffect.Levels ? new GroupLighting { Effect = LightEffect.Solid, Colors = l.Colors, Period = l.Period } : l;
+                    bool still = driving && p.StillWhileDriving;
+                    if (still) ambient = Still(ambient);
+                    double clock = still ? StillTime(ambient) : now;
                     var segs = Model.Segments(g);
                     for (int k = 0; k < segs.Length; k++)
                     {
                         var leds = segs[k];
-                        double t = l.Stagger && segs.Length > 1 ? now + k * Math.Max(0.2, ambient.Period) / segs.Length : now;
+                        double t = l.Stagger && segs.Length > 1 ? clock + k * Math.Max(0.2, ambient.Period) / segs.Length : clock;
                         for (int i = 0; i < leds.Length; i++)
                             frame[leds[i]] = Ambient(ambient, i, leds.Length, leds[i], t, bright);
                     }
@@ -732,15 +764,31 @@ namespace User.FXProRpmSync
             bool limiterOn = state == CarState.PitLimiter && limiter != null && limiter.Style != LimiterStyle.None;
             if (limiterOn) ApplyLimiter(frame, limiter, now);
 
+            // The rev bar's extras (pit speed, refuelling, lift and coast, brake bias, launch): over the shift lights while they last
+            if (m?.Extras != null && (state == CarState.Driving || state == CarState.PitLimiter) && Model.Has(LedGroup.Rev))
+                ApplyRevExtras(frame, p, v, m.Extras, state, now, max, reverseRev);
+
             // Start-up / shutdown: short, over the theme, under the alerts
             if (state == CarState.Starting && p.Startup != StartupStyle.None) ApplyStartup(frame, p.Startup, m.Progress);
             if (state == CarState.Stopping && p.Shutdown != ShutdownStyle.None) ApplyShutdown(frame, p.Shutdown, m.Progress);
 
             // Alerts: first active rule wins for a LED. The pit limiter alert gives way to the limiter lights above.
+            PaintAlerts(frame, p, v, now, limiterOn, null);
+            return frame;
+        }
+
+        /// <summary>
+        /// Alerts over a frame: the first active rule wins for a LED. `only` = just those triggers (the spotter over another
+        /// program's lights).
+        /// </summary>
+        private bool PaintAlerts(LedColor[] frame, LightProfile p, DashValues v, double now, bool limiterOn, AlertTrigger[] only)
+        {
             var taken = new bool[Count];
+            bool painted = false;
             foreach (var a in p.Alerts)
             {
                 if (!a.Enabled || !Active(a, v)) continue;
+                if (only != null && Array.IndexOf(only, a.Trigger) < 0) continue;
                 if (limiterOn && a.Trigger == AlertTrigger.PitLimiter) continue;
                 var (r, g, b) = Rgb(a.Color);
                 var leds = a.Groups.SelectMany(Model.AlertLeds).Distinct().ToArray();
@@ -749,11 +797,63 @@ namespace User.FXProRpmSync
                     int led = leds[i];
                     if (taken[led]) continue;
                     taken[led] = true;
+                    painted = true;
                     double level = AlertLevel(a, i, leds.Length, now);
                     frame[led] = level <= 0 ? new LedColor(0, 0, 0, 1) : new LedColor((byte)(r * level), (byte)(g * level), (byte)(b * level), 90);
                 }
             }
-            return frame;
+            return painted;
+        }
+
+        /// <summary>
+        /// The first extra whose situation holds takes the rev bar: pit speed in the pit lane, the launch aid at a standing
+        /// start, lift and coast (LMU), the fuel level while refuelling, a brake bias change. All but the first two give way
+        /// to the shift lights near the shift point. True if one was drawn.
+        /// </summary>
+        private bool ApplyRevExtras(LedColor[] frame, LightProfile p, DashValues v, RevExtrasInput x, CarState state, double now, byte max, bool reverseRev)
+        {
+            var o = p.Extras;
+            if (o == null || v == null || !v.Running) return false;
+            var leds = Model.Leds(LedGroup.Rev);
+            int n = leds.Length;
+            if (n == 0) return false;
+            byte bright = (byte)Math.Max(1, Math.Round(max * Math.Max(0, Math.Min(100, p.Group(LedGroup.Rev).Brightness)) / 100.0));
+            double shift = v.Redline > 0 ? v.Redline : v.MaxRpm * 0.95;
+            bool nearShift = shift > 0 && v.Rpm >= shift * 0.92;
+            LedColor[] bar = null;
+
+            if (o.PitSpeed && x.PitSpeedKmh > 0 && v.InPitLane && v.SpeedKmh > 5)
+                bar = RevBars.PitSpeed(n, v.SpeedKmh, x.PitSpeedKmh, bright);
+            else if (o.Launch && state == CarState.Driving && v.GearKey == "1" && v.SpeedKmh < 30 && !v.InPitLane && x.Launch != null)
+            {
+                var (target, range) = x.Launch.Window(v.MaxRpm);
+                double value = x.Launch.Mode == LaunchMode.Rpm ? v.Rpm : x.Launch.Mode == LaunchMode.Throttle ? v.Number("throttle") ?? 0 : v.Number("clutch") ?? 0;
+                bar = RevBars.Launch(n, value, target, range, bright);
+            }
+            else if (!nearShift && o.LiftCoast && v.LiftCoast > 2.5)
+                bar = RevBars.MirroredFill(n, v.LiftCoast / 100, RevBars.Magenta, bright);
+            else if (!nearShift && o.Refuel && x.Refuelling && v.SpeedKmh < 5)
+                bar = RevBars.Fill(n, v.FuelPercent / 100, RevBars.Cyan, bright);
+            else if (!nearShift && o.BrakeBias && x.BiasShown)
+                bar = RevBars.Pointer(n, RevBars.Position(x.BiasOffset, 0, 4), RevBars.Amber, bright);
+
+            if (bar == null) return false;
+            for (int i = 0; i < n; i++) frame[leds[reverseRev ? n - 1 - i : i]] = bar[i];
+            return true;
+        }
+
+        private static readonly AlertTrigger[] SpotterTriggers = { AlertTrigger.SpotterLeft, AlertTrigger.SpotterRight };
+
+        /// <summary>
+        /// The profile's spotter alerts (car on the left / right) over a frame that came from somewhere else (ATSR-Hub, SimHub's
+        /// device), so a car alongside shows whatever draws the other lights. The frame itself is left alone (a copy when
+        /// something shows).
+        /// </summary>
+        public LedColor[] OverlaySpotter(LedColor[] frame, LightProfile p, DashValues v, double now)
+        {
+            if (frame == null || frame.Length != Count || p?.Alerts == null || v == null || !(v.SpotterLeft || v.SpotterRight)) return frame;
+            var copy = (LedColor[])frame.Clone();
+            return PaintAlerts(copy, p, v, now, false, SpotterTriggers) ? copy : frame;
         }
 
         /// <summary>The theme's lighting for the rev bar when parked: the first group that isn't off (buttons, usually).</summary>
@@ -768,6 +868,28 @@ namespace User.FXProRpmSync
             }
             return null;
         }
+
+        /// <summary>
+        /// An effect as it looks held still: pulses and sweeps have no frame worth freezing, so they become steady colour
+        /// (Rainbow-breathe a steady rainbow); flowing gradients, plasma, ripples, flames and stars are held where they are.
+        /// </summary>
+        private static GroupLighting Still(GroupLighting l)
+        {
+            LightEffect e;
+            switch (l.Effect)
+            {
+                case LightEffect.Breathe: case LightEffect.Heartbeat: case LightEffect.Strobe:
+                case LightEffect.Scanner: case LightEffect.Sparkle: e = LightEffect.Solid; break;
+                case LightEffect.RainbowBreathe: e = LightEffect.Rainbow; break;
+                default: return l;
+            }
+            var c = l.Clone();
+            c.Effect = e;
+            return c;
+        }
+
+        /// <summary>The moment a still effect is held at: a comet's head halfway round (so its tail shows), else the start.</summary>
+        private static double StillTime(GroupLighting l) => l.Effect == LightEffect.Comet ? Math.Max(0.2, l.Period) / 2 : 0;
 
         private static byte Bright(byte max, GroupLighting l, double dim) => (byte)Math.Max(1, Math.Round(max * Math.Max(0, Math.Min(100, l?.Brightness ?? 100)) / 100.0 * dim));
 
@@ -959,6 +1081,8 @@ namespace User.FXProRpmSync
                 case AlertTrigger.RevLimiter: return v.MaxRpm > 0 && v.Rpm >= v.MaxRpm * 0.985;
                 case AlertTrigger.InvalidLap: return v.LapInvalid;
                 case AlertTrigger.Stalled: return v.Stalled;
+                case AlertTrigger.IndicatorLeft: return v.IndicatorLeft;
+                case AlertTrigger.IndicatorRight: return v.IndicatorRight;
                 default: return false;
             }
         }
@@ -1168,9 +1292,14 @@ namespace User.FXProRpmSync
                 {
                     double hz = layout.FlashBlinkUnits > 0 ? 1000.0 / (2 * layout.FlashBlinkUnits * RpmLightsMapper.BlinkMsPerUnit) : 0;
                     bool on = hz <= 0 || (int)(now * hz * 2) % 2 == 0;
-                    var (fr, fg, fb) = Rgb(layout.FlashColor);
-                    foreach (var l in leds) frame[l] = on ? new LedColor(fr, fg, fb, bright) : new LedColor(0, 0, 0, 1);
-                    return;
+                    if (!layout.FlashDark)
+                    {
+                        var (fr, fg, fb) = Rgb(layout.FlashColor);
+                        foreach (var l in leds) frame[l] = on ? new LedColor(fr, fg, fb, bright) : new LedColor(0, 0, 0, 1);
+                        return;
+                    }
+                    // the shift lights blink out and back in (the car's redline has no colour of its own)
+                    if (!on) { foreach (var l in leds) frame[l] = new LedColor(0, 0, 0, 1); return; }
                 }
                 for (int i = 0; i < leds.Length && i < layout.Rpm.Length; i++)
                 {

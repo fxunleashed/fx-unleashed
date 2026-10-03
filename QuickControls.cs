@@ -135,6 +135,25 @@ namespace User.FXProRpmSync
             lock (sync) return Settings.Usb.CarLimiters != null && Settings.Usb.CarLimiters.TryGetValue(carKey, out var l) ? l : null;
         }
 
+        /// <summary>A car's launch aid target (UsbSettings.CarLaunch), or null = none saved (the default: 70% of the car's max revs).</summary>
+        public LaunchTarget LaunchFor(string carKey)
+        {
+            if (carKey == null) return null;
+            lock (sync) return Settings.Usb.CarLaunch != null && Settings.Usb.CarLaunch.TryGetValue(carKey, out var t) ? t : null;
+        }
+
+        /// <summary>Saves (or with null removes) a car's launch aid target.</summary>
+        public void SetCarLaunch(string carKey, LaunchTarget target)
+        {
+            if (carKey == null) return;
+            lock (sync)
+            {
+                if (Settings.Usb.CarLaunch == null) Settings.Usb.CarLaunch = new Dictionary<string, LaunchTarget>();
+                if (target == null) Settings.Usb.CarLaunch.Remove(carKey); else Settings.Usb.CarLaunch[carKey] = target.Clone();
+            }
+            QuickChanged();
+        }
+
         /// <summary>Saves (or with null removes) a car's own pit limiter lights.</summary>
         public void SetCarLimiter(string carKey, LimiterLook look)
         {

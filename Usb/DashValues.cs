@@ -44,6 +44,14 @@ namespace User.FXProRpmSync
         public bool AbsActive, TcActive, PitLimiter, Drs, InPitLane;
         public bool BlueFlag, YellowFlag, GreenFlag, WhiteFlag, CheckeredFlag, BlackFlag, OrangeFlag;
         public bool SpotterLeft, SpotterRight, LapInvalid, Stalled;
+        /// <summary>The turn indicators as the game blinks them (road cars, trucks).</summary>
+        public bool IndicatorLeft, IndicatorRight;
+        /// <summary>The pit lane's speed limit in km/h when the game or SimHub gives it; 0 = not given (RevExtrasState learns it from the pit limiter).</summary>
+        public double PitSpeedLimit;
+        /// <summary>LMU's lift-and-coast progress, 0-100 (0 = none, or another game).</summary>
+        public double LiftCoast;
+        /// <summary>SimHub's game and track names (what pit speeds are remembered by).</summary>
+        public string Game = "", Track = "";
         public double FuelPercent = 100;
         public bool Running;
         /// <summary>The game is in a menu, paused, a replay or spectating (the car isn't being driven). See CarStateTracker.</summary>
@@ -233,10 +241,32 @@ namespace User.FXProRpmSync
             });
             Try(() =>
             {
-                r.SpotterLeft = d.SpotterCarLeft != 0; r.SpotterRight = d.SpotterCarRight != 0;
+                // nobody to spot alone on track; a time-trial ghost isn't a car alongside
+                bool alone = SoloSession(d.SessionTypeName);
+                r.SpotterLeft = d.SpotterCarLeft != 0 && !alone; r.SpotterRight = d.SpotterCarRight != 0 && !alone;
                 r.Set("spotterLeft", r.SpotterLeft); r.Set("spotterRight", r.SpotterRight);
             });
-            Try(() => { r.LapInvalid = d.LapInvalidated; r.Set("lapInvalid", r.LapInvalid); });
+            Try(() => { r.Game = data.GameName ?? ""; r.Track = d.TrackId ?? ""; });
+            Try(() => { r.IndicatorLeft = d.TurnIndicatorLeft != 0; r.IndicatorRight = d.TurnIndicatorRight != 0; });
+            Try(() => r.PitSpeedLimit = PitSpeedFromGame(pm, d));
+            Try(() => r.LiftCoast = Math.Max(0, Math.Min(255, Prop(pm, RawData + "PlayerNativeTelemetry.mLiftAndCoastProgress") ?? 0)) / 2.55);
+            Try(() =>
+            {
+                // SimHub keeps LapInvalidated up for the whole lap once the game says so. The first lap of a session (the out
+                // lap, or the lap before the timer starts) isn't a timed one whatever the game flags, so it doesn't read as invalid.
+                bool flagged = d.LapInvalidated;
+                r.LapInvalid = LapInvalidShown(flagged, d.CompletedLaps);
+                if (flagged && !r.LapInvalid)
+                {
+                    if (!firstLapNoted)
+                    {
+                        firstLapNoted = true;
+                        SimHub.Logging.Current.Info($"[FXProRpmSync] {data.GameName}: lap {d.CurrentLap} flagged invalid before any lap was completed; not shown as invalid");
+                    }
+                }
+                else if (!flagged) firstLapNoted = false;
+                r.Set("lapInvalid", r.LapInvalid);
+            });
             // ignition on but the engine not running (games that don't report either leave both 0: never "stalled")
             Try(() => r.Stalled = d.EngineIgnitionOn != 0 && d.EngineStarted == 0 && d.SpeedKmh < 5);
             // car state for the lights (CarStateTracker): an engine that's off has no revs, so games that never report
@@ -253,6 +283,43 @@ namespace User.FXProRpmSync
         }
 
         private static void Try(Action a) { try { a(); } catch { } }
+
+        private static bool firstLapNoted;
+
+        /// <summary>
+        /// The pit speed limit in km/h from what the game gives: iRacing's track info ("60.00 kph" / "45.00 mph"), the F1 games'
+        /// session packet, or SimHub's own value. 0 when none (AMS2 and LMU give nothing: see RevExtrasState).
+        /// </summary>
+        private static double PitSpeedFromGame(PluginManager pm, StatusDataBase d)
+        {
+            object text = null;
+            try { text = pm.GetPropertyValue(RawData + "SessionData.WeekendInfo.TrackPitSpeedLimit"); } catch { }
+            double kph = ParsePitSpeed(text as string);
+            if (kph > 0) return kph;
+            kph = Prop(pm, RawData + "PacketSessionData.m_pitSpeedLimit") ?? 0;
+            if (kph > 0) return kph;
+            if (d.PitLimiterSpeedMs > 0) return d.PitLimiterSpeedMs.Value * 3.6;
+            return d.PitLimiterSpeed > 0 ? d.PitLimiterSpeed.Value : 0;
+        }
+
+        /// <summary>"60.00 kph", "45 mph" or "60" as km/h; 0 when it isn't a speed.</summary>
+        internal static double ParsePitSpeed(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            var m = System.Text.RegularExpressions.Regex.Match(text.Trim().ToLowerInvariant(), @"^([0-9]+(?:[.,][0-9]+)?)\s*(kph|km/h|mph)?");
+            if (!m.Success || !double.TryParse(m.Groups[1].Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) return 0;
+            return m.Groups[2].Value == "mph" ? v * 1.609344 : v;
+        }
+
+        /// <summary>The game's invalid-lap flag as the lights and dashes show it: not before the first lap is done (an out lap isn't timed).</summary>
+        internal static bool LapInvalidShown(bool flagged, int completedLaps) => flagged && completedLaps > 0;
+
+        /// <summary>A session with nobody else on track (time trial, hot lap): the game's name for it, any case.</summary>
+        internal static bool SoloSession(string sessionTypeName)
+        {
+            var s = (sessionTypeName ?? "").ToUpperInvariant().Replace("_", " ").Replace("-", " ");
+            return s.Contains("TIME TRIAL") || s.Contains("TIMETRIAL") || s.Contains("HOTLAP") || s.Contains("HOT LAP") || s.Contains("LONE");
+        }
 
         private static double? Seconds(TimeSpan t) => t.TotalSeconds > 0 ? t.TotalSeconds : (double?)null;
         private static double? Positive(double? x) => x > 0 ? x : null;

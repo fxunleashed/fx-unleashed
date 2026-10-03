@@ -6,99 +6,214 @@
 <title>Wheel mirror</title>
 <!--
   FX Unleashed screen mirror (NEXT.md H): what the plugin sends to the wheel's screen, plus its lights, for an OBS browser
-  source. http://127.0.0.1:8899/mirror  Options: ?bg=transparent  ?leds=0 (screen only)  ?all=1 (buttons and encoders too)
-  ?fps=10 (1-30)  ?label=0 (no status line)
+  source: http://127.0.0.1:8899/mirror
+  There are no options in the address. Frame, lights, background and speed are set in SimHub (FX Unleashed > Dashes >
+  "Stream the wheel's screen"); the page reads them from /api/wheel/mirror on every poll, so a change shows at once.
+  Layout is a 3x3 grid (lights | screen | lights). Bezel and Carbon are housings that hold the lights; the other frames
+  float and the lights sit outside them.
 -->
 <style>
-  :root { --bg: #07080a; --off: #16181c; --text: #9aa1ab; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px "Segoe UI", system-ui, sans-serif; overflow: hidden; }
-  body.transparent { --bg: transparent; }
+  :root {
+    --bg: transparent; --r: 10px; --ro: 24px;
+    --accent: #FF1F2D; --accent-rgb: 255,31,45;
+    --ct: 0px; --cb: 0px; --cl: 0px; --cr: 0px;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: #9aa1ab; font: 14px "Segoe UI", system-ui, sans-serif; }
+  body[data-bg="dark"] { --bg: #07080a; }
+  body[data-bg="green"] { --bg: #00b140; }
+  /* outside OBS a transparent page would be white: show a checkerboard so it's clear what's see-through */
+  body.checker { background-color: #0d0e11; background-image: linear-gradient(45deg, #14161a 25%, transparent 25%, transparent 75%, #14161a 75%), linear-gradient(45deg, #14161a 25%, transparent 25%, transparent 75%, #14161a 75%); background-size: 28px 28px; background-position: 0 0, 14px 14px; }
+
   #stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-  #rig { position: relative; display: grid; grid-template-columns: auto auto auto; grid-template-rows: auto auto auto; gap: 14px; align-items: center; justify-items: center; transform-origin: center; }
-  .strip { display: flex; gap: 10px; }
-  .col { display: flex; flex-direction: column; gap: 16px; }
-  .led { width: 22px; height: 22px; border-radius: 50%; background: var(--off); box-shadow: inset 0 0 0 1px #2a2e35; transition: background 40ms linear, box-shadow 40ms linear; }
-  .led.small { width: 16px; height: 16px; }
-  #screen { width: 800px; height: 480px; background: #000; border-radius: 6px; box-shadow: 0 0 0 2px #1d2026, 0 20px 60px rgba(0,0,0,.6); position: relative; overflow: hidden; }
-  #screen img { width: 100%; height: 100%; display: block; image-rendering: auto; }
-  #note { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 6px; color: #5d646f; font-size: 22px; letter-spacing: .04em; text-transform: uppercase; }
-  #note small { font-size: 13px; letter-spacing: 0; text-transform: none; color: #454b55; }
-  #status { grid-column: 1 / 4; font-size: 12px; color: #4d535c; letter-spacing: .05em; text-transform: uppercase; }
+  #rig { opacity: 0; transition: opacity .35s ease; transform-origin: center; }
+  #rig.ready { opacity: 1; }
+  #rig.gone { opacity: 0; }
+
+  #frame { position: relative; display: grid; grid-template-columns: var(--cl) 800px var(--cr); grid-template-rows: var(--ct) 480px var(--cb);
+           grid-template-areas: ". top ." "left screen right" ". bottom ."; }
+  #frame > * { position: relative; z-index: 1; }
+  #top { grid-area: top; } #bottom { grid-area: bottom; } #left { grid-area: left; } #right { grid-area: right; }
+  #top, #bottom, #left, #right { display: flex; align-items: center; justify-content: center; }
+
+  /* ---- the screen ---- */
+  #screen { grid-area: screen; position: relative; width: 800px; height: 480px; border-radius: var(--r); background: #000; }
+  #glass { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; background: #000; }
+  #img { width: 100%; height: 100%; display: block; }
+  #glass::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+  #note { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 8px;
+          color: #5d646f; font-size: 24px; letter-spacing: .06em; text-transform: uppercase; background: radial-gradient(ellipse at 50% 40%, #11141a, #050607 70%); }
+  #note small { font-size: 14px; letter-spacing: 0; text-transform: none; color: #454b55; }
+
+  /* ---- frames ---- */
+  #frame.f-line #screen::after { content: ""; position: absolute; inset: -9px; border: 2px solid var(--accent); border-radius: calc(var(--r) + 9px); pointer-events: none; transition: border-color .12s linear; }
+  #frame.f-glow #screen { box-shadow: 0 0 0 2px var(--accent), 0 0 18px 2px rgba(var(--accent-rgb), .65), 0 0 64px 8px rgba(var(--accent-rgb), .28); transition: box-shadow .12s linear; }
+  #frame.f-glow #glass::after { box-shadow: inset 0 0 34px rgba(var(--accent-rgb), .28); }
+
+  #frame.f-bezel, #frame.f-carbon { border-radius: var(--ro); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06), 0 0 0 1px #000, 0 26px 50px -10px rgba(0,0,0,.7); }
+  #frame.f-bezel { background: linear-gradient(158deg, #31353d 0%, #191b20 36%, #0d0e11 100%); }
+  #frame.f-bezel::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0; box-shadow: inset 0 1.5px 0 rgba(255,255,255,.16); }
+  #frame.f-bezel #screen { box-shadow: 0 0 0 1px #000, 0 0 0 3px rgba(255,255,255,.045); }
+  #frame.f-carbon {
+    background-color: #131313;
+    background-image:
+      linear-gradient(27deg, #151515 5px, transparent 5px), linear-gradient(207deg, #151515 5px, transparent 5px),
+      linear-gradient(27deg, #222 5px, transparent 5px), linear-gradient(207deg, #222 5px, transparent 5px),
+      linear-gradient(90deg, #1b1b1b 10px, transparent 10px),
+      linear-gradient(#1d1d1d 25%, #1a1a1a 25%, #1a1a1a 50%, transparent 50%, transparent 75%, #242424 75%, #242424);
+    background-position: 0 5px, 10px 0, 0 10px, 10px 5px, 0 0, 0 0;
+    background-size: 20px 20px;
+  }
+  #frame.f-carbon::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0; background: linear-gradient(158deg, rgba(255,255,255,.08), rgba(0,0,0,.45)); }
+  #frame.f-carbon #screen { box-shadow: 0 0 0 2px #050505, 0 0 0 3px rgba(var(--accent-rgb), .95), 0 0 16px 2px rgba(var(--accent-rgb), .35); transition: box-shadow .12s linear; }
+  #frame.f-bezel #glass::after, #frame.f-carbon #glass::after { background: linear-gradient(155deg, rgba(255,255,255,.06), rgba(255,255,255,0) 30%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.07); }
+
+  /* ---- lights ---- */
+  .strip { display: flex; align-items: center; justify-content: center; }
+  .strip.h { width: 100%; flex-direction: row; }
+  .strip.v { height: 100%; flex-direction: column; }
+  .led { position: relative; flex: none; transition: background-color 50ms linear, box-shadow 70ms linear, opacity 50ms linear; }
+
+  .ls-dots .led { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #30343c, #111317 72%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 1px 3px rgba(0,0,0,.55); }
+  .ls-dots .led.on::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 35% 28%, rgba(255,255,255,.6), rgba(255,255,255,0) 52%); }
+  .ls-dots .strip.h { gap: 12px; } .ls-dots .strip.v { gap: 16px; }
+
+  .ls-bars .led { background: #1b1e24; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+  .ls-bars .strip.h { gap: 6px; padding: 0 2px; box-sizing: border-box; } .ls-bars .strip.h .led { flex: 1 1 0; height: 14px; }
+  .ls-bars .strip.v { gap: 8px; } .ls-bars .strip.v .led { width: 14px; height: 46px; }
+
+  .ls-line .led { background: #24272e; border-radius: 3px; }
+  .ls-line .strip.h { gap: 3px; padding: 0 2px; box-sizing: border-box; } .ls-line .strip.h .led { flex: 1 1 0; height: 6px; }
+  .ls-line .strip.v { gap: 8px; } .ls-line .strip.v .led { width: 6px; height: 46px; }
+
   .hide { display: none !important; }
 </style>
 </head>
 <body>
 <div id="stage">
   <div id="rig">
-    <div></div><div class="strip" id="rev"></div><div></div>
-    <div class="col" id="left"></div>
-    <div id="screen"><img id="frame" alt=""><div id="note"><span id="noteTitle">Wheel not driven</span><small id="noteText"></small></div></div>
-    <div class="col" id="right"></div>
-    <div></div><div class="strip" id="lower"></div><div></div>
-    <div id="status"></div>
+    <div id="frame">
+      <div id="top"></div>
+      <div id="left"></div>
+      <div id="screen">
+        <div id="glass"><img id="img" alt=""><div id="note"><span id="noteTitle">Wheel not driven</span><small id="noteText"></small></div></div>
+      </div>
+      <div id="right"></div>
+      <div id="bottom"></div>
+    </div>
   </div>
 </div>
 <script>
 const $ = id => document.getElementById(id);
-const rev = $("rev"), left = $("left"), right = $("right"), lower = $("lower"), rig = $("rig"), frame = $("frame"),
-      note = $("note"), noteTitle = $("noteTitle"), noteText = $("noteText"), statusLine = $("status");
-const q = new URLSearchParams(location.search);
-if (q.get("bg") === "transparent") document.body.classList.add("transparent");
-const showLeds = q.get("leds") !== "0", showAll = q.get("all") === "1", showLabel = q.get("label") !== "0";
-const fps = Math.max(1, Math.min(30, +(q.get("fps") || 10)));
+const rig = $("rig"), frame = $("frame"), img = $("img"), note = $("note"), noteTitle = $("noteTitle"), noteText = $("noteText");
+const parts = { top: $("top"), bottom: $("bottom"), left: $("left"), right: $("right") };
 
-// LED numbers as the firmware counts them: buttons 0-11, encoders 12-16, side 17-19 left / 20-22 right (top to bottom), rev 23-37
+// LED numbers as the firmware counts them: side 17-19 left / 20-22 right (top to bottom), rev 23-37 (left to right)
 const leds = [];
-function make(parent, i, small) { const d = document.createElement("div"); d.className = "led" + (small ? " small" : ""); parent.appendChild(d); leds[i] = d; }
-for (let i = 23; i <= 37; i++) make(rev, i);
-for (let i = 17; i <= 19; i++) make(left, i);
-for (let i = 20; i <= 22; i++) make(right, i);
-[0,1,2,3,4,5,12,13,14,15,16,6,7,8,9,10,11].forEach(i => make(lower, i, true));
-if (!showLeds) [rev, left, right, lower].forEach(e => e.classList.add("hide"));
-if (!showAll) lower.classList.add("hide");
-if (!showLabel) statusLine.classList.add("hide");
+function strip(kind, from, count) {
+  const s = document.createElement("div"); s.className = "strip " + kind;
+  for (let i = from; i < from + count; i++) { const d = document.createElement("div"); d.className = "led"; s.appendChild(d); leds[i] = d; }
+  return s;
+}
+const rev = strip("h", 23, 15), sideL = strip("v", 17, 3), sideR = strip("v", 20, 3);
+parts.left.appendChild(sideL); parts.right.appendChild(sideR);
+
+let opts = null, optsKey = "", followRev = false;
+
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function setAccent(hex) {
+  const [r, g, b] = hexRgb(hex);
+  frame.style.setProperty("--accent", hex);
+  frame.style.setProperty("--accent-rgb", r + "," + g + "," + b);
+}
+
+function applyOptions(o) {
+  opts = o;
+  const integrated = o.frame === "bezel" || o.frame === "carbon";
+  const T = { dots: 22, bars: 14, line: 6 }[o.lightStyle] || 22;
+  const atTop = o.lightsAt !== "below";
+  let ct, cb, cl, cr;
+  if (integrated) {
+    const pad = o.frame === "carbon" ? 20 : 16, band = T + 30;      // the housing: thin all round, deeper where lights sit in it
+    ct = o.rev && atTop ? band : pad; cb = o.rev && !atTop ? band : pad;
+    cl = cr = o.sides ? band : pad;
+  } else {
+    const gap = o.frame === "none" ? 14 : 28;                        // floating frames: the lights stand clear of the ring/glow
+    ct = o.rev && atTop ? T + gap : 0; cb = o.rev && !atTop ? T + gap : 0;
+    cl = cr = o.sides ? T + gap : 0;
+  }
+  frame.className = `f-${o.frame} ls-${o.lightStyle}`;
+  const st = frame.style;
+  st.setProperty("--ct", ct + "px"); st.setProperty("--cb", cb + "px"); st.setProperty("--cl", cl + "px"); st.setProperty("--cr", cr + "px");
+  st.setProperty("--r", o.corners + "px"); st.setProperty("--ro", (o.corners + 14) + "px");
+
+  (atTop ? parts.top : parts.bottom).appendChild(rev);
+  rev.classList.toggle("hide", !o.rev);
+  sideL.classList.toggle("hide", !o.sides); sideR.classList.toggle("hide", !o.sides);
+
+  followRev = o.frameColor === "rev";
+  if (!followRev) setAccent(o.frameColor);
+  document.body.dataset.bg = o.background;
+  document.body.classList.toggle("checker", o.background === "transparent" && typeof window.obsstudio === "undefined");
+  rig.classList.add("ready");
+  fit();
+}
 
 function fit() {
-  const w = rig.scrollWidth, h = rig.scrollHeight;
-  const s = Math.min(innerWidth / (w + 80), innerHeight / (h + 80));
-  rig.style.transform = `scale(${s})`;
+  const w = rig.offsetWidth, h = rig.offsetHeight;
+  if (!w || !h) return;
+  const margin = 70;                                                  // room for shadows and glows
+  rig.style.transform = `scale(${Math.min(innerWidth / (w + margin * 2), innerHeight / (h + margin * 2))})`;
 }
 addEventListener("resize", fit);
 
-let version = -1, busy = false, lastUrl = null;
+let version = -1, busy = false, lastUrl = null, timer = null;
 async function tick() {
   if (busy) return; busy = true;
   try {
     const st = await (await fetch("/api/wheel/mirror", { cache: "no-store" })).json();
-    // lights: colour x brightness (the wheel caps at 90)
+    const key = JSON.stringify(st.options);
+    if (key !== optsKey) { optsKey = key; applyOptions(st.options); schedule(); }
+
+    // lights: colour x brightness (the wheel caps at 90); the rev lights' lead LED also tints a "follow the rev lights" frame
+    let lead = null;
     (st.leds || []).forEach((l, i) => {
       const e = leds[i]; if (!e) return;
       const on = l.b > 0 && l.c !== "#000000";
-      if (!on) { e.style.background = ""; e.style.boxShadow = ""; return; }
+      e.classList.toggle("on", on);
+      if (!on) { e.style.background = ""; e.style.boxShadow = ""; e.style.opacity = ""; return; }
       const a = Math.min(1, 0.35 + l.b / 90 * 0.65);
       e.style.background = l.c;
       e.style.opacity = a;
       e.style.boxShadow = `0 0 ${8 + l.b / 6}px ${2 + l.b / 30}px ${l.c}`;
+      if (i >= 23) lead = l.c;
     });
-    if (!st.leds) leds.forEach(e => { if (e) { e.style.background = ""; e.style.boxShadow = ""; e.style.opacity = 1; } });
+    if (!st.leds) leds.forEach(e => { if (e) { e.classList.remove("on"); e.style.background = ""; e.style.boxShadow = ""; e.style.opacity = ""; } });
+    if (followRev) setAccent(lead || "#3a3f48");
+
     const picture = st.held || st.wheelDash;
+    rig.classList.toggle("gone", !picture && opts.hideWhenIdle);
     note.style.display = picture ? "none" : "flex";
-    frame.style.visibility = picture ? "visible" : "hidden";
+    img.style.visibility = picture ? "visible" : "hidden";
     if (!picture) { noteTitle.textContent = "Wheel's own screen"; noteText.textContent = "FX Unleashed isn't drawing on the wheel right now."; }
-    statusLine.textContent = st.held ? (st.dark ? "screen off" : "live") : st.wheelDash ? `wheel dash: ${st.wheelDash} (picture, not live values)` : "idle";
     if (picture && st.version !== version) {
       const r = await fetch("/api/wheel/frame.png?v=" + st.version, { cache: "no-store" });
       if (r.ok && r.status === 200) {
         const url = URL.createObjectURL(await r.blob());
-        frame.src = url; if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = url;
+        img.src = url; if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = url;
         version = st.version;
       }
     }
-  } catch (e) { statusLine.textContent = "plugin not reachable"; }
+  } catch (e) {
+    noteTitle.textContent = "Plugin not reachable"; noteText.textContent = "Is SimHub running?";
+    note.style.display = "flex"; img.style.visibility = "hidden";
+  }
   busy = false;
 }
-fit();
-setInterval(tick, 1000 / fps);
+function schedule() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(tick, 1000 / Math.max(1, Math.min(30, (opts && opts.fps) || 20)));
+}
+schedule();
 tick();
 </script>
 </body>

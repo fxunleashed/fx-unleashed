@@ -93,7 +93,7 @@ namespace User.FXProRpmSync
                 e["value"] = new JArray(rpm.Select(Pct));
                 e["color"] = new JArray(rpm.Select((r, i) => r <= 0 ? LedPalette.Off : layout.Colors[i]));
                 e["max_rpm"] = newMax;
-                SetShiftStage(e, Pct(flashRpm), layout.FlashColor, layout.FlashBlinkUnits);
+                SetShiftStage(e, layout.FlashDark ? 0 : Pct(flashRpm), layout.FlashColor, layout.FlashBlinkUnits);
                 return e;
             }
 
@@ -118,6 +118,12 @@ namespace User.FXProRpmSync
             style.Pattern == PatternKind.SimProPreset
                 ? FromPreset(presetTemplate, shiftRpm)
                 : RpmLayout.FromPattern(LedPatterns.Build(style), shiftRpm, DefaultBlinkUnits);
+
+        /// <summary>A pattern choice laid on a car's own shift light numbers (iRacing).</summary>
+        public static RpmLayout FromStyleAnchors(FallbackStyle style, JObject presetTemplate, ShiftAnchors a) =>
+            style.Pattern == PatternKind.SimProPreset
+                ? RpmLayout.FromAnchors(PresetLayout(presetTemplate), a.First, a.Last, a.Blink, 0)
+                : RpmLayout.FromAnchors(LedPatterns.Build(style), a.First, a.Last, a.Blink, DefaultBlinkUnits);
 
         /// <summary>The preset's own LED pattern with its redline anchored at shiftRpm, and no flash (a guess).</summary>
         public static RpmLayout FromPreset(JObject template, double shiftRpm) =>

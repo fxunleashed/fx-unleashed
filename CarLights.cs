@@ -241,7 +241,11 @@ namespace User.FXProRpmSync
                         if (st.Count == 2) light.Stages.Add(((int)Math.Round((double)st[0]), (string)st[1]));
                     if (light.Stages.Count > 0) rev.Lights.Add(light);
                 }
-                if (rev.Lights.Count > 0) rec.Rev = rev;
+                // Lights sharing a position can't be laid out along the bar (the Ligier JS P320 came out as five lights stacked
+                // at one end and one at the other, which lit the wheel lopsided): no rev data, so Lovely Car Data or the
+                // preset's pattern is used for the car instead.
+                bool stacked = rev.Lights.Count > 1 && rev.Lights.Select(l => Math.Round(l.Pos, 3)).Distinct().Count() < rev.Lights.Count;
+                if (rev.Lights.Count > 0 && !stacked) rec.Rev = rev;
             }
             if (c["limiter"] is JObject lim)
             {

@@ -30,6 +30,7 @@ namespace User.FXProRpmSync
         private readonly ContentControl tabHost = new ContentControl();
         private readonly Dictionary<string, FrameworkElement> built = new Dictionary<string, FrameworkElement>();
         private readonly TextBlock wheelPill, carPill;
+        private readonly RamPill ramPill = new RamPill();
         private readonly Border feedProblem, updateBanner;
         private readonly TextBlock updateText;
         private readonly TextBlock feedProblemTitle, feedProblemAction, feedProblemDetail;
@@ -71,6 +72,7 @@ namespace User.FXProRpmSync
             wheelChip.MouseLeftButtonUp += (s, e) => SwitchToOther();
             pills.Children.Add(wheelChip);
             pills.Children.Add(Theme.Pill(out wheelPill, out wheelDot));
+            pills.Children.Add(ramPill);       // the screen's RAM drive, when it's switched on
             pills.Children.Add(Theme.Pill(out carPill, out carDot));
             DockPanel.SetDock(pills, Dock.Right);
             header.Children.Add(pills);
@@ -273,9 +275,10 @@ namespace User.FXProRpmSync
             else
             {
                 yield return ("Wheel", "", () => new UnlockedWheelTab(plugin, Open));
-                if (screen) yield return ("Dashes", "", () => new UnlockedDashesTab(plugin));
+                if (screen) yield return ("Dashes", "", () => { using (UiProfiler.Time("dashes page built")) return new UnlockedDashesTab(plugin); });
                 yield return ("Lights", "", () => new UnlockedLightsTab(plugin));
                 yield return ("Idle & sleep", "", () => new UnlockedIdleTab(plugin));
+                if (screen) yield return ("Streaming", "", () => new UnlockedStreamTab(plugin));
                 yield return ("Car tuning", "", () => CarTuning());
                 yield return ("About", "", () => new AboutTab(plugin));
             }
@@ -303,8 +306,15 @@ namespace User.FXProRpmSync
             if (tab.Build == null) return;
             lastTab[Mode] = name;
             string key = Mode + "|" + plugin.ActiveModel.Id + "|" + name;
-            if (!built.TryGetValue(key, out var content)) built[key] = content = tab.Build();
+            if (!built.TryGetValue(key, out var content)) using (UiProfiler.Time("tab build " + name)) built[key] = content = tab.Build();
             tabHost.Content = content;
+            if (UiProfiler.On)
+            {
+                using (UiProfiler.Time("tab layout " + name)) tabHost.UpdateLayout();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                // after the next frame: what drawing it took on the UI thread
+                Dispatcher.BeginInvoke(new Action(() => SimHub.Logging.Current.Info($"[FXProRpmSync] UI timing tab shown {name}: {sw.ElapsedMilliseconds} ms after layout")), System.Windows.Threading.DispatcherPriority.ContextIdle);
+            }
             foreach (Border t in tabStrip.Children)
             {
                 bool on = (string)t.Tag == name;
@@ -402,6 +412,11 @@ namespace User.FXProRpmSync
                 wheelPill.Text = "SimPro  ·  " + (error ? "not reachable" : plugin.Settings.Enabled ? "syncing" : "rev lights off");
                 wheelDot.Fill = error ? Theme.Red : plugin.Settings.Enabled ? Theme.Green : Theme.Text3;
             }
+            // the screen's RAM drive: only for an FX Pro with the drive switched on and the wheel there
+            var ru = plugin.Usb;
+            bool ramOn = Mode == WheelMode.Unlocked && shownModel == WheelModel.FxPro && plugin.Settings.Usb.ScreenRamDrive && ru != null && ru.WheelFound;
+            ramPill.Visibility = ramOn ? Visibility.Visible : Visibility.Collapsed;
+            if (ramOn) ramPill.Update(ru.RamUsed, ScreenRam.Budget, ru.RamFiles, ru.RamData, ScreenRam.FileOverhead, ru.RamLoading);
             string car = plugin.CurrentCarNameForDash;
             carPill.Text = car != null ? car + "  ·  " + plugin.CurrentGameForDash : plugin.GameRunning ? "In game  ·  no car yet" : "No game running";
             carDot.Fill = car != null ? Theme.Green : Theme.Text3;

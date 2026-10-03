@@ -136,6 +136,7 @@ namespace User.FXProRpmSync
             {
                 if (loading || !(flashModeBox.SelectedItem is ComboBoxItem it)) return;
                 int tag = (int)it.Tag;
+                editing.Custom.FlashDark = false;
                 if (tag < 0) editing.Custom.FlashRpm = 0;
                 else
                 {
@@ -147,7 +148,7 @@ namespace User.FXProRpmSync
             };
             flashColorBox = ColorPicker(compact: false, includeOff: false);
             flashColorBox.Margin = new Thickness(10, 0, 0, 0);
-            flashColorBox.SelectionChanged += (s, e) => { if (!loading && flashColorBox.SelectedItem is ComboBoxItem it) { editing.Custom.FlashColor = (string)it.Tag; Changed(); } };
+            flashColorBox.SelectionChanged += (s, e) => { if (!loading && flashColorBox.SelectedItem is ComboBoxItem it) { editing.Custom.FlashColor = (string)it.Tag; editing.Custom.FlashDark = false; Changed(); } };
             var flashRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
             flashRow.Children.Add(new TextBlock { Text = "Shift flash at", Width = 100, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.85 });
             flashRow.Children.Add(flashRpmBox);

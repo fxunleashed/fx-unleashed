@@ -30,6 +30,8 @@ namespace User.FXProRpmSync
         private readonly LiveDashPreview preview;
         private readonly TextBlock focusName, focusInfo, focusProblems, designerInfo;
         private readonly WrapPanel focusButtons;
+        private readonly StackPanel focusRam = new StackPanel();
+        private (List<DashDefinition>, bool) libraryStamp;
         private readonly Dictionary<string, (Border Tile, WrapPanel Badges)> tiles = new Dictionary<string, (Border, WrapPanel)>();
 
         /// <summary>The list being edited: null = the default one, else a car key.</summary>
@@ -46,7 +48,7 @@ namespace User.FXProRpmSync
         public UnlockedDashesTab(FXProRpmSyncPlugin plugin)
         {
             this.plugin = plugin;
-            preview = new LiveDashPreview(previewImage, () => plugin.Usb);
+            preview = new LiveDashPreview(previewImage, () => plugin.Usb, d => S.RamFor(d.Id));
 
             // ----- The list -----
             var list = new StackPanel();
@@ -125,6 +127,8 @@ namespace User.FXProRpmSync
             info.Children.Add(focusInfo);
             focusButtons = new WrapPanel();
             info.Children.Add(focusButtons);
+            focusRam.Margin = new Thickness(0, 12, 0, 0);
+            info.Children.Add(focusRam);
             focusProblems = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Theme.Amber, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
             info.Children.Add(focusProblems);
             Grid.SetColumn(info, 1);
@@ -184,23 +188,22 @@ namespace User.FXProRpmSync
             pos.Children.Add(Theme.Field("From the top", Theme.SliderField(0, 38, S.PadTop, 1, v => $"{v:0} px", v => { S.PadTop = (int)v; Changed(); })));
             Children.Add(Theme.CardBox(pos));
 
-            // ----- Screen mirror (for OBS) -----
-            var mirror = new StackPanel();
-            mirror.Children.Add(Theme.Eyebrow("Stream the wheel's screen"));
-            string mirrorUrl = $"http://127.0.0.1:{S.DesignerPort}/mirror";
-            mirror.Children.Add(Theme.Note($"Add a Browser source in OBS with {mirrorUrl} (e.g. 1280x720): it shows what the plugin draws on the " +
-                                           "wheel and its lights, live. Add ?bg=transparent for a see-through background, ?leds=0 for the screen only, " +
-                                           "?all=1 for the button and encoder lights too. Needs the dash designer server (on by default)."));
-            var mirrorButtons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-            mirrorButtons.Children.Add(Theme.Btn("Open", () => { try { System.Diagnostics.Process.Start(mirrorUrl); } catch { } }, icon: ""));
-            mirrorButtons.Children.Add(Theme.Btn("Copy address", () => { try { Clipboard.SetText(mirrorUrl); } catch { } }, icon: ""));
-            mirror.Children.Add(mirrorButtons);
-            Children.Add(Theme.CardBox(mirror));
-
             dashTimer.Tick += (s, e) => { if (!DashRef.IsWheel(focus)) { preview.Show(DashCache.Find(DashRef.Id(focus)), S.PadLeft, S.PadTop); preview.Tick(); } };
             slowTimer.Tick += (s, e) => Refresh(false);
             saveTimer.Tick += (s, e) => { saveTimer.Stop(); plugin.SaveSettings(); };
-            Loaded += (s, e) => { dashTimer.Start(); slowTimer.Start(); BuildLibrary(); Refresh(true); };
+            Loaded += (s, e) =>
+            {
+                dashTimer.Start(); slowTimer.Start();
+                using (UiProfiler.Time("dashes list")) Refresh(true);
+                // the library after the page has shown (and only again when the dashes or the RAM drive changed)
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var stamp = (DashCache.All(), S.ScreenRamDrive);
+                    if (libraryStamp.Equals(stamp)) return;
+                    libraryStamp = stamp;
+                    using (UiProfiler.Time("dashes library")) BuildLibrary();
+                }), DispatcherPriority.Background);
+            };
             Unloaded += (s, e) =>
             {
                 dashTimer.Stop(); slowTimer.Stop(); preview.Dispose();
@@ -312,7 +315,7 @@ namespace User.FXProRpmSync
             bool now = ((current % refs.Count) + refs.Count) % refs.Count == i;
             var body = new StackPanel();
             var pic = new Grid();
-            pic.Children.Add(new Border { Width = 176, Height = 106, Background = Brushes.Black, CornerRadius = new CornerRadius(6), ClipToBounds = true, Child = Picture(r) });
+            pic.Children.Add(new Border { Width = 176, Height = 106, Background = Brushes.Black, CornerRadius = new CornerRadius(6), ClipToBounds = true, Child = Picture(r, S.RamFor(DashRef.Id(r))) });
             var badge = new WrapPanel { Margin = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
             badge.Children.Add(Badge((i + 1).ToString(), Theme.B("#3A3F4A")));
             if (now) badge.Children.Add(Badge("NOW", Theme.Red));
@@ -327,7 +330,7 @@ namespace User.FXProRpmSync
             name.Children.Add(actions);
             name.Children.Add(new TextBlock { Text = DashRef.Name(r), FontFamily = Theme.Display, FontSize = 13, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
             body.Children.Add(name);
-            body.Children.Add(RamSize(r));
+            body.Children.Add(RamSize(r, toggle: true));
             var tile = Theme.Tile(body, 198, () => { focus = r; if (!now) Save(refs, i); else { RefreshBadges(); ShowFocus(); } }, now ? "Showing now" : "Show this one now");
             tile.Padding = new Thickness(10);
             Theme.Select(tile, now);
@@ -336,32 +339,79 @@ namespace User.FXProRpmSync
 
         // ---------- Screen RAM (dash tiles, FXProDashes docs/screen-images.md) ----------
 
-        /// <summary>A dash's size on the screen's RAM drive (worked out in the background).</summary>
-        private TextBlock RamSize(string r)
+        /// <summary>
+        /// A dash's size on the screen's RAM drive (worked out in the background). With `toggle` and the drive on, a tick too:
+        /// whether the dash goes up to the screen's RAM (the default) or is drawn with rectangles, which takes no RAM and no
+        /// loading (for simple dashes).
+        /// </summary>
+        private FrameworkElement RamSize(string r, bool toggle = false)
         {
             var tb = new TextBlock { Foreground = Theme.Text3, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) };
             if (DashRef.IsWheel(r)) { tb.Text = "Built into the wheel: no screen RAM"; return tb; }
-            var d = DashCache.Find(DashRef.Id(r));
-            tb.Text = "Screen RAM: ...";
+            string id = DashRef.Id(r);
+            var d = DashCache.Find(id);
+            bool drive = S.ScreenRamDrive, uses = S.DashUsesRam(id), live = drive && !uses;
+            if (live && !toggle) { tb.Text = "Drawn without the screen's RAM"; return tb; }
             var ui = TaskScheduler.FromCurrentSynchronizationContext();
-            Task.Run(() => DashRam.Bytes(d)).ContinueWith(t => tb.Text = "Screen RAM: " + DashRam.Text(t.Result), ui);
-            return tb;
+            if (live) tb.Text = "Drawn live, no screen RAM";
+            else
+            {
+                tb.Text = "Screen RAM: ...";
+                Task.Run(() => DashRam.Bytes(d)).ContinueWith(t => tb.Text = "Screen RAM: " + DashRam.Text(t.Result), ui);
+            }
+            if (!(toggle && drive)) return tb;
+            tb.Margin = new Thickness(0);
+            var cb = new CheckBox
+            {
+                IsChecked = uses, Content = tb, Margin = new Thickness(0, 4, 0, 0),
+                ToolTip = "Copy this dash's pictures to the screen's RAM (on) or draw it live with rectangles (off).\n" +
+                          "Off: nothing of it is uploaded, it takes no RAM and no loading time. Good for simple dashes.\n" +
+                          "The others in this list still use the RAM.",
+            };
+            cb.Checked += (s, e) => SetRam(id, true);
+            cb.Unchecked += (s, e) => SetRam(id, false);
+            return cb;
+        }
+
+        /// <summary>Turns the screen's RAM on or off for one dash (the wheel redraws it at once if it shows).</summary>
+        private void SetRam(string id, bool on)
+        {
+            S.SetDashUsesRam(id, on);
+            Changed();
+            Refresh(true);
+            RebuildLibraryTile(DashRef.Custom(id));
+        }
+
+        /// <summary>Redraws one library tile (its picture and RAM line), leaving the rest of the library alone.</summary>
+        private void RebuildLibraryTile(string r)
+        {
+            if (!tiles.TryGetValue(r, out var old)) return;
+            int at = customTiles.Children.IndexOf(old.Tile);
+            var d = DashCache.Find(DashRef.Id(r));
+            if (at < 0 || d == null) return;
+            customTiles.Children.RemoveAt(at);
+            customTiles.Children.Insert(at, LibraryTile(r, d.Name, d.Author, 226, 124));
+            RefreshBadges();
         }
 
         /// <summary>The list's total against the screen's RAM drive: whether all of it stays loaded (instant switching).</summary>
         private TextBlock RamTotal(List<string> refs)
         {
             var tb = new TextBlock { FontSize = 11.5, Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text3 };
-            var dashes = refs.Where(x => !DashRef.IsWheel(x)).Select(x => DashCache.Find(DashRef.Id(x))).Where(d => d != null).ToList();
-            if (dashes.Count == 0) return tb;
+            var dashes = refs.Where(x => !DashRef.IsWheel(x) && S.DashUsesRam(DashRef.Id(x))).Select(x => DashCache.Find(DashRef.Id(x))).Where(d => d != null).ToList();
             bool on = S.ScreenRamDrive;
+            if (dashes.Count == 0)
+            {
+                if (on && refs.Any(x => !DashRef.IsWheel(x))) tb.Text = "Screen RAM for this list: none (every dash in it is drawn live).";
+                return tb;
+            }
             tb.Text = "Screen RAM: working it out...";
             var ui = TaskScheduler.FromCurrentSynchronizationContext();
             Task.Run(() => DashRam.Bytes(dashes)).ContinueWith(t =>
             {
                 int b = t.Result, budget = ScreenRam.Budget;
                 bool fits = b <= budget;
-                tb.Text = $"Screen RAM for this list: {DashRam.Text(b)} of {budget / 1024} KB" +
+                tb.Text = $"Screen RAM for this list: {DashRam.Text(b)} of {budget / 1024} KB" + (on && dashes.Count < refs.Count(x => !DashRef.IsWheel(x)) ? " (dashes set to draw live not counted)" : "") +
                           (!on ? "  ·  used once the screen's RAM drive is on (Wheel page)."
                            : fits ? "  ·  all of them stay loaded: switching between them is instant."
                            : "  ·  more than fits at once: a dash that isn't loaded takes a few seconds the first time it shows (drawn with rectangles meanwhile).");
@@ -378,7 +428,7 @@ namespace User.FXProRpmSync
             return b;
         }
 
-        private static UIElement Picture(string r)
+        private static UIElement Picture(string r, bool ram)
         {
             if (DashRef.IsWheel(r))
             {
@@ -392,7 +442,7 @@ namespace User.FXProRpmSync
             var img = new Image { Stretch = Stretch.Uniform };
             RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
             var d = DashCache.Find(DashRef.Id(r));
-            img.Dispatcher.BeginInvoke(new Action(() => img.Source = DashPictures.Still(d)), DispatcherPriority.Background);
+            DashPictures.ShowStill(img, d, ram);
             return img;
         }
 
@@ -413,7 +463,7 @@ namespace User.FXProRpmSync
         {
             var body = new StackPanel();
             var frame = new Grid();
-            frame.Children.Add(new Border { Height = height, Background = Brushes.Black, CornerRadius = new CornerRadius(6), Child = Picture(r), ClipToBounds = true });
+            frame.Children.Add(new Border { Height = height, Background = Brushes.Black, CornerRadius = new CornerRadius(6), Child = Picture(r, S.RamFor(DashRef.Id(r))), ClipToBounds = true });
             var badges = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6) };
             frame.Children.Add(badges);
             body.Children.Add(frame);
@@ -488,6 +538,7 @@ namespace User.FXProRpmSync
                 if (d.BuiltIn) focusButtons.Children.Add(Theme.Btn("Save a copy", () => SaveCopy(d), icon: ""));
                 else if (!d.Id.StartsWith("lib-")) focusButtons.Children.Add(Theme.Btn("Package for the library", () => PackageDialog.Show(Window.GetWindow(this), d, "dash"), icon: ""));
             }
+            ShowFocusRam(wheel ? null : d);
             demoChip.Visibility = wheel ? Visibility.Collapsed : Visibility.Visible;
             if (wheel)
             {
@@ -497,6 +548,30 @@ namespace User.FXProRpmSync
             else preview.Show(d, S.PadLeft, S.PadTop);
             var problems = d == null ? new List<string>() : preview.Problems.Concat(DashCache.Errors).ToList();
             focusProblems.Text = problems.Count == 0 ? "" : "⚠ " + string.Join("\n⚠ ", problems.Take(6));
+        }
+
+        /// <summary>The focused dash's switch for the screen's RAM, and what it costs drawn without it.</summary>
+        private void ShowFocusRam(DashDefinition d)
+        {
+            focusRam.Children.Clear();
+            if (d == null || !S.ScreenRamDrive) return;
+            focusRam.Children.Add(Theme.Switch("Copy this dash to the screen's RAM", S.DashUsesRam(d.Id), v => SetRam(d.Id, v),
+                "On: its pictures go up to the screen once, then it draws fast and smooth, and switching to it is instant. " +
+                "Off: it is drawn live with rectangles: nothing is uploaded and it takes no RAM. Good for simple dashes."));
+            var cost = new TextBlock { Foreground = Theme.Text3, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, -6, 0, 0), Text = "Drawn live: working it out..." };
+            focusRam.Children.Add(cost);
+            int padL = S.PadLeft, padT = S.PadTop;
+            var ui = TaskScheduler.FromCurrentSynchronizationContext();
+            Task.Run(() =>
+            {
+                var room = DashRenderer.Room(d);
+                return DashTools.Check(d, Math.Min(padL, room.Right), Math.Min(padT, room.Down)).Cost;
+            }).ContinueWith(t =>
+            {
+                if (focus == null || DashRef.IsWheel(focus) || DashRef.Id(focus) != d.Id) return;
+                var c = t.Status == TaskStatus.RanToCompletion ? t.Result : null;
+                cost.Text = c == null ? "" : $"Drawn live it takes ~{Math.Max(0.1, c.StaticSeconds):0.#} s to appear; in the screen's RAM it takes {DashRam.Text(DashRam.Bytes(d))}.";
+            }, ui);
         }
 
         // ---------- Cars ----------

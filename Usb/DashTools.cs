@@ -274,11 +274,12 @@ namespace User.FXProRpmSync
         /// A PNG of the dash as the wheel would show it. mode "preview": values show their PreviewText/samples and
         /// SimHub-only conditions count as met (like a designer); "demo": `seconds` of the simulated lap.
         /// </summary>
-        public static byte[] Render(DashDefinition d, string mode = "preview", double seconds = 20, int left = 0, int top = 0, DashValues values = null)
+        public static byte[] Render(DashDefinition d, string mode = "preview", double seconds = 20, int left = 0, int top = 0, DashValues values = null, bool tiles = false)
         {
             using (var p = new PreviewScreen())
             {
                 var r = new DashRenderer(p, d, left, top);
+                if (tiles) { r.EnableTiles(); r.UseTiles(true); } // as on a wheel with the RAM drive: full-colour pictures
                 r.DrawAll();
                 if (values != null) r.Update(values, 0);
                 else if (mode == "demo")

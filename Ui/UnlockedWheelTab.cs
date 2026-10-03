@@ -31,6 +31,7 @@ namespace User.FXProRpmSync
         private Border ramCard;
         private TextBlock ramInfo;
         private CheckBox ramTick;
+        private ScreenCheckPanel ramCheck;
         private bool syncingRam;
         private readonly TextBlock step2;
         private readonly TextBlock dashTile, lightsTile, idleTile;
@@ -48,7 +49,7 @@ namespace User.FXProRpmSync
             bool neo = model == WheelModel.GtNeo;
             wheel = new WheelView(model) { Width = 640 };
             engine = new LightEngine(model);
-            dashPreview = new LiveDashPreview(wheel.Screen, () => plugin.Usb);
+            dashPreview = new LiveDashPreview(wheel.Screen, () => plugin.Usb, d => S.RamFor(d.Id));
 
             // ----- GT Neo: how to bring it up on USB -----
             var neoSteps = new StackPanel();
@@ -245,15 +246,16 @@ namespace User.FXProRpmSync
             var sp = new StackPanel();
             sp.Children.Add(Theme.Eyebrow("Screen"));
             sp.Children.Add(Theme.Title("Pictures in the screen's memory", 18));
-            sp.Children.Add(Theme.Note("With the RAM-drive screen image (FXProDashes), dashes are kept on the screen as pictures: full colour, " +
-                                       "drawn at once. The first time a dash shows it loads for a few seconds (drawn with rectangles meanwhile); " +
-                                       "after that it's instant until the wheel is powered off. Not sure your screen has it? Press Test: a colour " +
-                                       "card with \"RAM OK\" shows in the middle of the screen for 5 seconds if it does. Tick the box below only if it " +
-                                       "showed. If it didn't, \"Turn picture memory on\" in the firmware card below puts it there.", new Thickness(0, 6, 0, 10)));
-            var buttons = new WrapPanel();
-            buttons.Children.Add(Theme.Btn("Test (5 s)", () => { Usb?.TestRamDrive(); Refresh(); }, icon: ""));
-            sp.Children.Add(buttons);
-            ramTick = Theme.Switch("My screen has the RAM drive", S.ScreenRamDrive, v => { if (syncingRam) return; S.ScreenRamDrive = v; Changed(); Refresh(); });
+            sp.Children.Add(Theme.Note("With picture memory, dashes and screensavers are kept on the screen as pictures: full colour, drawn at once. " +
+                                       "The first time a dash shows it loads for a few seconds; after that it's instant until the wheel is powered off. " +
+                                       "Not sure whether your screen has it? Check: it's safe on any screen and sets the switch below for you. " +
+                                       "No picture memory? The firmware card below adds it.", new Thickness(0, 6, 0, 10)));
+            ramCheck = new ScreenCheckPanel(plugin);
+            ramCheck.Answered += r => Refresh();
+            sp.Children.Add(ramCheck);
+            ramTick = Theme.Switch("My screen has picture memory", S.ScreenRamDrive, v => { if (syncingRam) return; S.ScreenRamDrive = v; Changed(); Refresh(); },
+                "Set by the check above. Switching it on by hand on a screen without picture memory sends pictures the screen can't take.");
+            ramTick.Margin = new Thickness(0, 12, 0, 0);
             sp.Children.Add(ramTick);
             sp.Children.Add(Theme.Switch("Preload my rotation (the first dash takes longer to load, switching is then instant)", S.PreloadRotation, v => { S.PreloadRotation = v; Changed(); Refresh(); }));
             ramInfo = Theme.Note("", new Thickness(0, 8, 0, 0));
@@ -265,7 +267,8 @@ namespace User.FXProRpmSync
         {
             if (ramCard == null) return;
             ramCard.Visibility = patched ? Visibility.Visible : Visibility.Collapsed;
-            if (ramTick.IsChecked != S.ScreenRamDrive) { syncingRam = true; ramTick.IsChecked = S.ScreenRamDrive; syncingRam = false; } // the firmware card can clear it
+            if (ramTick.IsChecked != S.ScreenRamDrive) { syncingRam = true; ramTick.IsChecked = S.ScreenRamDrive; syncingRam = false; } // the check and the firmware card set it
+            ramCheck.Refresh();
             if (!S.ScreenRamDrive) { ramInfo.Text = u?.RamStatus ?? "Off: dashes are drawn with rectangles."; return; }
             int used = u?.RamUsed ?? 0, files = u?.RamFiles ?? 0;
             ramInfo.Text = $"In use: {used / 1024} KB of {ScreenRam.Budget / 1024} KB ({files} file{(files == 1 ? "" : "s")})" +
@@ -329,7 +332,7 @@ namespace User.FXProRpmSync
             if (u?.SaverActive == true)
             {
                 dashPreview.Show(null, 0, 0);
-                wheel.Screen.Source = DashPictures.Saver(IdleScreens.Find(S, u.SaverShown ?? S.SaverId));
+                wheel.Screen.Source = DashPictures.Saver(IdleScreens.Find(S, u.SaverShown ?? S.SaverId), S.ScreenRamDrive);
                 return;
             }
             var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
