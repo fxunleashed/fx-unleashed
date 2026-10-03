@@ -1,6 +1,6 @@
 ---
 name: create-dash
-description: Create a dash for the Simagic FX Pro wheel screen (FXPro RPM Sync USB mode) end to end, from a reference image or from a SimHub dash, and get it to run on the wheel with no flashing and low USB traffic. Use for any request to make, convert, fix or tune an FX Pro dash.
+description: Create a dash for the Simagic FX Pro wheel screen (FX Unleashed, Unleashed mode) end to end, from a reference image or from a SimHub dash, and get it to run on the wheel with no flashing and low USB traffic. Use for any request to make, convert, fix or tune an FX Pro dash.
 argument-hint: "<reference image path | SimHub dash name> [dash name]"
 ---
 
@@ -238,10 +238,11 @@ compare with the SimHub dash's own preview (`<dash>.djson.png` in its folder).
 
 - Set `Id` (lowercase, dashes: the file name), `Name` and `Description`.
 - Copy the file to `C:\Program Files (x86)\SimHub\PluginsData\Common\FXProRpmSync\Dashes\<Id>.json`. In SimHub:
-  FXPro RPM Sync, USB mode, the dash list's refresh button (no restart needed). Pick it, then press Demo.
+  FX Unleashed, Dashes tab, the dash list's refresh button (no restart needed). Pick it, then press Demo.
 - While SimHub runs, the designer API does the same: `PUT http://127.0.0.1:8899/api/dashes/<Id>` (body: the dash),
   and `POST /api/wheel/show?left=10&top=20` (body: the dash) puts it on the wheel for a minute.
-  `POST /api/verify?seconds=60` runs `verify`.
+  `POST /api/verify?seconds=60` runs `verify` (`&tiles=1` as on a wheel with the RAM patch) and `POST /api/fit-bands` runs `fit-bands`.
+  The designer shows the same three gates live (the Checks and Wheel traffic pills), so a person can follow your work there.
 - Report back:
   - the gates' results (errors 0, fit-bands unchanged, verify Ok, with average and worst traffic);
   - the renders;

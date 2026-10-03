@@ -27,7 +27,14 @@ settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas no
 
 - **Top bar:** the dash's name (edit in place; amber dot = unsaved), undo/redo, **Edit / Exact / Demo lap** (Exact and
   Demo are the plugin's own rendering, exactly what the wheel draws), **On wheel** (the wheel follows every change),
-  the checks pill (click for the list), **Save** and a menu (save as, download/open JSON, new, import, delete).
+  the **Checks** pill (layout problems and warnings; click for the list), the **Screen RAM** pill (what the dash takes with the
+  screen's RAM patch), the **Wheel traffic** pill, **Save** and a menu (save as, download/open JSON, new, import, delete).
+- **Wheel traffic:** a moment after you stop editing, the designer plays a 60 s demo lap on a simulated screen and shows what
+  `fxdash verify` and `fxdash fit-bands` tell: the average and busiest second against the screen's 25 KB/s (aim under 12 KB/s),
+  how many updates flash, which elements send the most (click one to select it), a second-by-second graph, and **Fix them** for
+  values whose text crosses a border line. Three gates, the same ones the `/create-dash` command uses: no layout errors or
+  warnings, text between the border lines, and traffic under budget with no flashing. If the dash has pictures, a switch measures
+  it with rectangles or with the RAM patch (picture memory).
 - **Left:** **Add** (element tiles: click, or drag onto the screen where you want it), **Layers** (top = in front;
   drag to reorder; eye = shown/hidden in previews for conditional elements; ⚠ = a check issue; hover highlights on the
   screen), **Dashes** (the library with rendered thumbnails, New, From SimHub).
@@ -84,6 +91,8 @@ The report lists them and the checks point at each.
 | GET | `/api/dashes` | the library |
 | GET / PUT / DELETE | `/api/dashes/{id}` | read / save (body = dash) / delete a saved dash |
 | POST | `/api/check?left=L&top=T` | body = dash → `{ok, errors, warnings, issues[], cost}` |
+| POST | `/api/verify?seconds=N&left=L&top=T&tiles=1` | body = dash → a demo lap on a simulated wheel: `{Ok, Problems, AvgBytesPerSecond, WorstSecondBytes, FlashingUpdates, Flashes, Traffic[], Timeline[]}` (`tiles=1`: as on a wheel with the RAM patch) |
+| POST | `/api/fit-bands` | body = dash → `{changes, elements}`: values whose text crosses a border line get a font that fits (`elements` is null when nothing changes) |
 | POST | `/api/render?mode=preview\|demo\|live&seconds=N&left=L&top=T` | body = dash → PNG |
 | GET | `/api/simhub`, `/api/simhub/screens?name=` | installed SimHub dashes, their screens |
 | POST | `/api/import` | `{name or path, screen?, images?, colors?, maxSeconds?, fitWidth?, fitHeight?}` → `{dash, report, check}` |

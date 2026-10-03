@@ -33,6 +33,7 @@
     <button class="btn" id="btnWheel" title="Show this dash on your FX Pro while you edit"><span class="live"></span>On wheel</button>
     <button class="pill busy" id="checksPill" title="Layout checks: click for details"><span class="dot"></span><span id="checksText">Checking…</span></button>
     <button class="pill busy" id="ramPill" title="What this dash takes on the screen's RAM drive"><span class="dot"></span><span id="ramText">Screen RAM …</span></button>
+    <button class="pill busy" id="trafficPill" title="How much this dash sends to the wheel's screen over a demo lap: click for details"><span class="dot"></span><span id="trafficText">Wheel traffic …</span></button>
     <div class="group" style="position:relative">
       <button class="btn primary" id="btnSave" title="Save to the plugin's dashes (Ctrl+S)"><span data-icon="save"></span>Save</button>
       <button class="btn icon" id="btnMore" title="More" data-icon="more"></button>
@@ -111,13 +112,14 @@
     </div>
     <div id="drawer">
       <header>
-        <b id="drawerTitle">Checks</b>
+        <div class="dtabs" id="drawerTabs"><button data-dtab="checks" class="on">Checks</button><button data-dtab="traffic">Wheel traffic</button></div>
         <span class="note" id="costText" style="color:var(--text3)"></span>
         <div class="meter" title="Time to draw the dash on the wheel (the wheel's screen takes ~25 KB/s)"><i id="costMeter" style="width:0"></i></div>
         <div class="spacer"></div>
         <button class="btn icon ghost" id="drawerClose" data-icon="x" title="Close"></button>
       </header>
       <div class="list" id="issues"></div>
+      <div class="list" id="traffic" hidden></div>
     </div>
   </main>
 

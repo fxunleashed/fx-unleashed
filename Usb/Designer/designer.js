@@ -998,7 +998,153 @@ function showRam(c) {
       + `drawn at once, in full colour. About ${fit} dash${fit === 1 ? '' : 'es'} this size stay loaded together; the first show of one loads for a few seconds.`;
 }
 
-function scheduleCheck(ms = 450) { clearTimeout(checkTimer); $('checksPill').classList.add('busy'); checkTimer = setTimeout(runCheck, ms); }
+// ---------- wheel traffic: what `fxdash verify` and `fxdash fit-bands` tell, live in the designer ----------
+// A demo lap on a simulated screen (about two seconds of work for a minute of lap), run a moment after the last edit.
+const TRAFFIC_BUDGET = 25000, TRAFFIC_TARGET = 12000; // the screen takes 25 KB/s; aim under 12 KB/s (the lights share the time)
+let verifyTimer = null, verifyBusy = false, lastVerify = null, lastBands = null, trafficMode = 'rect';
+try { trafficMode = localStorage.getItem('fxdash-traffic-mode') === 'ram' ? 'ram' : 'rect'; } catch (e) { }
+const fmtRate = b => (b < 1000 ? Math.round(b) + ' B/s' : (b / 1000).toFixed(b < 10000 ? 1 : 0) + ' KB/s');
+const usesImages = () => !!dash && (Object.keys(dash.Images || {}).length > 0 || dash.Elements.some(e => e.Type === 'image'));
+const elementIndex = label => { const m = /^#(\d+)\s/.exec(String(label)); return m ? Number(m[1]) : -1; };
+const elementLabel = label => String(label).replace(/^#\d+\s+/, '');
+
+function markTrafficPending() {
+  const pill = $('trafficPill'); if (pill) pill.classList.add('busy');
+  const tr = $('traffic'); if (tr && tr.firstElementChild) tr.firstElementChild.classList.add('stale');
+}
+function scheduleVerify(ms = 1500) {
+  clearTimeout(verifyTimer);
+  markTrafficPending();
+  verifyTimer = setTimeout(runVerify, ms);
+}
+async function runVerify() {
+  if (!dash) return;
+  if (verifyBusy) { scheduleVerify(600); return; }
+  if (!dash.Elements.length) { lastVerify = null; lastBands = null; showTraffic(); return; }
+  verifyBusy = true;
+  const snap = snapshot();
+  try {
+    const tiles = trafficMode === 'ram' && usesImages() ? 1 : 0;
+    const [v, b] = await Promise.all([
+      post(`/api/verify?left=${pad.l}&top=${pad.t}&seconds=60&tiles=${tiles}`, dash),
+      post('/api/fit-bands', dash),
+    ]);
+    lastVerify = v; lastBands = b;
+  } catch (e) {
+    verifyBusy = false; lastVerify = null; lastBands = null;
+    const p = $('trafficPill'); p.className = 'pill err'; $('trafficText').textContent = 'Traffic: not measured'; p.title = 'The measurement failed: ' + e.message;
+    return;
+  }
+  verifyBusy = false;
+  if (snapshot() !== snap) { scheduleVerify(300); return; } // edited meanwhile: measure the new version
+  showTraffic();
+}
+
+function showTraffic() {
+  const pill = $('trafficPill'), box = $('traffic');
+  if (!lastVerify) {
+    pill.className = 'pill'; $('trafficText').textContent = 'Wheel traffic';
+    pill.title = 'Add elements to measure what this dash sends to the screen';
+    box.innerHTML = `<div class="tr"><div class="empty" style="padding:18px">${icon('ok')}Nothing to measure yet: add elements and what the dash sends to the wheel over a demo lap shows here.</div></div>`;
+    return;
+  }
+  const v = lastVerify, bands = lastBands && lastBands.changes ? lastBands.changes : [];
+  const chk = lastCheck ? { e: lastCheck.errors, w: lastCheck.warnings } : null;
+  const bad = v.WorstSecondBytes > TRAFFIC_BUDGET || v.FlashingUpdates > 0 || !!v.RedrawMismatch;
+  const soft = !bad && (v.AvgBytesPerSecond > TRAFFIC_TARGET || bands.length > 0);
+  pill.className = 'pill ' + (bad ? 'err' : soft ? 'warn' : 'ok');
+  $('trafficText').textContent = 'Wheel traffic ' + fmtRate(v.AvgBytesPerSecond);
+  pill.title = `Over a ${v.Seconds} s demo lap this dash sends ${fmtRate(v.AvgBytesPerSecond)} on average and ${fmtRate(v.WorstSecondBytes)} in its busiest second (the screen takes ${fmtRate(TRAFFIC_BUDGET)}). Click for details.`;
+
+  const gate = (ok, text, action) => `<div class="tr-gate ${ok ? 'ok' : 'bad'}"><span class="lv">${icon(ok ? 'ok' : 'warn')}</span><span>${esc(text)}</span>${action || ''}</div>`;
+  const checksOk = chk ? !chk.e && !chk.w : true;
+  const gates = [
+    gate(checksOk, checksOk ? 'Layout checks: no errors, no warnings' : `Layout checks: ${chk.e} problem${chk.e === 1 ? '' : 's'}, ${chk.w} warning${chk.w === 1 ? '' : 's'}`,
+      checksOk ? '' : '<button class="btn small" data-act="checks">Show</button>'),
+    gate(bands.length === 0, bands.length === 0 ? 'Text sits between the border lines: nothing flashes on a line'
+      : `${bands.length} value${bands.length === 1 ? ' crosses' : 's cross'} a border line and would flash`, bands.length === 0 ? '' : '<button class="btn small primary" data-act="bands">Fix them</button>'),
+    gate(v.Ok, v.Ok ? 'Traffic under budget, no flashing, drawing matches a full redraw' : (v.Problems[0] || 'Traffic or flashing needs a look')),
+  ];
+  const passed = gates.filter(g => g.includes('tr-gate ok')).length;
+  const verdictCls = passed === 3 ? 'ok' : bad ? 'err' : 'warn';
+  const verdict = passed === 3 ? 'Ready for the wheel and the library' : `${3 - passed} of 3 gates need attention`;
+  const sub = passed === 3 ? 'Passes every gate the /create-dash command checks.' : 'The same three gates the /create-dash command checks.';
+
+  const worstTop = Object.keys(v.WorstSecondBy || {})[0];
+  const cards = [
+    ['Average', fmtRate(v.AvgBytesPerSecond), v.AvgBytesPerSecond > TRAFFIC_BUDGET ? 'err' : v.AvgBytesPerSecond > TRAFFIC_TARGET ? 'warn' : 'ok', `aim under ${fmtRate(TRAFFIC_TARGET)}; the screen takes ${fmtRate(TRAFFIC_BUDGET)}`],
+    ['Busiest second', fmtRate(v.WorstSecondBytes), v.WorstSecondBytes > TRAFFIC_BUDGET ? 'err' : 'ok', `at ${v.WorstSecondAt} s` + (worstTop ? `: ${elementLabel(worstTop)}` : '')],
+    ['Flashing updates', `${v.FlashingUpdates} of ${v.Updates}`, v.FlashingUpdates ? 'err' : 'ok', v.PopupUpdates ? `${v.PopupUpdates} pop-up changes (drawn on purpose)` : 'must be 0'],
+    ['Draws in', lastCheck ? lastCheck.cost.StaticSeconds.toFixed(1) + ' s' : '…', lastCheck && lastCheck.cost.StaticSeconds > 8 ? 'warn' : 'ok', 'the first full draw on the wheel'],
+  ].map(c => `<div class="tr-card ${c[2]}"><small>${c[0]}</small><b>${esc(c[1])}</b><em>${esc(c[3])}</em></div>`).join('');
+
+  const tl = v.Timeline || [];
+  const maxB = Math.max(TRAFFIC_BUDGET * 1.15, ...tl.map(t => t.Bytes)), SW = 600, SH = 80, bw = SW / Math.max(1, tl.length);
+  const y = b => (SH - b / maxB * SH).toFixed(1);
+  const bars = tl.map((t, i) => {
+    const h = Math.max(1, t.Bytes / maxB * SH);
+    const top = Object.entries(t.By || {}).slice(0, 3).map(([k, b]) => `${elementLabel(k)} ${fmtRate(b)}`).join(', ');
+    return `<rect class="${t.Bytes > TRAFFIC_BUDGET ? 'err' : t.Bytes > TRAFFIC_TARGET ? 'warn' : ''}" x="${(i * bw + 0.5).toFixed(1)}" y="${(SH - h).toFixed(1)}" width="${Math.max(1, bw - 1).toFixed(1)}" height="${h.toFixed(1)}"><title>${esc(`${t.Second} s: ${fmtRate(t.Bytes)}${top ? ' · ' + top : ''}`)}</title></rect>`;
+  }).join('');
+  const spark = `<svg viewBox="0 0 ${SW} ${SH + 6}" preserveAspectRatio="none" role="img" aria-label="Bytes sent to the screen, second by second">${bars}`
+    + `<line x1="0" x2="${SW}" y1="${y(TRAFFIC_BUDGET)}" y2="${y(TRAFFIC_BUDGET)}" stroke="#ff3b46" stroke-width="1" stroke-dasharray="4 3"/>`
+    + `<line x1="0" x2="${SW}" y1="${y(TRAFFIC_TARGET)}" y2="${y(TRAFFIC_TARGET)}" stroke="#ffb000" stroke-width="1" stroke-dasharray="2 4"/></svg>`;
+
+  const maxRow = Math.max(1, ...(v.Traffic || []).map(t => t.BytesPerSecond));
+  const rows = (v.Traffic || []).map(t => `<div class="tr-row" data-i="${elementIndex(t.Element)}" title="Select this element"><span>${esc(elementLabel(t.Element))}</span><span class="n">${fmtRate(t.BytesPerSecond)}</span><span class="n">${t.DrawsPerSecond}/s</span><div class="bar"><i style="width:${(t.BytesPerSecond / maxRow * 100).toFixed(0)}%"></i></div></div>`).join('');
+  const problems = [
+    ...v.Problems.map(p => ({ text: p, i: -1 })),
+    ...bands.map(c => ({ text: c, i: -1 })),
+    ...(v.Flashes || []).map(f => ({ text: `At ${f.Time} s, ${f.Pixels} pixels flashed${f.Elements && f.Elements.length ? ' around ' + f.Elements.map(elementLabel).join(', ') : ''}`, i: f.Elements && f.Elements.length ? elementIndex(f.Elements[0]) : -1 })),
+  ];
+  const probs = problems.length ? problems.map(p => `<div class="tr-prob" data-i="${p.i}"><span class="lv">${icon('warn')}</span><span>${esc(p.text)}</span></div>`).join('')
+    : `<div class="tr-prob"><span class="lv" style="color:var(--green)">${icon('ok')}</span><span>Nothing to fix.</span></div>`;
+
+  const seg = usesImages() ? `<div class="tr-seg" title="Measure as the wheel will draw it"><button data-mode="rect" class="${trafficMode === 'rect' ? 'on' : ''}">Rectangles</button><button data-mode="ram" class="${trafficMode === 'ram' ? 'on' : ''}">With the RAM patch</button></div>` : '';
+  box.innerHTML = `<div class="tr">
+    <div class="tr-top"><div class="tr-verdict ${verdictCls}"><span class="lv">${icon(verdictCls === 'ok' ? 'ok' : 'warn')}</span><div><b>${verdict}</b><br><span class="sub">${esc(sub)}</span></div></div>${seg}<button class="btn small" data-act="again">Measure again</button></div>
+    <div class="tr-gates">${gates.join('')}</div>
+    <div class="tr-cards">${cards}</div>
+    <h4>Bytes to the screen, second by second</h4><div class="tr-spark">${spark}</div>
+    <div class="tr-cols"><div><h4>What sends the most</h4><div class="tr-row head"><span>Element</span><span class="n">Sends</span><span class="n">Redraws</span></div>${rows}</div><div><h4>What to look at</h4>${probs}</div></div>
+    <div class="note">Measured on a simulated screen over a ${v.Seconds} s demo lap, the dash updating 10 times a second as on the wheel: the same numbers as <code>fxdash verify</code> and <code>fxdash fit-bands</code>. Click a row to select the element.</div>
+  </div>`;
+  box.querySelectorAll('[data-i]').forEach(el => {
+    const i = Number(el.dataset.i); if (!(i >= 0 && i < dash.Elements.length)) { el.style.cursor = 'default'; return; }
+    el.onclick = () => { select(i, { flash: true, force: true }); switchTab('layers', true); };
+  });
+  box.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
+    trafficMode = b.dataset.mode; try { localStorage.setItem('fxdash-traffic-mode', trafficMode); } catch (e) { }
+    scheduleVerify(50);
+  });
+  box.querySelector('[data-act="again"]').onclick = () => scheduleVerify(50);
+  const fix = box.querySelector('[data-act="bands"]'); if (fix) fix.onclick = applyBands;
+  const show = box.querySelector('[data-act="checks"]'); if (show) show.onclick = () => setDrawerTab('checks');
+}
+
+function applyBands() {
+  if (!lastBands || !lastBands.elements) return;
+  const n = lastBands.changes.length;
+  begin(); dash.Elements = lastBands.elements; changed({ inspector: true });
+  toast(`Fixed ${n} value${n === 1 ? '' : 's'}: the text now sits between the border lines`, 'ok');
+}
+
+// the bottom drawer: Checks and Wheel traffic
+function setDrawerTab(t, open = true) {
+  document.querySelectorAll('#drawerTabs button').forEach(b => b.classList.toggle('on', b.dataset.dtab === t));
+  $('issues').hidden = t !== 'checks'; $('traffic').hidden = t !== 'traffic';
+  const meter = $('costMeter').parentElement; meter.style.display = $('costText').style.display = t === 'checks' ? '' : 'none';
+  if (open) $('drawer').classList.add('open');
+}
+function toggleDrawer(t) {
+  const on = document.querySelector('#drawerTabs .on');
+  if ($('drawer').classList.contains('open') && on && on.dataset.dtab === t) $('drawer').classList.remove('open'); else setDrawerTab(t, true);
+}
+
+function scheduleCheck(ms = 450) {
+  clearTimeout(checkTimer); $('checksPill').classList.add('busy'); checkTimer = setTimeout(runCheck, ms);
+  markTrafficPending(); // the numbers on show are for the version before this edit
+}
 async function runCheck() {
   if (!dash) return;
   try {
@@ -1025,6 +1171,7 @@ async function runCheck() {
       el.onmouseleave = () => { hover = -1; placeOverlay(); };
     });
     renderLayers();
+    scheduleVerify();
   } catch (e) { $('checksPill').className = 'pill err'; $('checksText').textContent = 'Check failed'; }
 }
 
@@ -1187,8 +1334,10 @@ function wire() {
   $('btnUndo').onclick = doUndo; $('btnRedo').onclick = doRedo;
   $('viewSeg').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.view));
   $('btnWheel').onclick = () => setWheel(!wheelOn);
-  $('checksPill').onclick = () => $('drawer').classList.toggle('open');
-  $('ramPill').onclick = () => $('drawer').classList.toggle('open');
+  $('checksPill').onclick = () => toggleDrawer('checks');
+  $('ramPill').onclick = () => toggleDrawer('checks');
+  $('trafficPill').onclick = () => toggleDrawer('traffic');
+  document.querySelectorAll('#drawerTabs button').forEach(b => b.onclick = () => setDrawerTab(b.dataset.dtab, true));
   $('drawerClose').onclick = () => $('drawer').classList.remove('open');
   $('zoomIn').onclick = () => setZoom(zoom + .1); $('zoomOut').onclick = () => setZoom(zoom - .1); $('zoomFit').onclick = fitZoom;
   $('stage').addEventListener('wheel', ev => { if (!ev.ctrlKey) return; ev.preventDefault(); setZoom(zoom * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });

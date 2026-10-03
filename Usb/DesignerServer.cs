@@ -223,6 +223,8 @@ namespace User.FXProRpmSync
             s.Write(r.Body, 0, r.Body.Length);
         }
 
+        private static readonly object VerifyGate = new object();
+
         private static Response Json(object o, int status = 200) =>
             new Response { Status = status, Body = Encoding.UTF8.GetBytes(o is string str ? str : JsonConvert.SerializeObject(o, DashTools.Json)) };
 
@@ -247,7 +249,8 @@ namespace User.FXProRpmSync
             ("POST", "/api/import", "body = {name|path, screen?, images?, colors?, maxSeconds?, fitWidth?, fitHeight?}: convert a SimHub dash -> {dash, report, check}"),
             ("GET", "/api/wheel", "wheel status (plugin only)"),
             ("POST", "/api/wheel/show[?left=L&top=T]", "body = dash: show it on the wheel now (plugin only)"),
-            ("POST", "/api/verify[?seconds=N&left=L&top=T]", "body = dash: demo lap on a simulated wheel: traffic, flashes, drawing errors"),
+            ("POST", "/api/verify[?seconds=N&left=L&top=T&tiles=1]", "body = dash: demo lap on a simulated wheel: traffic against the screen's 25 KB/s, flashes, drawing errors (tiles=1: as on a wheel with the RAM patch)"),
+            ("POST", "/api/fit-bands", "body = dash: {changes, elements}: values whose text crosses a border line get a font that fits between the lines (elements is null when nothing changes)"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
             ("GET", "/api/props?names=A,B,...", "SimHub properties now, e.g. DataCorePlugin.GameData.NewData.Sector1Time (TimeSpans in seconds; plugin only)"),
             ("GET", "/api/eval?f=ncalc:...", "a SimHub formula evaluated now with SimHub's own engine: {value, type} or {error} (plugin only)"),
@@ -328,7 +331,20 @@ namespace User.FXProRpmSync
                 }
             }
             if (path == "/api/check") return Json(DashTools.Check(DashTools.Parse(r.Body), r.QI("left", 0), r.QI("top", 0)));
-            if (path == "/api/verify") return Json(DashVerify.Run(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20), r.QD("seconds", 60)));
+            if (path == "/api/verify")
+            {
+                // a few seconds of CPU: one run at a time, and no longer than two minutes of lap
+                lock (VerifyGate)
+                    return Json(DashVerify.Run(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20),
+                        Math.Max(5, Math.Min(120, r.QD("seconds", 60))), tiles: r.QI("tiles", 0) == 1));
+            }
+            if (path == "/api/fit-bands")
+            {
+                // `fxdash fit-bands`: values whose text crosses a border line get a font that fits between the lines (no flashing)
+                var d = DashTools.Parse(r.Body);
+                var changes = DashTools.FitTextBands(d);
+                return Json(new { changes, elements = changes.Count > 0 ? d.Elements : null });
+            }
             if (path == "/api/render")
             {
                 var mode = r.Q("mode", "preview");

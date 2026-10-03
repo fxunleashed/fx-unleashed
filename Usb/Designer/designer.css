@@ -331,3 +331,47 @@ kbd { font-family: var(--display); font-size: 11px; background: var(--raised2); 
 .toast .lv { display: flex; color: var(--green); } .toast.err .lv { color: var(--red); } .toast.warn .lv { color: var(--amber); }
 @keyframes toastin { from { opacity: 0; transform: translateY(12px) scale(.96); } }
 @keyframes toastout { to { opacity: 0; transform: translateX(20px); } }
+
+/* ---------- wheel traffic: the drawer's second tab (what `fxdash verify` measures) ---------- */
+#drawer .dtabs { display: flex; gap: 4px; }
+#drawer .dtabs button { font: 600 13px var(--display); color: var(--text3); padding: 6px 12px; border-radius: 8px; border: 1px solid transparent; background: none; cursor: pointer; }
+#drawer .dtabs button:hover { color: var(--text); background: var(--raised); }
+#drawer .dtabs button.on { color: #fff; background: var(--raised2); border-color: var(--line2); }
+#traffic { padding: 14px 16px 18px; }
+#traffic[hidden], #issues[hidden] { display: none; }
+.tr.stale { opacity: .55; transition: opacity .2s; }
+.tr-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.tr-verdict { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 240px; }
+.tr-verdict .lv { display: flex; }
+.tr-verdict.ok .lv { color: var(--green); } .tr-verdict.warn .lv { color: var(--amber); } .tr-verdict.err .lv { color: var(--red); }
+.tr-verdict b { font: 600 15px var(--display); }
+.tr-verdict .sub { color: var(--text3); font-size: 12.5px; }
+.tr-seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 8px; overflow: hidden; }
+.tr-seg button { padding: 5px 10px; font-size: 12px; background: none; color: var(--text3); border: 0; cursor: pointer; }
+.tr-seg button.on { background: var(--raised2); color: #fff; }
+.tr-gates { display: grid; gap: 4px; margin-bottom: 14px; }
+.tr-gate { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text2); }
+.tr-gate .lv { display: flex; } .tr-gate.ok .lv { color: var(--green); } .tr-gate.bad .lv { color: var(--amber); }
+.tr-gate .btn { margin-left: auto; }
+.tr-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tr-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); }
+.tr-card small { display: block; color: var(--text3); font-size: 11.5px; margin-bottom: 4px; }
+.tr-card b { font: 600 18px var(--display); }
+.tr-card em { display: block; font-style: normal; color: var(--text3); font-size: 11.5px; margin-top: 2px; }
+.tr-card.err b { color: var(--red); } .tr-card.warn b { color: var(--amber); } .tr-card.ok b { color: var(--green); }
+.tr-spark { margin: 6px 0 14px; }
+.tr-spark svg { width: 100%; height: 86px; display: block; }
+.tr-spark rect { fill: var(--green); opacity: .85; } .tr-spark rect.warn { fill: var(--amber); } .tr-spark rect.err { fill: var(--red); }
+.tr-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
+@media (max-width: 1100px) { .tr-cols { grid-template-columns: 1fr; } }
+.tr h4 { margin: 0 0 6px; font: 600 12px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--text3); }
+.tr-row { display: grid; grid-template-columns: 1fr 76px 76px; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.tr-row:hover { background: var(--raised); }
+.tr-row.head { cursor: default; color: var(--text3); font-size: 11.5px; } .tr-row.head:hover { background: none; }
+.tr-row .n { text-align: right; font-variant-numeric: tabular-nums; }
+.tr-row .bar { grid-column: 1 / -1; position: relative; height: 3px; background: #0d0e11; border-radius: 2px; margin-top: -3px; }
+.tr-row .bar i { position: absolute; inset: 0 auto 0 0; background: var(--amber); border-radius: 2px; }
+.tr-prob { display: flex; gap: 8px; font-size: 13px; padding: 4px 0; color: var(--text2); }
+.tr-prob .lv { display: flex; color: var(--amber); }
+.tr .note { color: var(--text3); font-size: 12px; margin-top: 10px; }
+.btn.small { height: 26px; padding: 0 10px; font-size: 12px; }

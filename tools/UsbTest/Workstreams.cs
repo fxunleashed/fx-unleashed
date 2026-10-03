@@ -14,6 +14,7 @@ static class WorkstreamTests
         LibraryTests();
         ShareTests();
         ServerOrigins();
+        TrafficPanelTests();
         RealLibrary();
     }
 
@@ -201,6 +202,37 @@ static class WorkstreamTests
             int status = int.Parse(r.Split(' ')[1]);
             return (status, r.Substring(0, r.IndexOf("\r\n\r\n")));
         }
+    }
+
+    // what the designer's Wheel traffic panel is built on (fxdash verify and fit-bands)
+    static void TrafficPanelTests()
+    {
+        var d = BuiltInDashes.MustangGt3();
+        var v = DashVerify.Run(d, 10, 20, 10);
+        Check("T: verify measures a demo lap (updates, average and busiest second, a timeline)", v.Updates > 0 && v.AvgBytesPerSecond > 0 && v.WorstSecondBytes >= v.AvgBytesPerSecond && v.Timeline.Count >= 9,
+              $"{v.Updates} updates, {v.AvgBytesPerSecond} B/s avg, {v.WorstSecondBytes} B/s worst, {v.Timeline.Count} s");
+        Check("T: verify names what sends the most", v.Traffic.Count > 0 && v.Traffic[0].BytesPerSecond >= v.Traffic[v.Traffic.Count - 1].BytesPerSecond);
+        var ram = DashVerify.Run(d, 10, 20, 10, tiles: true);
+        Check("T: verify with the RAM patch (tiles) also runs", ram.Updates == v.Updates && ram.Seconds == 10);
+        // a dash built to be bad: copies of a value drawn on top of each other and over other elements (what the panel shows red)
+        var examplePath = System.IO.Path.GetFullPath(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "docs", "examples", "example-gt.json"));
+        if (System.IO.File.Exists(examplePath))
+        {
+            var good = DashTools.Parse(System.IO.File.ReadAllText(examplePath));
+            Check("T: the example dash passes verify", DashVerify.Run(good, 10, 20, 20).Ok);
+            var worse = DashTools.Parse(System.IO.File.ReadAllText(examplePath));
+            var speed = worse.Elements.First(e => e.Type == "value" && e.Bind == "speed");
+            string J(DashElement e) => Newtonsoft.Json.JsonConvert.SerializeObject(e);
+            for (int i = 0; i < 6; i++)
+            {
+                var extra = Newtonsoft.Json.JsonConvert.DeserializeObject<DashElement>(J(speed)); extra.Name = "extra " + i; extra.Y = 100 + i * 40; extra.Bind = "rpm";
+                worse.Elements.Add(extra);
+            }
+            var bad = DashVerify.Run(worse, 10, 20, 20);
+            Check("T: values drawn over other elements flash (the panel's red gate)", !bad.Ok && bad.FlashingUpdates > 0, $"{bad.FlashingUpdates} of {bad.Updates} flash");
+        }
+        var plain = d.Clone();
+        Check("T: fit-bands changes nothing on a dash that passes", DashTools.FitTextBands(plain).Count == 0);
     }
 
     static void ServerOrigins()
