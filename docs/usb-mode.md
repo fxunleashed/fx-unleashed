@@ -23,7 +23,7 @@ Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) 
 ## Setup
 
 1. Install the FX Unleashed wheel app patch (build 9 is current; builds 4 to 9 each include the one before) through
-   SimPro, following the firmware guide at fxunleashed.com/firmware.
+   SimPro, following the install steps at fxunleashed.com/start (the download and details are on fxunleashed.com/firmware).
 2. Plug the wheel's USB cable into the PC (the wheel stays on the base as usual). The wheel only picks USB mode when it
    powers up with the cable in: one that started on the base ignores a cable plugged in later (the PC sees no
    device), so power it up with the cable in. Build 6 and later

@@ -68,9 +68,9 @@ namespace User.FXProRpmSync
             var steps = new StackPanel();
             steps.Children.Add(Theme.Eyebrow("Set up", Theme.Red));
             steps.Children.Add(Theme.Title("Set up Unleashed mode", 20));
-            steps.Children.Add(Theme.Note("Unleashed mode needs the FX Unleashed wheel app patch and the wheel's USB cable. Build 7 and later tell the plugin " +
-                                          "themselves; builds 4-6 report the same as stock, so confirm them once:", new Thickness(0, 6, 0, 12)));
-            steps.Children.Add(Step("1", "Install the FX Unleashed wheel app patch (build 9) through SimPro: the guide is at fxunleashed.com/firmware."));
+            steps.Children.Add(Theme.Note("Unleashed mode needs the FX Unleashed wheel app on the wheel and the wheel's USB cable in this PC. A wheel with " +
+                                          "a recent wheel app is recognised by itself; an older one needs the Test button once:", new Thickness(0, 6, 0, 12)));
+            steps.Children.Add(Step("1", "Install the FX Unleashed wheel app through SimPro (about 10 minutes): the guide is at fxunleashed.com/start."));
             steps.Children.Add(Step("2", "Plug the wheel's USB cable into this PC.", out step2));
             steps.Children.Add(Step("3", "Press Test: the demo dash stays steady for 8 seconds. On stock firmware the wheel's own dash flickers through it (harmless)."));
             var setupButtons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
