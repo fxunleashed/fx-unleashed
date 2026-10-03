@@ -33,7 +33,7 @@ It has two modes:
   LED profile drive them (the wheel shows up in SimHub's Devices).
 - **Between sessions:** screensavers (the logo, a clock, start lights, your last session, a picture, a library item)
   and sleep.
-- **Streaming:** an OBS browser source with the wheel's screen and lights, live (`http://127.0.0.1:8899/mirror`).
+- **Streaming:** an OBS browser source with the wheel's screen and lights, live (`http://127.0.0.1:8899/mirror`). Frame (none, thin line, bezel, carbon, neon glow), lights and background are chosen in SimHub; the address never changes.
 - **Quick controls:** screen on/off, brightness, a ceiling for every light, night mode, next dash / preset, from a key,
   a wheel button or a Stream Deck.
 - **Updates itself:** a banner offers new versions, one click installs, one click rolls back.

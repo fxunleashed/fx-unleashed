@@ -96,6 +96,31 @@ static class CarLightsTests
               string.Join(",", ml.Rpm) + " / " + string.Join(",", ml.OffRpm));
         Check("car lights: an off RPM moves with an offset", ml.Offset(100).OffRpm[a] == 7500 && ml.Clone().OffRpm != ml.OffRpm);
 
+        // lights stacked on one position can't be laid on the bar (the Ligier JS P320's published record): no rev data
+        db.Load(@"{ ""schema"": 1, ""game"": ""ams2s"", ""simhubGame"": ""Automobilista2s"", ""gameVersion"": ""1"", ""cars"": [
+          { ""carId"": ""Stacked"", ""dash"": ""shift-lights"", ""rev"": { ""range"": [6000, 6700], ""steps"": 5, ""leds"": [
+            { ""pos"": 0.0, ""stages"": [[6000, ""#40FF00""]] }, { ""pos"": 0.0, ""stages"": [[6175, ""#FFD700""]] },
+            { ""pos"": 0.0, ""stages"": [[6525, ""#0095FF""]] }, { ""pos"": 1.0, ""stages"": [[6000, ""#00FF00""]] } ] },
+            ""limiter"": { ""onBar"": true, ""leds"": [ { ""pos"": 0.0, ""colour"": ""#0095FF"" } ] } },
+          { ""carId"": ""Spread"", ""dash"": ""shift-lights"", ""rev"": { ""range"": [6000, 6700], ""steps"": 3, ""leds"": [
+            { ""pos"": 0.0, ""stages"": [[6000, ""#40FF00""]] }, { ""pos"": 0.5, ""stages"": [[6350, ""#FFD700""]] }, { ""pos"": 1.0, ""stages"": [[6700, ""#FF0000""]] } ] } } ] }");
+        var stacked = db.Find("Automobilista2s", "Stacked");
+        Check("car lights: lights stacked on one position give no rev data (Lovely or the preset takes over)", stacked != null && stacked.Car.Rev == null);
+        Check("car lights: ...but its pit limiter lights are kept", stacked?.Car.Limiter != null);
+        Check("car lights: a record with every light on its own spot is kept", db.Find("Automobilista2s", "Spread")?.Car.Rev?.Lights.Count == 3);
+
+        // Lovely Car Data: SimHub's "Ligier JS P320" against the database's "ligier_js_p320"
+        Check("car data: ids compare as plain words", CarLedDatabase.Slug("Ligier JS P320") == "ligier-js-p320" && CarLedDatabase.Slug("ligier_js_p320") == "ligier-js-p320"
+              && CarLedDatabase.Slug("Hyper_Porsche Penske 2026_6") == "hyper-porsche-penske-2026-6" && CarLedDatabase.Slug("Citroën  C4") == "citroen-c4" && CarLedDatabase.Slug("  ") == "");
+        var manifest = Newtonsoft.Json.Linq.JArray.Parse(@"[
+          { ""carName"": ""Ligier JS P320"", ""carId"": ""ligier_js_p320"", ""path"": ""automobilista2/ligier-js-p320.json"" },
+          { ""carName"": ""Ligier JS P217"", ""carId"": ""ligier_js_p217"", ""path"": ""automobilista2/ligier-js-p217.json"" },
+          { ""carName"": ""AF Corse"", ""carId"": ""AF Corse"", ""path"": ""lmu/af-corse.json"" },
+          { ""carName"": ""AF Corse"", ""carId"": ""AF Corse"", ""path"": ""lmu/af-corse-gte.json"" } ]");
+        Check("car data: SimHub's spelling finds the database's entry", (string)CarLedDatabase.FindByWords(manifest, "Ligier JS P320")?["path"] == "automobilista2/ligier-js-p320.json");
+        Check("car data: another car isn't matched", CarLedDatabase.FindByWords(manifest, "Ligier JS P4") == null);
+        Check("car data: two entries that read the same are never guessed between", CarLedDatabase.FindByWords(manifest, "af corse") == null);
+
         Check("car lights: slots keep an even bar as it is", CarLightsDatabase.Slots(new List<double> { 0, 0.25, 0.5, 0.75, 1 }).All(s => s != null));
         Check("car lights: a newer schema is ignored", Try(() => db.Load(M4Json().Replace("\"schema\": 1", "\"schema\": 99").Replace("\"ams2\"", "\"ams3\""))) &&
               db.Find("Automobilista2", "BMW M4 GT3")?.GameVersion == "1.6.9.96");

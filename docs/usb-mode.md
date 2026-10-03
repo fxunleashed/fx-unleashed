@@ -98,6 +98,50 @@ lights"), 1-4 colours, speed and brightness. Rev lights use the car's real shift
 everything, first match wins: ABS (left side, amber 12/s), TC (right side, blue), pit limiter (rev lights), blue and
 yellow flags (encoders), low fuel and DRS (off by default).
 
+**While driving** (2026-10-02): a preset's buttons and encoders hold one still frame of their effect (`StillWhileDriving`:
+pulses and sweeps become steady colour, gradients, plasma, flames and stars freeze) and the three side lights each side stay
+dark (`SidesDarkWhileDriving`: they're for alerts). Both are per profile, on by default, and cover every in-car state (start,
+drive, pit limiter, stop) so the start-up settles into the look it ends in; parked looks still animate. Alerts, the limiter
+lights and the levels' flash on a change are the only things that move. `tools/UsbTest` checks every built-in preset on both
+wheels. With ATSR-Hub as the light source the animation is ATSR-Hub's own theme, not ours.
+
+**Rev bar extras** (`Usb/RevExtras.cs`, a profile's `Extras`): in some situations the rev bar shows something else, and the
+shift lights win again within 8% of the shift point (except for the first two):
+
+| Extra | When | Shows |
+|---|---|---|
+| Pit speed bar | in the pit lane, over 5 km/h | a pointer: middle = the limit, left below it (cyan), green within 2 km/h, right above it (red, filled from the middle) |
+| Launch aid (off by default) | first gear, under 30 km/h, not in the pit lane | a pointer for revs (or throttle, or clutch) against the car's target (Lights tab > "Launch aid for this car"): amber below, green on, red above; no target saved = 70% of max revs |
+| Lift and coast | LMU, progress over 2.5% | the bar fills from both ends (magenta) |
+| Fuel while refuelling | stopped, fuel rising | the tank filling (cyan) |
+| Brake bias change | 2.5 s after the bias moves | a pointer for the change from where the car started (+-4%) |
+
+The pit speed limit comes from the game when it gives one (iRacing's track info, the F1 games' session packet, SimHub's
+`PitLimiterSpeed`); AMS2 and LMU give none, so it's **learned from the speed the pit limiter holds** (steady for a second in the
+pit lane) and remembered per game and track (`UsbSettings.PitSpeeds`). ATSR-Hub guesses 60 km/h for those games instead.
+`RevExtrasState` keeps the history (learned limit, refuelling, bias reference), `RevBars` draws the pictures.
+
+**Try the lights** (`Usb/LightScenarios.cs`, Lights tab bottom card, `GET /api/wheel/scenario[?id=|stop=1]`): scripted situations (pit lane with a
+known and a learned limit, launch, lift and coast, refuel, bias, spotter, indicators, every alert, the engine states, a mirrored
+blinking-out car, an iRacing car on the game's numbers) played on the wheel through the same pipeline as a session (`ScenarioRun`: car
+state, extras history, light engine, with the player's preset and the alerts/extras the scenario shows switched on in a copy). `UsbTest`
+plays them all and draws `OUT/scenarios/*.png`. What to try with the wheel and games: [test-checklist.md](test-checklist.md);
+`tools/session-report.py` summarises a session from the log.
+
+**Alerts** added: left and right turn indicators (off by default, the side lights; the game blinks them). The spotter is ignored in
+time trial, hot lap and lone qualifying. SimHub works out the spotter itself for games that don't give one (a car within 10 m, 45-135
+degrees either side, over 5 km/h); a log line records each change (`[FXProRpmSync] spotter: ...`).
+
+**Car data fixes** (2026-10-02, from comparing with ATSR-Hub): ids match as plain words ("Ligier JS P320" finds Lovely's
+`ligier_js_p320`); a record whose lights share a position is ignored; a car with no redline colour but a blink interval blinks its
+lit lights out at the redline (`RpmLayout.FlashDark`, 174 of 951 cars; SimPro can only flash a colour, so it gets none); the flash
+can't come before the last light; mirrored cars stay mirrored on the wheel's 15 LEDs (`RpmLayout.Mirrored`). The first lap of a
+session never reads as invalid. **iRacing cars Lovely lacks** (it has 85) use the game's own shift light numbers instead of a guess from the
+redline: the first light, last light and blink rpm from the session info (`DriverInfo.DriverCarSLFirstRPM` / `SLLastRPM` / `SLBlinkRPM`), with the
+preset's pattern laid between them (`RpmLayout.FromAnchors`). Each car change writes one log line saying which data built the lights and where the
+15 LEDs sit (`[FXProRpmSync] car ...`). **`UsbTest.exe OUT audit <lovely data dir> <ams2.json>`** pushes every record through the mapping and
+lists lopsided, out-of-order or lost lights (3 Lovely files are unreadable: their colour list is one short).
+
 ## ATSR-Hub
 
 USB mode can take the lights from ATSR-Hub EVO instead of its own presets, so ATSR-Hub's shift lights, spotter, flags,
@@ -127,6 +171,9 @@ How it works (from ATSR-Hub EVO's code, decompiled with ilspycmd 9.1):
   button-press effects don't fire.
 - **LED map** (optional): 38 ATSR-Hub indexes, one per FX Pro LED in FX Pro order, `-1` = off; for layouts numbered
   differently, or to swap sides.
+- **Spotter over ATSR-Hub's lights** (`UsbSettings.SpotterOverExternal`, on by default; also over SimHub's device): a car alongside
+  draws the active preset's spotter alerts (the side lights) on top of the frame. Nothing else of the preset's alerts is drawn over it.
+  ATSR-Hub's own spotter lights buttons 0-5 (left) and 6-11 (right) in red when SimHub's spotter flag is on.
 
 ## SimHub LED device
 
@@ -254,9 +301,17 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
   `https://fxunleashed.com` (CORS + Private Network Access preflight). Before this, the server answered every request
   with `Access-Control-Allow-Origin: *` and no Origin check, so any web page could send it simple POSTs.
 - **Screen mirror** (`Usb/ScreenMirror.cs`): every command `FxHostScreen` sends is replayed on a simulated screen;
-  `GET /mirror` (OBS browser source: `?bg=transparent`, `?leds=0`, `?all=1`, `?fps=N`), `/api/wheel/frame.png`,
-  `/api/wheel/mirror`. While the wheel shows one of its own dashes: SimPro's picture of it (not live values).
-  `UsbTest <dir> mirror [port] [seconds]` serves it with the demo lap.
+  `GET /mirror` (OBS browser source), `/api/wheel/frame.png`, `/api/wheel/mirror`. While the wheel shows one of its own
+  dashes: SimPro's picture of it (not live values). **No options in the address**: how the page looks is
+  `UsbSettings.Mirror` (`Usb/MirrorSettings.cs`), set in SimHub on the Streaming tab (`Ui/UnlockedStreamTab.cs`, with an animated
+  drawing of the page, `Ui/MirrorSketch.cs`) and sent in `/api/wheel/mirror` as `options`; the page re-applies them on
+  every poll, so OBS follows a change at once. Frame: none / thin line / bezel / carbon / neon glow (bezel and carbon are
+  housings that hold the lights, the others float), with an accent colour or "follow the rev lights" (the lead rev LED);
+  rev lights and side lights each on or off, style dots / bars / line, rev lights above or below; background see-through /
+  dark / green screen; corner radius; hide while idle; updates per second. The buttons' and encoders' lights ("all") and the
+  status line are gone. Geometry lives twice (the page's `applyOptions()` and `MirrorSketch.Rebuild()`): change both.
+  `UsbTest <dir> mirror [port] [seconds] [options.json]` serves it with the demo lap (options re-read when the file
+  changes); set `FXDASH_DESIGNER_DIR=Usb/Designer` to edit the page without rebuilding.
 - **Wheel dash values** (`Ui/WheelValuesPanel.cs`): any value the wheel's own dashes draw can come from another SimHub
   property or a formula (`ncalc:`/`js:`), in natural units (gaps in seconds, fuel per lap in litres); stored in
   `Settings.Feed.Overrides`, shared with standard mode's SimGame feed. Dashes tab > Values.

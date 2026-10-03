@@ -30,9 +30,30 @@ static class FeatureTests
         LightStateTests.Run();
         CalibrationTests.Run();
         CarLightsTests.Run();
+        ScenarioTests.Run(dir);
+        PerDashRam();
         foreach (var extra in Extra) extra();
         Console.WriteLine(failures == 0 ? "features: OK" : $"features: {failures} FAILED");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>Per dash: copied to the screen's RAM or drawn with rectangles (UsbSettings.NoRamDashes).</summary>
+    static void PerDashRam()
+    {
+        var u = new UsbSettings { ScreenRamDrive = true };
+        Check("ram: every dash uses the RAM by default", u.DashUsesRam("a") && u.RamFor("a") && u.DashUsesRam(null));
+        u.SetDashUsesRam("a", false);
+        Check("ram: a dash set to skip it", !u.DashUsesRam("a") && !u.RamFor("a") && u.RamFor("b"));
+        u.SetDashUsesRam("a", false);
+        Check("ram: set twice is listed once", u.NoRamDashes.Count == 1);
+        u.ScreenRamDrive = false;
+        Check("ram: no drive, no RAM for anyone", !u.RamFor("b"));
+        var back = Newtonsoft.Json.JsonConvert.DeserializeObject<UsbSettings>(Newtonsoft.Json.JsonConvert.SerializeObject(u));
+        Check("ram: the choice is saved", !back.DashUsesRam("a") && back.DashUsesRam("b"));
+        var old = Newtonsoft.Json.JsonConvert.DeserializeObject<UsbSettings>("{\"ScreenRamDrive\":true}");
+        Check("ram: old settings (no list) use the RAM", old.DashUsesRam("a") && old.RamFor("a"));
+        u.SetDashUsesRam("a", true);
+        Check("ram: turned back on", u.DashUsesRam("a") && u.NoRamDashes.Count == 0);
     }
 
     /// <summary>Later workstreams add their checks here (keeps Run short).</summary>

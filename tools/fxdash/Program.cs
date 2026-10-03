@@ -70,7 +70,7 @@ internal static class FxDash
                     Need(pos, 3);
                     var mode = opts.TryGetValue("mode", out var m) ? m : "preview";
                     double seconds = opts.TryGetValue("seconds", out var sec) ? double.Parse(sec) : 20;
-                    File.WriteAllBytes(pos[2], DashTools.Render(Load(pos[1]), mode, seconds, pad.L, pad.T));
+                    File.WriteAllBytes(pos[2], DashTools.Render(Load(pos[1]), mode, seconds, pad.L, pad.T, null, opts.ContainsKey("tiles")));
                     return Out(new { written = Path.GetFullPath(pos[2]), mode });
                 }
                 case "verify":
@@ -79,7 +79,7 @@ internal static class FxDash
                     Need(pos, 2);
                     double vsec = opts.TryGetValue("seconds", out var vs) ? double.Parse(vs, System.Globalization.CultureInfo.InvariantCulture) : 120;
                     var vpad = opts.ContainsKey("pad") ? pad : (10, 20);
-                    var vr = DashVerify.Run(Load(pos[1]), vpad.Item1, vpad.Item2, vsec);
+                    var vr = DashVerify.Run(Load(pos[1]), vpad.Item1, vpad.Item2, vsec, tiles: opts.ContainsKey("tiles"));
                     Out(vr);
                     return vr.Ok ? 0 : 1;
                 }
@@ -192,7 +192,7 @@ internal static class FxDash
             if (args[i].StartsWith("--"))
             {
                 var key = args[i].Substring(2);
-                bool flag = key == "no-images";
+                bool flag = key == "no-images" || key == "tiles";
                 opts[key] = flag || i + 1 >= args.Length ? "" : args[++i];
             }
             else positional.Add(args[i]);

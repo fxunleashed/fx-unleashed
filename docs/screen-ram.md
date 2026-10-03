@@ -44,6 +44,11 @@ draws it with `sets "ramv: X, Y, ram/NAME"` instead of thousands of `fill`s:
    loading screen (title "Your dashes"), ~15-20 s after a power-on; then the saver runs smoothly and the first dash
    shows at once. (Loading behind a running saver made it choppy for half a minute: user picked this instead.)
 4. Not yet: a dash added to the rotation isn't queued until the next dash/saver change (offered to the user).
+5. **Per dash: with or without the RAM** (`UsbSettings.NoRamDashes`, `DashUsesRam(id)` / `RamFor(id)`; a switch on each
+   rotation tile and in the focus panel of the Dashes tab, shown while the drive is on). A dash set to skip it is drawn
+   live with rectangles: nothing of it is uploaded, no screen RAM, no loading screen, previews draw it with fills too.
+   Meant for simple dashes. The rest of the rotation still preloads behind it (the dash is redrawn with fills after
+   each file). Not counted in the rotation's RAM total or the preload.
 
 ## The loading screen
 

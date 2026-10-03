@@ -34,6 +34,10 @@ static class ScreenFlashTests
         Check("screen: header record CRCs are right in both blocks",
               new[] { stock, ramfs }.All(b => BitConverter.ToUInt32(b, 0xC4) == ScreenImage.CrcBytes(b, 0, 0xC4) && BitConverter.ToUInt32(b, 0x18C) == ScreenImage.CrcBytes(b, 200, 0xC4)));
         Check("screen: the 'failtest' block is never built by the plugin", Throws(() => img.Build("failtest")));
+        // the safe screen check (ScreenFlasher.ProbeRam): its picture must never contain a command terminator
+        var probe = ScreenFlasher.ProbePicture();
+        Check("screen: the check's picture fits one packet and has no FF FF (never a terminator)", ScreenFlasher.SafeForParser(probe), probe.Length + " bytes");
+        Check("screen: a picture with FF FF is refused by the check", !ScreenFlasher.SafeForParser(new byte[] { 1, 0xFF, 0xFF, 2 }));
         var tampered = new ScreenImage { Id = img.Id, WheelApp = img.WheelApp, Header = "01" + img.Header.Substring(2), Blocks = img.Blocks };
         Check("screen: a header that differs from the record by one byte is refused", Throws(() => tampered.Build("stock")) && Throws(() => tampered.Build("ramfs")));
 

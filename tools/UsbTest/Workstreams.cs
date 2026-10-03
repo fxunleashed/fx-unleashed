@@ -222,6 +222,21 @@ static class WorkstreamTests
         var st = Newtonsoft.Json.JsonConvert.SerializeObject(ScreenMirror.State());
         Check("H: state has the LEDs", st.Contains("#FF0000"), st);
         ScreenMirror.Leds(null);
+
+        // how the page looks comes from the settings: defaults, a round trip, bad values made safe, old settings without it
+        var look = new MirrorSettings { Frame = MirrorFrame.Carbon, FrameColor = "rev", LightStyle = MirrorLightStyle.Bars, LightsAt = MirrorLightsAt.Below, Background = MirrorBackground.Green, SideLights = false };
+        var back = Newtonsoft.Json.JsonConvert.DeserializeObject<MirrorSettings>(Newtonsoft.Json.JsonConvert.SerializeObject(look));
+        Check("H: mirror options survive the settings file", back.Frame == MirrorFrame.Carbon && back.IsFollowRev && back.LightStyle == MirrorLightStyle.Bars &&
+              back.LightsAt == MirrorLightsAt.Below && back.Background == MirrorBackground.Green && !back.SideLights && back.RevLights);
+        var bad = new MirrorSettings { FrameColor = "red", Corners = 400, Fps = 0 }; bad.Clamp();
+        Check("H: bad mirror options are made safe", bad.FrameColor == MirrorSettings.Accents[0] && bad.Corners == 32 && bad.Fps == 1);
+        Check("H: settings from before the mirror options still load", Newtonsoft.Json.JsonConvert.DeserializeObject<UsbSettings>("{\"Enabled\":true}").Mirror.Frame == MirrorFrame.Bezel);
+        ScreenMirror.Options = () => look;
+        var opt = Newtonsoft.Json.JsonConvert.SerializeObject(ScreenMirror.State());
+        Check("H: the page gets the options", opt.Contains("\"frame\":\"carbon\"") && opt.Contains("\"frameColor\":\"rev\"") && opt.Contains("\"lightsAt\":\"below\"") && opt.Contains("\"sides\":false"), opt);
+        ScreenMirror.Options = () => throw new System.Exception("settings not available");
+        Check("H: the page still gets defaults when the settings can't be read", Newtonsoft.Json.JsonConvert.SerializeObject(ScreenMirror.State()).Contains("\"frame\":\"bezel\""));
+        ScreenMirror.Options = () => new MirrorSettings();
     }
 
     static void WheelValues()

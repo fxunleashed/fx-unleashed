@@ -16,6 +16,8 @@ static class LightStateTests
         Tracker();
         Gauges();
         Looks();
+        Spotter();
+        Extras();
         Limiter();
         Takeovers();
         Presets();
@@ -84,6 +86,54 @@ static class LightStateTests
         // a car with as many LEDs as the wheel, and one with more, are unchanged by the stretch
         var fifteen = new CarLedProfile { LedNumber = 15, Colors = Enumerable.Repeat("#FF00FF00", 16).ToArray(), GearRpm = new Dictionary<string, int[]> { ["N"] = Enumerable.Range(0, 16).Select(i => 4000 + i * 100).ToArray() } };
         Check("car data: 15 LEDs map one to one", RpmLayout.FromProfile(fifteen, false).Rpm.SequenceEqual(Enumerable.Range(1, 15).Select(i => 4000 + i * 100)));
+
+        // mirrored cars stay mirrored on the wheel (the Ligier JS P320: 10 lights, 5 steps each side)
+        CarLedProfile Mirror(int[] curve) => new CarLedProfile { LedNumber = curve.Length, Colors = Enumerable.Repeat("#FF00FF00", curve.Length + 1).ToArray(),
+            GearRpm = new Dictionary<string, int[]> { ["1"] = new[] { 6700 }.Concat(curve).ToArray() } };
+        var p320 = RpmLayout.FromProfile(Mirror(new[] { 6000, 6000, 6170, 6340, 6525, 6525, 6340, 6170, 6000, 6000 }), false).Rpm;
+        Check("car data: 10 mirrored lights stay mirrored on 15", p320.SequenceEqual(new[] { 6000, 6000, 6000, 6170, 6340, 6340, 6525, 6525, 6525, 6340, 6340, 6170, 6000, 6000, 6000 }), string.Join(",", p320));
+        foreach (var n in new[] { 4, 6, 8, 9, 11, 12, 13, 14 })
+        {
+            var half = Enumerable.Range(0, n / 2).Select(i => 4000 + i * 150).ToArray();
+            var curve = half.Concat(n % 2 == 1 ? new[] { 4000 + (n / 2) * 150 } : new int[0]).Concat(half.Reverse()).ToArray();
+            var rpm = RpmLayout.FromProfile(Mirror(curve), false).Rpm;
+            Check($"car data: {n} mirrored lights are mirrored on the wheel", rpm.SequenceEqual(rpm.Reverse()) && rpm[0] == 4000 && rpm[7] == curve.Max(), string.Join(",", rpm));
+        }
+        var rising = RpmLayout.FromProfile(Mirror(Enumerable.Range(0, 10).Select(i => 4000 + i * 100).ToArray()), false).Rpm;
+        Check("car data: a rising bar (not mirrored) is stretched as before", rising.SequenceEqual(new[] { 4000, 4100, 4100, 4200, 4300, 4300, 4400, 4500, 4500, 4600, 4700, 4700, 4800, 4900, 4900 }), string.Join(",", rising));
+    }
+
+    static void Spotter()
+    {
+        var fx = WheelModel.FxPro;
+        var e = new LightEngine(fx);
+        var p = LightPresets.Find("synthwave").Clone();
+        var theirs = Enumerable.Repeat(new LedColor(10, 20, 30, 90), fx.LedCount).ToArray();
+        var none = Car(true, 3000);
+        Check("spotter: nothing alongside leaves another program's lights alone (same frame)", ReferenceEquals(e.OverlaySpotter(theirs, p, none, 1), theirs));
+        var left = Car(true, 3000); left.SpotterLeft = true;
+        var f = e.OverlaySpotter(theirs, p, left, 1);
+        Check("spotter: a car on the left lights the left side lights over them", Enumerable.Range(17, 3).All(i => f[i].R > 100) && Enumerable.Range(20, 3).All(i => f[i].R == 10));
+        Check("spotter: everything else is theirs", Enumerable.Range(0, 17).Concat(Enumerable.Range(20, 18)).All(i => f[i].R == 10 && f[i].G == 20 && f[i].B == 30) && theirs.All(c => c.R == 10));
+        var right = Car(true, 3000); right.SpotterRight = true;
+        var fr = e.OverlaySpotter(theirs, p, right, 1);
+        Check("spotter: a car on the right lights the right side lights", Enumerable.Range(20, 3).All(i => fr[i].R > 100) && Enumerable.Range(17, 3).All(i => fr[i].R == 10));
+        var both = Car(true, 3000); both.SpotterLeft = both.SpotterRight = true;
+        Check("spotter: both sides at once", Enumerable.Range(17, 6).All(i => e.OverlaySpotter(theirs, p, both, 1)[i].R > 100));
+        var abs = Car(true, 3000); abs.AbsActive = true; abs.BlueFlag = true;
+        Check("spotter: only the spotter is drawn over them (no ABS or flag alerts)", ReferenceEquals(e.OverlaySpotter(theirs, p, abs, 1), theirs));
+        var off = p.Clone(); foreach (var a in off.Alerts.Where(a => a.Trigger == AlertTrigger.SpotterLeft)) a.Enabled = false;
+        Check("spotter: a preset with the alert switched off draws nothing", ReferenceEquals(e.OverlaySpotter(theirs, off, left, 1), theirs));
+        var small = new LedColor[10];
+        Check("spotter: a frame of another size is left alone", ReferenceEquals(e.OverlaySpotter(small, p, left, 1), small));
+        var neoFrame = Enumerable.Repeat(new LedColor(10, 20, 30, 90), 73).ToArray();
+        var ng = new LightEngine(WheelModel.GtNeo).OverlaySpotter(neoFrame, LightPresets.Find("neo-aurora").Clone(), left, 1);
+        Check("spotter: the GT Neo shows it on the left end of its rev bar", Enumerable.Range(58, 4).All(i => ng[i].R > 100) && ng[70].R == 10);
+
+        Check("session: time trial, hot lap and lone qualifying are solo", DashValues.SoloSession("Time Trial") && DashValues.SoloSession("TIME_TRIAL") && DashValues.SoloSession("HotLap")
+              && DashValues.SoloSession("Lone Qualify") && !DashValues.SoloSession("RACE") && !DashValues.SoloSession("Practice") && !DashValues.SoloSession(null));
+        Check("lap: flagged invalid on the first lap isn't shown, later laps are", !DashValues.LapInvalidShown(true, 0) && DashValues.LapInvalidShown(true, 1) && DashValues.LapInvalidShown(true, 5)
+              && !DashValues.LapInvalidShown(false, 3) && !DashValues.LapInvalidShown(false, 0));
     }
 
     static void Gauges()
@@ -155,6 +205,66 @@ static class LightStateTests
         var green = LightEngine.Rgb("#00FF40");
         Check("looks: rev tint on unlit shift lights, faint", low.Skip(23).All(c => c.R + c.G + c.B > 0 && c.Brightness <= 10));
         Check("looks: lit shift lights keep the standard colours", high[23].R == green.Item1 && high[23].G == green.Item2 && high[23].B == green.Item3);
+
+        // driving: held still, side lights dark (alerts still use them)
+        bool Same(LedColor a, LedColor b) => a.R == b.R && a.G == b.G && a.B == b.B && a.Brightness == b.Brightness;
+        bool Dark(LedColor c) => c.R + c.G + c.B == 0;
+        foreach (var id in new[] { "neon-tokyo", "hyperspace", "inferno", "abyss", "heartbeat", "aurora", "scanner", "rainbow", "le-mans-night" })
+        {
+            var calm = LightPresets.Find(id).Clone();
+            var d1 = e.Render(calm, Car(true, 3000), null, 1.0, false, LightMoment.Of(CarState.Driving));
+            var d2 = e.Render(calm, Car(true, 3000), null, 2.7, false, LightMoment.Of(CarState.Driving));
+            Check($"driving: {id} holds still (buttons and encoders)", Enumerable.Range(0, 17).All(i => Same(d1[i], d2[i])));
+            Check($"driving: {id} keeps its colours (not dark)", Enumerable.Range(0, 12).Any(i => !Dark(d1[i])));
+            Check($"driving: {id} side lights are dark", Enumerable.Range(17, 6).All(i => Dark(d1[i]) && Dark(d2[i])));
+            var limiter = e.Render(calm, Car(true, 3000, limiter: true), null, 1.0, false, LightMoment.Of(CarState.PitLimiter));
+            var limiter2 = e.Render(calm, Car(true, 3000, limiter: true), null, 2.7, false, LightMoment.Of(CarState.PitLimiter));
+            Check($"driving: {id} also holds still on the pit limiter", Enumerable.Range(0, 17).All(i => Same(limiter[i], limiter2[i])));
+        }
+        var anim = LightPresets.Find("neon-tokyo").Clone();
+        anim.StillWhileDriving = false; anim.SidesDarkWhileDriving = false;
+        var a1 = e.Render(anim, Car(true, 3000), null, 1.0, false, LightMoment.Of(CarState.Driving));
+        var a2 = e.Render(anim, Car(true, 3000), null, 2.7, false, LightMoment.Of(CarState.Driving));
+        Check("driving: with the options off the buttons animate and the side lights glow",
+              Enumerable.Range(0, 12).Any(i => !Same(a1[i], a2[i])) && Enumerable.Range(17, 6).Any(i => !Dark(a1[i]) || !Dark(a2[i])));
+        var spot = LightPresets.Find("neon-tokyo").Clone();
+        var withSpotter = Car(true, 3000); withSpotter.SpotterLeft = true;
+        var sp = e.Render(spot, withSpotter, null, 1.0, false, LightMoment.Of(CarState.Driving));
+        Check("driving: a car on the left still lights the left side lights, not the right", Enumerable.Range(17, 3).All(i => !Dark(sp[i])) && Enumerable.Range(20, 3).All(i => Dark(sp[i])));
+        var parked = e.Render(LightPresets.Find("neon-tokyo").Clone(), new DashValues(), null, 1.0, false, LightMoment.Of(CarState.Idle));
+        var parked2 = e.Render(LightPresets.Find("neon-tokyo").Clone(), new DashValues(), null, 2.7, false, LightMoment.Of(CarState.Idle));
+        Check("driving: parked looks still animate", Enumerable.Range(0, 38).Any(i => !Same(parked[i], parked2[i])));
+        var oldSaved = Newtonsoft.Json.JsonConvert.DeserializeObject<LightProfile>("{\"Name\":\"old\"}");
+        Check("driving: a profile saved before has both on", oldSaved.StillWhileDriving && oldSaved.SidesDarkWhileDriving);
+        var roundTrip = Newtonsoft.Json.JsonConvert.DeserializeObject<LightProfile>(Newtonsoft.Json.JsonConvert.SerializeObject(anim));
+        Check("driving: the options are saved", !roundTrip.StillWhileDriving && !roundTrip.SidesDarkWhileDriving);
+        // every built-in preset on both wheels, in every state where you're in the car: still, sides dark
+        foreach (var model in WheelModel.All)
+        {
+            var eng = new LightEngine(model);
+            foreach (var preset in LightPresets.For(model))
+            {
+                var q = preset.Clone();
+                foreach (var a in q.Alerts) a.Enabled = false;   // the theme on its own: alerts flash by design
+                foreach (var st in new[] { CarState.Driving, CarState.PitLimiter })
+                {
+                    var times = new[] { 0.0, 0.31, 1.7, 4.2, 9.9, 23.5 };
+                    var frames = times.Select(t => eng.Render(q, Car(true, 3000, limiter: st == CarState.PitLimiter), null, t, false, LightMoment.Of(st))).ToList();
+                    var nonRev = Enumerable.Range(0, model.LedCount).Where(i => model.GroupOf(i) != LedGroup.Rev).ToList();
+                    if (st == CarState.PitLimiter) nonRev = nonRev.Where(i => model.GroupOf(i) != LedGroup.Rev).ToList();
+                    bool still = frames.Skip(1).All(f => nonRev.All(i => Same(f[i], frames[0][i])));
+                    Check($"still: {model.Name} {preset.Name} holds still while {st}", still,
+                          still ? "" : "LEDs " + string.Join(",", nonRev.Where(i => frames.Any(f => !Same(f[i], frames[0][i]))).Take(8)));
+                    if (model.Has(LedGroup.SideLeft))
+                        Check($"still: {model.Name} {preset.Name} side lights dark while {st}", frames.All(f => model.Leds(LedGroup.SideLeft).Concat(model.Leds(LedGroup.SideRight)).All(i => Dark(f[i]))));
+                    Check($"still: {model.Name} {preset.Name} still has colour while {st}", nonRev.Any(i => !Dark(frames[0][i])) || preset.Id.Contains("stealth"));
+                }
+            }
+        }
+        var gt = LightPresets.Find("neo-neon-tokyo").Clone();
+        var g1 = new LightEngine(WheelModel.GtNeo).Render(gt, Car(true, 3000), null, 1.0, false, LightMoment.Of(CarState.Driving));
+        var g2 = new LightEngine(WheelModel.GtNeo).Render(gt, Car(true, 3000), null, 2.7, false, LightMoment.Of(CarState.Driving));
+        Check("driving: the GT Neo's rings and buttons hold still too", Enumerable.Range(0, 58).All(i => Same(g1[i], g2[i])));
     }
 
     static void Limiter()
@@ -261,6 +371,239 @@ static class LightStateTests
               && rt.Startup == StartupStyle.Ignite && rt.RevTint == 6);
         var old = Newtonsoft.Json.JsonConvert.DeserializeObject<LightProfile>("{\"Id\":\"user-x\",\"Name\":\"Mine\"}");
         Check("a profile saved before states gets the defaults", old.LookFor(CarState.Idle).Brightness == 100 && old.Limiter.Style == LimiterStyle.Alternate && old.Startup == StartupStyle.Sweep);
+    }
+
+    static LedColor[] Rev(LedColor[] f) => f.Skip(23).Take(15).ToArray();
+    static bool IsDark(LedColor c) => c.R + c.G + c.B == 0;
+
+    static void Extras()
+    {
+        const byte B = 90;
+
+        // ---- the pictures
+        var ptr = RevBars.Pointer(15, 0.5, RevBars.Green, B);
+        Check("extras: a pointer in the middle lights the middle LED fully and its neighbours softly", ptr[7].G == 255 && ptr[6].G > 0 && ptr[6].G < 255 && ptr[5].G == 0 && ptr[8].G > 0 && ptr[9].G == 0);
+        var left = RevBars.Pointer(15, 0, RevBars.Green, B);
+        Check("extras: a pointer at 0 sits on the first LED, at 1 on the last", left[0].G == 255 && RevBars.Pointer(15, 1, RevBars.Green, B)[14].G == 255 && left[14].G == 0);
+        Check("extras: the middle shows a dim white tick when the pointer is elsewhere", IsDark(left[7]) == false && left[7].R == left[7].G && left[7].G == left[7].B && left[7].R < 60);
+        var fill = RevBars.Pointer(15, 0.9, RevBars.Red, B, RevBars.Red);
+        Check("extras: a pointer with a fill lights from the middle to the pointer", Enumerable.Range(7, 6).All(i => fill[i].R > 0) && Enumerable.Range(0, 6).All(i => IsDark(fill[i])));
+        Check("extras: position is 0.5 on target and clamps at the ends", RevBars.Position(100, 100, 10) == 0.5 && RevBars.Position(0, 100, 10) == 0 && RevBars.Position(500, 100, 10) == 1);
+        var half = RevBars.Fill(15, 0.5, RevBars.Cyan, B);
+        Check("extras: a half fill lights the left half (the middle partly)", Enumerable.Range(0, 7).All(i => half[i].B == 255) && half[7].B > 0 && half[7].B < 255 && Enumerable.Range(8, 7).All(i => IsDark(half[i])));
+        Check("extras: an empty fill is dark and a full one lit", RevBars.Fill(15, 0, RevBars.Cyan, B).All(IsDark) && RevBars.Fill(15, 1, RevBars.Cyan, B).All(c => c.B == 255));
+        var mir = RevBars.MirroredFill(15, 0.4, RevBars.Magenta, B);
+        Check("extras: a mirrored fill closes in from both ends, evenly", mir[0].R == 255 && mir[14].R == 255 && mir[0].R == mir[14].R && IsDark(mir[7]) && Enumerable.Range(0, 15).All(i => mir[i].R == mir[14 - i].R));
+        Check("extras: a full mirrored fill lights everything", RevBars.MirroredFill(15, 1, RevBars.Magenta, B).All(c => c.R == 255));
+        var under = RevBars.PitSpeed(15, 40, 60, B); var at = RevBars.PitSpeed(15, 60, 60, B); var over = RevBars.PitSpeed(15, 72, 60, B);
+        Check("extras: pit speed below the limit is a cyan pointer left of the middle", under.Select((c, i) => (c, i)).OrderByDescending(x => x.c.B).First().i < 7 && under.Where((c, i) => i != 7).All(c => c.R == 0));
+        Check("extras: pit speed at the limit is green in the middle", at[7].G == 255 && at.All(c => c.R == 0) && at[6].G > 0 && at[8].G > 0);
+        Check("extras: pit speed over the limit is red, filled from the middle to the pointer", over[13].R > 200 && Enumerable.Range(7, 7).All(i => over[i].R > 0) && Enumerable.Range(0, 7).All(i => IsDark(over[i])) && over[14].R == 0 && over.All(c => c.G == 0));
+        var l = new LaunchTarget { Rpm = 5000 };
+        var (tgt, rng) = l.Window(8000);
+        Check("extras: launch target and window (revs: the saved rpm, a range from the car's max)", tgt == 5000 && rng == 500 && new LaunchTarget().Window(8000).Target == 5600 && new LaunchTarget { Mode = LaunchMode.Throttle }.Window(8000) == (80.0, 25.0));
+        Check("extras: launch pointer is amber below, green on, red above the target",
+              RevBars.Launch(15, 4000, 5000, 500, B)[0].R == 255 && RevBars.Launch(15, 4000, 5000, 500, B)[0].G == 176 && RevBars.Launch(15, 4000, 5000, 500, B).All(c => c.B == 0 || c.R == c.B)
+              && RevBars.Launch(15, 5020, 5000, 500, B)[7].G > 240 && RevBars.Launch(15, 5020, 5000, 500, B).All(c => c.R == 0)
+              && RevBars.Launch(15, 6000, 5000, 500, B)[14].R == 255 && RevBars.Launch(15, 6000, 5000, 500, B)[14].G == 0);
+
+        // ---- the history behind them
+        var learned = new Dictionary<string, double>();
+        int saves = 0;
+        var st = new RevExtrasState(() => learned);
+        st.PitSpeedLearned += () => saves++;
+        DashValues V(double speed = 0, bool limiter = false, bool pit = false, double fuel = 50, double bias = 55) { var d = Car(true, 3000, limiter: limiter); d.SpeedKmh = speed; d.InPitLane = pit; d.Game = "AMS2"; d.Track = "Nurburgring"; d.Set("fuel", fuel); d.Set("brakeBias", bias); return d; }
+        var x0 = st.Update(V(), 0, "car", null);
+        Check("extras state: nothing at first", x0.PitSpeedKmh == 0 && !x0.Refuelling && !x0.BiasShown && x0.BiasOffset == 0 && x0.Launch != null);
+        var x1 = st.Update(V(bias: 56.0), 1.0, "car", null);
+        Check("extras state: a bias change shows, as the offset from where it started", x1.BiasShown && Math.Abs(x1.BiasOffset - 1.0) < 1e-9);
+        Check("extras state: ...for 2.5 s, then it's gone (the offset stays)", st.Update(V(bias: 56.0), 3.0, "car", null).BiasShown && !st.Update(V(bias: 56.0), 3.6, "car", null).BiasShown && Math.Abs(st.Update(V(bias: 56.0), 4, "car", null).BiasOffset - 1.0) < 1e-9);
+        Check("extras state: a tiny wobble isn't a change", !st.Update(V(bias: 56.02), 10, "car", null).BiasShown);
+        var again = st.Update(V(bias: 52), 11, "other car", null);
+        Check("extras state: a new car starts its own reference (no change shown, offset 0)", !again.BiasShown && again.BiasOffset == 0);
+        st.Update(V(fuel: 40), 20, "car", null);
+        Check("extras state: fuel rising while stopped is refuelling", st.Update(V(fuel: 41), 20.1, "car", null).Refuelling);
+        Check("extras state: ...held for 1.5 s after the last rise, then not", st.Update(V(fuel: 41), 21.4, "car", null).Refuelling && !st.Update(V(fuel: 41), 21.7, "car", null).Refuelling);
+        Check("extras state: fuel falling or rising while moving isn't", !st.Update(V(50, fuel: 39), 30, "car", null).Refuelling && !st.Update(V(50, fuel: 45), 30.1, "car", null).Refuelling);
+        var game = new DashValues { Running = true, PitSpeedLimit = 80, Game = "iRacing", Track = "x" };
+        Check("extras state: a pit speed from the game is used", st.Update(game, 40, "car", null).PitSpeedKmh == 80);
+        // learning: the limiter holding 59.8 km/h in the pit lane for a second
+        double t = 100;
+        RevExtrasInput last = null;
+        for (int i = 0; i < 15; i++) { t += 0.05; last = st.Update(V(59.8 + (i % 2) * 0.1, limiter: true, pit: true), t, "car", null); }
+        Check("extras state: before a second of steady speed nothing is learned", saves == 0 && learned.Count == 0 && last.PitSpeedKmh == 0);
+        for (int i = 0; i < 25; i++) { t += 0.05; last = st.Update(V(59.8 + (i % 2) * 0.1, limiter: true, pit: true), t, "car", null); }
+        double got = learned.TryGetValue("AMS2 | Nurburgring", out var gv0) ? gv0 : 0;
+        Check("extras state: the speed the limiter holds is learned for the track and saved", saves == 1 && Math.Abs(got - 59.85) < 0.1 && last.PitSpeedKmh == got, string.Join(";", learned.Select(k => k.Key + "=" + k.Value)));
+        Check("extras state: ...and known from then on, without the limiter", st.Update(V(40, pit: true), t + 5, "car", null).PitSpeedKmh == got);
+        var hunt = new Dictionary<string, double>(); var st2 = new RevExtrasState(() => hunt); double t2 = 0;
+        for (int i = 0; i < 80; i++) { t2 += 0.05; st2.Update(V(30 + i * 0.7, limiter: true, pit: true), t2, "c", null); }
+        Check("extras state: a speed still changing isn't learned", hunt.Count == 0);
+        for (int i = 0; i < 60; i++) { t2 += 0.05; st2.Update(V(60, limiter: true, pit: false), t2, "c", null); }
+        Check("extras state: nothing is learned outside the pit lane", hunt.Count == 0);
+        var gameLimit = new Dictionary<string, double>(); var st3 = new RevExtrasState(() => gameLimit); double t3 = 0;
+        for (int i = 0; i < 60; i++) { t3 += 0.05; var gv = V(70, limiter: true, pit: true); gv.PitSpeedLimit = 72; st3.Update(gv, t3, "c", null); }
+        Check("extras state: nothing is learned when the game gives the limit", gameLimit.Count == 0);
+
+        Check("extras: pit speeds are read from the game's text", DashValues.ParsePitSpeed("60.00 kph") == 60 && Math.Abs(DashValues.ParsePitSpeed("45.00 mph") - 72.42) < 0.01
+              && DashValues.ParsePitSpeed("80") == 80 && DashValues.ParsePitSpeed("fast") == 0 && DashValues.ParsePitSpeed(null) == 0 && DashValues.ParsePitSpeed("") == 0);
+
+        // ---- in the engine
+        var fx = WheelModel.FxPro; var e = new LightEngine(fx);
+        LightProfile Prof() { var q = LightPresets.Find("stealth").Clone(); return q; }
+        LedColor[] Draw(LightProfile q, DashValues d, RevExtrasInput x, CarState s = CarState.Driving, double now = 1) => e.Render(q, d, null, now, false, new LightMoment { State = s, Extras = x });
+        var shiftOnly = Rev(e.Render(Prof(), Car(true, 3000), null, 1, false, LightMoment.Of(CarState.Driving)));
+
+        var pitV = Car(true, 3000, limiter: true); pitV.InPitLane = true; pitV.SpeedKmh = 72;
+        var pitX = new RevExtrasInput { PitSpeedKmh = 60 };
+        var pf = Rev(Draw(Prof(), pitV, pitX, CarState.PitLimiter));
+        Check("engine: in the pit lane over the limit the rev bar is the red pit speed bar", pf[13].R > 200 && pf.All(c => c.G == 0));
+        pitV.SpeedKmh = 40;
+        var slow = Rev(Draw(Prof(), pitV, pitX, CarState.PitLimiter));
+        Check("engine: ...under it a cyan pointer left of the middle", slow.Select((c, i) => (c, i)).OrderByDescending(a => a.c.B).First().i < 7);
+        pitV.SpeedKmh = 3;
+        Check("engine: ...stopped (under 5 km/h) it gives the bar back (the limiter's own lights)", !Rev(Draw(Prof(), pitV, pitX, CarState.PitLimiter)).SequenceEqual(slow));
+        pitV.SpeedKmh = 72;
+        var offProf = Prof(); offProf.Extras.PitSpeed = false;
+        Check("engine: with the option off the pit speed bar is not drawn", !Rev(Draw(offProf, pitV, pitX, CarState.PitLimiter)).SequenceEqual(pf));
+        Check("engine: with no known limit it isn't drawn either", !Rev(Draw(Prof(), pitV, new RevExtrasInput(), CarState.PitLimiter)).SequenceEqual(pf));
+        pitV.InPitLane = false;
+        Check("engine: outside the pit lane it isn't drawn", !Rev(Draw(Prof(), pitV, pitX, CarState.PitLimiter)).SequenceEqual(pf));
+        Check("engine: not while the engine starts or stops, or parked", !Rev(Draw(Prof(), pitV, pitX, CarState.Starting)).SequenceEqual(pf));
+
+        var lc = Car(true, 3000); lc.LiftCoast = 60;
+        var lf = Rev(Draw(Prof(), lc, new RevExtrasInput()));
+        Check("engine: lift and coast fills the bar from both ends in magenta", lf[0].R == 255 && lf[0].B == 255 && lf[14].R == 255 && IsDark(lf[7]) && Enumerable.Range(0, 15).All(i => lf[i].R == lf[14 - i].R));
+        lc.Rpm = 7600;
+        Check("engine: ...but near the shift point the shift lights win", Rev(Draw(Prof(), lc, new RevExtrasInput())).All(c => c.B == 0 || c.R != 255 || c.G != 0) && !Rev(Draw(Prof(), lc, new RevExtrasInput())).SequenceEqual(lf));
+        var lcLow = Car(true, 3000); lcLow.LiftCoast = 2;
+        Check("engine: a little progress (2.5% or less) isn't shown", Rev(Draw(Prof(), lcLow, new RevExtrasInput())).SequenceEqual(shiftOnly));
+        var noLc = Prof(); noLc.Extras.LiftCoast = false; lc.Rpm = 3000;
+        Check("engine: lift and coast off", Rev(Draw(noLc, lc, new RevExtrasInput())).SequenceEqual(shiftOnly));
+
+        var rf = Car(true, 0); rf.FuelPercent = 50; rf.SpeedKmh = 0;
+        var refuel = Rev(Draw(Prof(), rf, new RevExtrasInput { Refuelling = true }));
+        Check("engine: refuelling shows the tank filling (half full: the left half lit, cyan)", Enumerable.Range(0, 7).All(i => refuel[i].B == 255) && Enumerable.Range(8, 7).All(i => IsDark(refuel[i])));
+        rf.SpeedKmh = 30;
+        Check("engine: ...not while moving", Rev(Draw(Prof(), rf, new RevExtrasInput { Refuelling = true })).SequenceEqual(Rev(Draw(Prof(), rf, new RevExtrasInput()))));
+
+        var bv = Car(true, 3000);
+        var bias = Rev(Draw(Prof(), bv, new RevExtrasInput { BiasShown = true, BiasOffset = 2 }));
+        Check("engine: a bias change shows a pointer right of the middle for +2% (amber)", bias.Select((c, i) => (c, i)).OrderByDescending(a => a.c.R).First().i > 7 && bias.Where((c, i) => i != 7).All(c => c.B == 0));
+        Check("engine: ...a negative one left of it", Rev(Draw(Prof(), bv, new RevExtrasInput { BiasShown = true, BiasOffset = -3 })).Select((c, i) => (c, i)).OrderByDescending(a => a.c.R).First().i < 7);
+        Check("engine: ...not once it has been shown", Rev(Draw(Prof(), bv, new RevExtrasInput { BiasShown = false, BiasOffset = 2 })).SequenceEqual(shiftOnly));
+
+        var lv = Car(true, 5000); lv.GearKey = "1"; lv.SpeedKmh = 0;
+        var lx = new RevExtrasInput { Launch = new LaunchTarget { Rpm = 5000 } };
+        var launchOff = Rev(Draw(Prof(), lv, lx));
+        Check("engine: the launch aid is off unless switched on", launchOff.SequenceEqual(Rev(e.Render(Prof(), lv, null, 1, false, LightMoment.Of(CarState.Driving)))));
+        var lp = Prof(); lp.Extras.Launch = true;
+        var onTarget = Rev(Draw(lp, lv, lx));
+        Check("engine: on the target revs the middle is green", onTarget[7].G == 255 && onTarget.All(c => c.R == 0));
+        lv.Rpm = 4200;
+        Check("engine: under the target the pointer is amber and left of the middle", Rev(Draw(lp, lv, lx)).Select((c, i) => (c, i)).OrderByDescending(a => a.c.R).First().i < 7);
+        lv.Rpm = 5000; lv.SpeedKmh = 40;
+        Check("engine: not once you're moving (40 km/h)", Rev(Draw(lp, lv, lx)).SequenceEqual(Rev(e.Render(lp, lv, null, 1, false, LightMoment.Of(CarState.Driving)))));
+        lv.SpeedKmh = 0; lv.GearKey = "2";
+        Check("engine: not in second gear", Rev(Draw(lp, lv, lx)).SequenceEqual(Rev(e.Render(lp, lv, null, 1, false, LightMoment.Of(CarState.Driving)))));
+        lv.GearKey = "1"; lv.InPitLane = true;
+        Check("engine: not in the pit lane", Rev(Draw(lp, lv, lx)).SequenceEqual(Rev(e.Render(lp, lv, null, 1, false, LightMoment.Of(CarState.Driving)))));
+        lv.InPitLane = false;
+        var throttleX = new RevExtrasInput { Launch = new LaunchTarget { Mode = LaunchMode.Throttle, ThrottlePercent = 80 } };
+        lv.Set("throttle", 80.0);
+        Check("engine: throttle mode watches the throttle", Rev(Draw(lp, lv, throttleX))[7].G == 255);
+        lv.Set("throttle", 20.0);
+        Check("engine: ...amber below the target", Rev(Draw(lp, lv, throttleX)).Max(c => c.R) == 255 && Rev(Draw(lp, lv, throttleX)).Where((c, i) => i != 7).All(c => c.B == 0));
+
+        var reverse = Car(true, 3000); reverse.LiftCoast = 30;
+        var normalFrame = e.Render(Prof(), reverse, null, 1, false, new LightMoment { State = CarState.Driving, Extras = new RevExtrasInput() });
+        var reversedFrame = e.Render(Prof(), reverse, null, 1, true, new LightMoment { State = CarState.Driving, Extras = new RevExtrasInput() });
+        Check("engine: a mirrored bar is the same on a reversed rev bar", Rev(normalFrame).SequenceEqual(Rev(reversedFrame)));
+        var bRev = Car(true, 3000);
+        Check("engine: the extras follow a reversed rev bar (bias +2 points the other way)",
+              Rev(e.Render(Prof(), bRev, null, 1, true, new LightMoment { State = CarState.Driving, Extras = new RevExtrasInput { BiasShown = true, BiasOffset = 2 } })).Select((c, i) => (c, i)).OrderByDescending(a => a.c.R).First().i < 7);
+
+        // ---- settings and presets
+        var old = Newtonsoft.Json.JsonConvert.DeserializeObject<LightProfile>(@"{""Name"":""old""}");
+        Check("extras: a profile saved before has pit speed, lift and coast, refuel and bias on, launch off", old.Extras.PitSpeed && old.Extras.LiftCoast && old.Extras.Refuel && old.Extras.BrakeBias && !old.Extras.Launch);
+        var prof = Prof(); prof.Extras.Launch = true; prof.Extras.PitSpeed = false;
+        var round = Newtonsoft.Json.JsonConvert.DeserializeObject<LightProfile>(Newtonsoft.Json.JsonConvert.SerializeObject(prof));
+        Check("extras: the options are saved", round.Extras.Launch && !round.Extras.PitSpeed && prof.Clone().Extras != prof.Extras && prof.Clone().Extras.Launch);
+        Check("extras: every built-in preset has them", LightPresets.All.All(q => q.Extras != null && q.Extras.PitSpeed));
+        var u = Newtonsoft.Json.JsonConvert.DeserializeObject<UsbSettings>(@"{""CarLaunch"":{""AMS2 | x"":{""Mode"":""Throttle"",""ThrottlePercent"":70}},""PitSpeeds"":{""AMS2 | t"":59.9}}");
+        Check("extras: launch targets and pit speeds are saved", u.CarLaunch["AMS2 | x"].Mode == LaunchMode.Throttle && u.CarLaunch["AMS2 | x"].ThrottlePercent == 70 && u.PitSpeeds["AMS2 | t"] == 59.9 && new UsbSettings().CarLaunch.Count == 0);
+        var plug = NewPlugin();
+        Check("extras: no launch target by default", plug.LaunchFor("AMS2 | x") == null && plug.LaunchFor(null) == null);
+        var tgtSave = new LaunchTarget { Rpm = 5200 };
+        plug.SetCarLaunch("AMS2 | x", tgtSave); tgtSave.Rpm = 1;
+        bool savedAsCopy = plug.LaunchFor("AMS2 | x")?.Rpm == 5200;
+        plug.SetCarLaunch("AMS2 | x", null);
+        Check("extras: a launch target is saved as a copy, and removed", savedAsCopy && plug.LaunchFor("AMS2 | x") == null);
+
+        // ---- brake bias moved by the car (migration) isn't a change by hand; pit speeds are stored as a copy
+        var mig = new RevExtrasState(() => new Dictionary<string, double>());
+        DashValues Brake(double bias, double brake) { var d = V(bias: bias); d.Set("brake", brake); return d; }
+        mig.Update(Brake(55, 0), 0, "c", null);
+        Check("extras state: bias moving while braking (brake migration) isn't shown", !mig.Update(Brake(56, 60), 1, "c", null).BiasShown && !mig.Update(Brake(57, 70), 1.2, "c", null).BiasShown);
+        Check("extras state: ...but a change by hand off the brakes is", mig.Update(Brake(58, 0), 2, "c", null).BiasShown);
+        var original = new Dictionary<string, double> { ["AMS2 | Old"] = 50 };
+        Dictionary<string, double> stored = null;
+        var cow = new RevExtrasState(() => stored ?? original, d => stored = d);
+        double tc = 0;
+        for (int i = 0; i < 40; i++) { tc += 0.05; cow.Update(V(60, limiter: true, pit: true), tc, "c", null); }
+        Check("extras state: a learned pit speed is stored as a copy, the old dictionary untouched", stored != null && stored["AMS2 | Nurburgring"] == 60 && stored["AMS2 | Old"] == 50 && original.Count == 1);
+
+        // ---- the game's own shift light numbers (iRacing), for cars Lovely doesn't have
+        var anchors = new ShiftAnchors { First = 6000, Shift = 6500, Last = 7000, Blink = 7500 };
+        var ar = new RevLighting().ForAnchors(anchors);
+        Check("anchors: the first LED lights at the game's first light and the last at its last", ar.Rpm[0] == 6000 && ar.Rpm[14] == 7000);
+        Check("anchors: the LEDs in between rise evenly", Enumerable.Range(1, 14).All(i => ar.Rpm[i] >= ar.Rpm[i - 1]) && ar.Rpm[7] > 6400 && ar.Rpm[7] < 6600);
+        Check("anchors: the flash is at the game's blink rpm", ar.FlashRpm == 7500 && !ar.FlashDark);
+        Check("anchors: a blink at or below the last light flashes at the last light", new RevLighting().ForAnchors(new ShiftAnchors { First = 6000, Last = 7000, Blink = 6800 }).FlashRpm == 7000
+              && new RevLighting().ForAnchors(new ShiftAnchors { First = 6000, Last = 7000 }).FlashRpm == 7000);
+        var sideToCentre = new RevLighting { Pattern = PatternKind.EdgesToCenter }.ForAnchors(anchors);
+        Check("anchors: a side-to-centre pattern is mirrored, first light at both ends, last in the middle", sideToCentre.Rpm[0] == 6000 && sideToCentre.Rpm[14] == 6000 && sideToCentre.Rpm[7] == 7000 && sideToCentre.Rpm.SequenceEqual(sideToCentre.Rpm.Reverse()),
+              string.Join(",", sideToCentre.Rpm));
+        Check("anchors: valid only with a first light below a last one", anchors.Valid && !new ShiftAnchors { First = 6000, Last = 6000 }.Valid && !new ShiftAnchors().Valid && !new ShiftAnchors { First = 0, Last = 7000 }.Valid);
+        Check("anchors: a change in them counts as a new car state, a wobble doesn't", !anchors.SameAs(new ShiftAnchors { First = 6000, Shift = 6500, Last = 7100, Blink = 7500 }) && anchors.SameAs(new ShiftAnchors { First = 6000.4, Shift = 6500, Last = 7000.2, Blink = 7500 }) && !anchors.SameAs(default(ShiftAnchors)));
+        var style = new FallbackStyle { Pattern = PatternKind.LeftToRight };
+        var sp = RpmLightsMapper.FromStyleAnchors(style, null, anchors);
+        Check("anchors: SimPro's fallback styles use them too", sp.Rpm[0] == 6000 && sp.Rpm[14] == 7000);
+
+        // ---- indicators, and the flash that blinks the bar out
+        var ind = LightPresets.Find("synthwave").Clone();
+        var iv = Car(true, 3000); iv.IndicatorLeft = true;
+        Check("indicator alerts: off by default", ind.Alerts.Where(a => a.Trigger == AlertTrigger.IndicatorLeft || a.Trigger == AlertTrigger.IndicatorRight).All(a => !a.Enabled) && ind.Alerts.Any(a => a.Trigger == AlertTrigger.IndicatorRight));
+        var side = Enumerable.Range(17, 3).Select(i => e.Render(ind, iv, null, 1, false, LightMoment.Of(CarState.Driving))[i]).ToArray();
+        Check("indicator alerts: nothing until switched on", side.All(IsDark));
+        foreach (var a in ind.Alerts.Where(a => a.Trigger == AlertTrigger.IndicatorLeft)) a.Enabled = true;
+        var lit = e.Render(ind, iv, null, 1, false, LightMoment.Of(CarState.Driving));
+        Check("indicator alerts: the left indicator lights the left side lights (amber), the right ones stay dark", Enumerable.Range(17, 3).All(i => lit[i].R > 200 && lit[i].G > 100 && lit[i].B == 0) && Enumerable.Range(20, 3).All(i => IsDark(lit[i])));
+
+        CarLedProfile Flashy(string redColour, int blink, int redline, params int[] leds) => new CarLedProfile
+        {
+            LedNumber = leds.Length, RedlineBlinkIntervalMs = blink,
+            Colors = new[] { redColour }.Concat(Enumerable.Repeat("#FF00FF00", leds.Length)).ToArray(),
+            GearRpm = new Dictionary<string, int[]> { ["1"] = new[] { redline }.Concat(leds).ToArray() },
+        };
+        var dark = RpmLayout.FromProfile(Flashy("#00000000", 120, 6700, 6000, 6100, 6200, 6300, 6400), false, exactColours: true);
+        Check("flash: no redline colour but a blink interval blinks the lights out", dark.FlashDark && dark.FlashRpm == 6700 && dark.FlashBlinkUnits > 0);
+        Check("flash: no redline colour and no interval is no flash", RpmLayout.FromProfile(Flashy("#00000000", 0, 6700, 6000, 6100), false, exactColours: true).FlashRpm == 0);
+        var coloured = RpmLayout.FromProfile(Flashy("#FFFF0000", 120, 6700, 6000, 6100), false, exactColours: true);
+        Check("flash: a redline colour is a colour flash as before", !coloured.FlashDark && coloured.FlashRpm == 6700 && coloured.FlashColor == "#FF0000");
+        Check("flash: it can't come before the last light", RpmLayout.FromProfile(Flashy("#FFFF0000", 0, 5050, 6000, 9778), false, exactColours: true).FlashRpm == 9778);
+        var layoutDark = dark;
+        var rpmHigh = Car(true, 6800); rpmHigh.GearKey = "1";
+        int litFrames = 0, darkFrames = 0;
+        for (double now = 0; now < 1; now += 0.01)
+        {
+            var f = Rev(new LightEngine(fx).Render(LightPresets.Find("stealth").Clone(), rpmHigh, layoutDark, now, false, LightMoment.Of(CarState.Driving)));
+            if (f.All(IsDark)) darkFrames++; else if (f.All(c => c.G == 255)) litFrames++;
+        }
+        Check("flash: over the redline the lights are all lit and all dark by turns, about half and half", litFrames > 30 && darkFrames > 30 && litFrames + darkFrames == 100, $"lit {litFrames} dark {darkFrames}");
+        Check("flash: below the redline they're lit as the revs say", Rev(new LightEngine(fx).Render(LightPresets.Find("stealth").Clone(), Car(true, 6150), layoutDark, 0.3, false, LightMoment.Of(CarState.Driving))).Count(c => !IsDark(c)) is int n2 && n2 > 0 && n2 < 15);
+        var simPro = RpmLightsMapper.ToSimPro(Newtonsoft.Json.Linq.JObject.Parse(@"{""lights"":[{""mode"":""X"",""value"":[],""color"":[],""max_rpm"":8000,""redline"":{},""rpm_redlines"":[{""enabled"":true,""light"":{},""telemtery_item"":{}}]}],""rpm_mode"":0}"), dark, 8000, false);
+        Check("flash: SimPro (which can only flash a colour) gets no flash for it", ((Newtonsoft.Json.Linq.JArray)simPro["lights"][0]["rpm_redlines"]).Count == 0);
     }
 
     static void PerCar()

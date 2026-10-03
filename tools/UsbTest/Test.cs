@@ -90,6 +90,8 @@ static class UsbTestMain
     {
         string dir = args[0];
         Directory.CreateDirectory(dir);
+        if (args.Length > 1 && args[1] == "audit")
+            return CarAudit.Run(dir, args.Length > 2 ? args[2] : "", args.Length > 3 ? args[3] : "");
         if (args.Length > 1 && args[1] == "golden") { File.WriteAllText(Path.Combine(dir, "golden.txt"), Golden.Dump(() => new LightEngine(WheelModel.FxPro))); return 0; }
         if (args.Length > 1 && args[1] == "atsr")
         {
@@ -185,13 +187,45 @@ static class UsbTestMain
             return 0;
         }
         if (args.Length > 1 && args[1] == "tiles") return TilesTests.Run(dir, args);
+        if (args.Length > 1 && args[1] == "fwcard") { UiTest.RunFirmwareCard(dir); return 0; }
         if (args.Length > 1 && args[1] == "wheel") { UiTest.RunWheel(dir); return 0; }
+        if (args.Length > 1 && args[1] == "rampill") { UiTest.RunRamPill(dir); return 0; }
+        if (args.Length > 1 && args[1] == "checks") { UiTest.RunChecks(args.Length > 2 ? args[2] : null); return 0; }
+        if (args.Length > 1 && args[1] == "stills") { UiTest.RunStills(dir, args.Length > 2 ? args[2] : null); return 0; }
+        if (args.Length > 2 && args[1] == "repairlights")
+        {
+            var st = Newtonsoft.Json.JsonConvert.DeserializeObject<FXProRpmSyncSettings>(File.ReadAllText(args[2]));
+            var log = new System.Collections.Generic.List<string>();
+            bool changed = LightsRepair.Repair(st.Usb, log);
+            Console.WriteLine("changed: " + changed + "  " + string.Join(", ", log));
+            foreach (var p in st.Usb.UserLights)
+            {
+                Console.WriteLine($"{p.Name}: rev [{string.Join(",", p.Rev.Colors)}]  limiter [{string.Join(",", p.Limiter.Colors)}]  alerts {p.Alerts.Count}");
+                foreach (var g in p.Groups) Console.WriteLine($"  {g.Key}: {g.Value.Effect} [{string.Join(",", g.Value.Colors)}] gauges {g.Value.Gauges?.Count}");
+                Console.WriteLine("  alerts: " + string.Join("; ", p.Alerts.Select(a => Newtonsoft.Json.JsonConvert.SerializeObject(a).Substring(0, Math.Min(60, Newtonsoft.Json.JsonConvert.SerializeObject(a).Length)))));
+            }
+            var outText = Newtonsoft.Json.JsonConvert.SerializeObject(st);
+            Console.WriteLine("saved size " + outText.Length);
+            return 0;
+        }
+        if (args.Length > 1 && args[1] == "uitime") { UiTest.RunTiming(args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 1 && (args[1] == "ui" || args[1] == "uifull")) { UiTest.RunFull(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 1 && args[1] == "mirror")
         {
-            // the screen mirror page with the demo lap, no wheel: UsbTest OUT mirror [port] [seconds] -> http://127.0.0.1:PORT/mirror
+            // the screen mirror page with the demo lap, no wheel: UsbTest OUT mirror [port] [seconds] [options.json] -> http://127.0.0.1:PORT/mirror
+            // options.json = a MirrorSettings (what the plugin keeps in its settings), read again whenever the file changes
             int port = args.Length > 2 ? int.Parse(args[2]) : 8898;
             double seconds = args.Length > 3 ? double.Parse(args[3], System.Globalization.CultureInfo.InvariantCulture) : 60;
+            if (args.Length > 4)
+            {
+                var optFile = args[4]; DateTime stamp = default; var cached = new MirrorSettings();
+                ScreenMirror.Options = () =>
+                {
+                    var w = File.GetLastWriteTimeUtc(optFile);
+                    if (w != stamp) { stamp = w; try { cached = Newtonsoft.Json.JsonConvert.DeserializeObject<MirrorSettings>(File.ReadAllText(optFile)) ?? new MirrorSettings(); } catch { } }
+                    return cached;
+                };
+            }
             var server = new DesignerServer(port, null); server.Start();
             var d = BuiltInDashes.MustangGt3();
             var sink = new MirrorDemoSink();
