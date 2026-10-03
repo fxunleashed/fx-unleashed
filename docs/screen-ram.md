@@ -1,8 +1,7 @@
 # Pictures in the screen's RAM (tiles): the plugin side
 
-Status 2026-10-01: working on the user's wheel; merged from branch `screen-ram-tiles` (worktree `E:\Development\SimagicRpmSync-tiles`)
-into `usb-mode` the same day. The screen side (the modified screen image with a RAM drive, `twfile`, `ramv`, the
-recovery runbook) is in FXProDashes: `docs/screen-images.md`, `docs/screen-speed.md`.
+Working on the maintainer's wheel. This page is the plugin side; the screen side (the screen image with a RAM drive,
+`twfile`, `ramv`) is part of the wheel firmware work.
 
 ## What it does
 
@@ -92,7 +91,7 @@ Rule from both: before an upload the screen must be idle; keep whatever is drawn
 
 - **Build query retry**: right after a power cycle the wheel app doesn't answer the build query; the plugin asks
   again for ~6 s (it used to give up: no build = the dash button stayed in its old slot, dead).
-- **Stuck button reports** (stock bug, FXProDashes firmware-notes.md): besides re-arming on connect, the plugin re-arms
+- **Stuck button reports** (a stock firmware bug): besides re-arming on connect, the plugin re-arms
   `0x200002B8` whenever no input report has arrived for over 1 s while connected (`KeepInputReports`, logs "the wheel's
   button reports had stopped"). A brief USB hiccup the plugin didn't see left the buttons dead (2026-10-01).
 - Dashes tab: Previous/Next red, **"Demo on the wheel"** runs the demo through the shown rotation (dash button cycles);
@@ -103,8 +102,7 @@ Rule from both: before an upload the screen must be idle; keep whatever is drawn
 
 ## Open
 
-- Release notes. The install path for users is the firmware card (`Ui/FirmwareCard.cs`, header-only upload, FXProDashes
-  `docs/screen-header-flash.md`): built, not yet tried on the wheel; the user's wheel has the RAM drive from FXProDashes
-  `tools/usb/screen-flash.ps1`.
+- Release notes. The install path for users is the firmware card (`Ui/FirmwareCard.cs`, header-only upload): built,
+  not yet tried on a second wheel.
 - Queue a dash's files when it's added to the rotation.
 - JPEG quality (88) / tile size (160) not tuned for speed yet; load time is mostly per-file waits.

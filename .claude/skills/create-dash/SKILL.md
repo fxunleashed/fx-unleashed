@@ -20,7 +20,7 @@ Don't stop at "it renders". The wheel draws on a slow screen, and the look alone
 
 ## 0. Setup
 
-Everything runs from the plugin repo, `E:\Development\SimagicRpmSync`. It needs SimHub installed, not running.
+Everything runs from the plugin repo's root. It needs SimHub installed, not running.
 
 ```
 dotnet build -c Release tools/fxdash/fxdash.csproj
@@ -219,7 +219,6 @@ What typically comes back, and the fix:
 | high traffic on one element | value over an image, overlapping another box, or an icon toggling | flat colour under it; separate the boxes; label instead of the icon |
 
 Repeat until `check` has 0 errors and 0 warnings, `fit-bands` returns `"changes": []` and `verify` has `"Ok": true`.
-`tools/lmu-convert/gates.py [files]` runs check and verify on several dashes at once (default: every installed one).
 
 ## 4. Look at it
 

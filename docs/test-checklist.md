@@ -78,7 +78,7 @@ checks watch every frame. `UsbTest.exe OUT audit <lovely data dir> <ams2.json>` 
 What none of this proves: the wheel hardware (LED order was mapped with a camera on 2026-09-27), what SimHub actually reports in each game,
 and how the game's own flags behave.
 
-## 5. Still never tried on the wheel or in a game (from NEXT.md, dated 2026-09-29)
+## 5. Still never tried on the wheel or in a game (dated 2026-09-29)
 
 Per-game/per-car light presets (E), alerts and encoder lights and button feedback (F), the SimHub LED device (D), the screen mirror (H),
 shift point calibration (S), GT Neo support (Q), the "SimPro grabbed the game" warning (P), quick controls and actions (A), base settings

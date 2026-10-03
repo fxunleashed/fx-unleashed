@@ -237,7 +237,7 @@ namespace User.FXProRpmSync
             refusal = null;
             if (u == null || !u.WheelFound) { refusal = "The wheel isn't connected over USB."; return null; }
             if (!u.SupportedApp) { refusal = "The wheel isn't running app 1.3.11 (or is in update mode)."; return null; }
-            if (!u.FirmwarePatched) { refusal = "The wheel needs the FXProDashes firmware (build 4 or later) to reach its screen."; return null; }
+            if (!u.FirmwarePatched) { refusal = "The wheel needs the FX Unleashed wheel app patch (build 4 or later) to reach its screen."; return null; }
             var last = s.ScreenFlashes?.LastOrDefault();
             if (last != null)
             {

@@ -12,7 +12,7 @@ in standard mode (SimPro, already works for rev lights) and in Unleashed mode (e
 USB). The plugin detects which wheel is connected and shapes its pages to that wheel. With both connected, a switch
 button picks which one the pages are for.
 
-Wheel facts come from FXProDashes `docs/gt-neo-firmware.md` (firmware 1.4.4, tested on the user's wheel 2026-09-29).
+Wheel facts: firmware 1.4.4, tested on the maintainer's wheel 2026-09-29.
 
 ## What makes the GT Neo different
 
@@ -145,11 +145,10 @@ Phase 1 and 2 changes are pure refactors for the FX Pro.
 
 ### Phase 0: GT Neo facts (the user at the wheel, one session; plus offline work)
 
-1. **LED map.** A script lights ids `0x00-0x48` one by one (FXProDashes `tools/usb/NeoProbe.cs` `NeoLeds`). The user
+1. **LED map.** A script lights ids `0x00-0x48` one by one. The user
    says where each is, or a phone video is timed against the script. Output: id → position, group, kind.
-   - Offline first: read SimHub's GT Neo driver (`ilspycmd` on the SimHub DLL holding "Simagic GT Neo", as was done
-     for ATSR-Hub). It has the raw 74-LED order and which ones are rev (15) and buttons (18). It also shows which
-     protocol it sends. Facts only: no decompiled code in any repo (NEXT.md O2).
+   - Offline first: read what SimHub's own GT Neo driver does. It has the raw 74-LED order and which ones are rev (15) and buttons (18). It also shows which
+     protocol it sends.
 2. **Buttons and encoders:** button numbers per physical button (for bindings and press lights), encoder counters.
 3. **Behaviour:** the wheel's own lights come back 5 s after the last `EC` packet; a 30 fps run for 30 min with no
    resets; brightness scaling (does the saved SimPro brightness cap our colours?).
@@ -157,7 +156,7 @@ Phase 1 and 2 changes are pure refactors for the FX Pro.
    text tells the user about game bindings.
 5. **SimHub's device API (offline):** how to find SimHub's GT Neo device instance and turn it off and on again at
    runtime (for design §5).
-6. **Drawing:** our own GT Neo outline (NEXT.md O: nothing traced from Simagic's photos), from the user's own photo
+6. **Drawing:** our own GT Neo outline, drawn from the maintainer's own photo
    or measurements, with the LED positions from step 1.
 
 ### Phase 1: wheel models, detection and the switch (FX Pro only in effect)
@@ -199,7 +198,7 @@ Phase 1 and 2 changes are pure refactors for the FX Pro.
 
 ### Phase 5: docs and release
 
-- `docs/usb-mode.md` (GT Neo section), `docs/setup.md` (GT Neo path), README wheel table, website /start, NEXT.md.
+- `docs/usb-mode.md` (GT Neo section), `docs/setup.md` (GT Neo path), README wheel table, website /start.
 - The mode card per wheel: FX Pro "Unleashed" (as today); GT Neo **"USB"**, "Every light on the wheel, from SimHub",
   with no firmware wording anywhere on its pages (decision 4).
 - Rights check (O2): the GT Neo drawing, any GT Neo layout file for ATSR-Hub.

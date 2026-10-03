@@ -1,7 +1,7 @@
 # Legal texts
 
-One source for every warning and disclaimer (NEXT.md O3). The plugin embeds these files (`Legal.cs`), the website
-reads them from here, so the wording never drifts apart. **Have a lawyer read them before launch** (NEXT.md O4).
+One source for every warning and disclaimer . The plugin embeds these files (`Legal.cs`), the website
+reads them from here, so the wording never drifts apart.
 
 | File | Where it appears |
 |---|---|

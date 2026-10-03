@@ -1,16 +1,15 @@
 # USB mode: custom dashes and every light on the FX Pro
 
-Status (2026-09-27): working on the wheel (branch `usb-mode`, not released). Custom dash, logo screensaver, built-in
-light presets and ATSR-Hub lights all verified on an FX Pro running the FXProDashes build 4 firmware.
+Custom dash, logo screensaver, built-in light presets and ATSR-Hub lights are verified on an FX Pro running the FX
+Unleashed wheel app patch.
 
 USB mode drives the Simagic FX Pro's screen and all 38 of its LEDs straight over the wheel's own USB cable, next to
-SimPro (which keeps doing force feedback and settings). It needs the wheel's app firmware patched with the FXProDashes
-build 4 image; on stock firmware nothing here works (and nothing breaks either, see [Firmware](#firmware)).
+SimPro (which keeps doing force feedback and settings). It needs the wheel's app patched with the FX Unleashed wheel
+app patch (build 4 or later); on stock firmware nothing here works (and nothing breaks either, see [Firmware](#firmware)).
 
 Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) · [Dash file format](#dash-file-format) ·
 [Lights](#lights) · [ATSR-Hub](#atsr-hub) · [Dash designer](dash-designer.md) · [How it talks to the wheel](#how-it-talks-to-the-wheel) · [GT Neo](#gt-neo) ·
-[Checking without the wheel](#checking-without-the-wheel) · [Troubleshooting](#troubleshooting) ·
-[Before publishing](#before-publishing)
+[Checking without the wheel](#checking-without-the-wheel) · [Troubleshooting](#troubleshooting)
 
 ## What it does
 
@@ -23,15 +22,16 @@ Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) 
 
 ## Setup
 
-1. Flash the FXProDashes build 4 wheel app through SimPro (FXProDashes `docs/firmware-plan.md`, `firmware-rebuild.md`).
+1. Install the FX Unleashed wheel app patch (build 9 is current; builds 4 to 9 each include the one before) through
+   SimPro, following the firmware guide at fxunleashed.com/firmware.
 2. Plug the wheel's USB cable into the PC (the wheel stays on the base as usual). The wheel only picks USB mode when it
    powers up with the cable in: one that started on the base ignores a cable plugged in later (the PC sees no
-   device), so power it up with the cable in. Build 6 and later (FXProDashes `firmware-rebuild.md` "Build 6")
+   device), so power it up with the cable in. Build 6 and later
    restart it into USB mode on its own when the cable goes in; the plugin then waits `BootGrace` (6 s) before
    talking to it.
 3. SimHub → FXPro RPM Sync → **USB mode**: tick **Use USB mode**, press **Test on the wheel (8 s)**. With the patched
    firmware the demo dash shows steadily; with stock firmware the wheel's own dash flickers through it.
-4. Tick **My wheel runs the FXProDashes firmware**. The status line then reads "Standing by" / "Lights on", and
+4. Tick **My wheel runs the patched firmware**. The status line then reads "Standing by" / "Lights on", and
    "Active" once a game runs.
 
 The patch can't be detected: build 4 reports the same `F1` status (app 1.3.11, run mode 0) as stock, and RAM writes have
@@ -51,7 +51,7 @@ asks the user to confirm the rest once.
   them in the **dash designer** (button on the settings page; [dash-designer.md](dash-designer.md)), which also imports
   SimHub dashes and shows the dash on the wheel while you edit. The settings page shows a live preview and warnings.
 
-What the screen can and can't do (all measured on the wheel, FXProDashes `docs/custom-dash.md`):
+What the screen can and can't do (all measured on the wheel):
 
 - Everything is drawn at runtime with the screen's own commands (TJC `fill`, `xstr`); the screen image isn't changed.
 - **No new pictures.** Images become `fill` rectangles: fine for flat artwork in a few colours (the logo is ~3,300
@@ -161,7 +161,7 @@ Setup:
 2. In FXPro RPM Sync → USB mode → Lights: **Lights come from: ATSR-Hub**. With one ATSR-Hub device the plugin picks
    it by itself.
 
-How it works (from ATSR-Hub EVO's code, decompiled with ilspycmd 9.1):
+How it works (the properties ATSR-Hub EVO publishes in SimHub):
 - For each device, ATSR-Hub publishes `ATSRHubMain.Device_<name>_Background`, `_Layer1`, `_Layer2`, `_Layer3`: lists of
   `#AARRGGBB` strings, one per LED index of the device's layout, and `ATSRHubMain.NM_Brightness` (0-100, night mode).
   Its own SimHub LED profiles draw the four layers in that order, each over the last where it isn't transparent
@@ -186,7 +186,7 @@ How it works (from ATSR-Hub EVO's code, decompiled with ilspycmd 9.1):
 The FX Pro also shows up in SimHub's own **Devices** (brand "FX Unleashed", "FX Pro wheel (USB mode)"), so SimHub's LED
 editor, any SimHub LED profile, and ATSR-Hub through SimHub drive its lights (`Usb/SimHubLedDevice.cs`).
 
-- Registered like SimHub's built-in devices (decompiled SimHub 9.11 `DeltaDevicesRegistry`): a public
+- Registered like SimHub's built-in devices: a public
   `IDeviceDescriptorsRegistry` in the plugin DLL (found by SimHub's `PluginFinder`, which scans per type and catches
   load errors) returns one `DeviceDescriptor` whose factory builds a `LedModuleDevice` with
   `LedModuleSettings<FXProLedDriver>`. SimHub calls `GetDevices` without a try/catch (an exception there breaks its whole
@@ -197,11 +197,11 @@ editor, any SimHub LED profile, and ATSR-Hub through SimHub drive its lights (`U
 - Every frame SimHub computes goes through `FXProLedDriver.Display` to `UsbController.PublishDevice`, used when the Lights
   tab says "Lights come from: SimHub device" (the LED ceiling and press lights still apply). Connected = USB mode on and
   the wheel found.
-- **Not yet tried inside SimHub on the wheel.** When it is, the ATSR-Hub bridge below can go (NEXT.md D).
+- **Not yet tried inside SimHub on the wheel.** When it is, the ATSR-Hub bridge below can go.
 
 ## How it talks to the wheel
 
-Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`, from FXProDashes `tools/usb/FxHid.cs`):
+Wheel USB HID (VID 0483, PID 0529), reports of 65 bytes (`Usb/UsbTransport.cs`):
 
 - `F2 09 len data`: bytes straight to the screen's UART (TJC commands, each ending `FF FF FF`), up to 61 per report.
 - `F2 0A len addr data`: the updater's flash-program command, whose address check is compiled out, used as a RAM store.
@@ -349,12 +349,3 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
 | ATSR-Hub left/right effects mirrored | Enter an LED map that swaps 0-5 with 6-11 and 17-19 with 20-22. |
 | Rev lights fill from the wrong side | "Rev lights fill from the right". |
 
-## Before publishing
-
-- Firmware: build 4 has to reach users (FXProDashes `firmware-rebuild.md`); decide how, and document the stock
-  round trip.
-- Patch detection: build 7 reports its build number in `F1` status byte 0x20 (`FxUsb.QueryBuild`); builds 4-6 still
-  need the confirmation box.
-- Verify on the wheel: ATSR-Hub button input IDs.
-- Dash editor (next step): see FXProDashes `docs/custom-dash.md`.
-- README: user-facing section for USB mode; keep the ATSR-Hub preset file in releases.

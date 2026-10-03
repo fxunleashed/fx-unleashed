@@ -15,7 +15,7 @@ The dash format: [dash-format.md](dash-format.md). Designing with an AI agent: t
 
 ## Web designer (Dash Studio)
 
-SimHub → FXPro Unlocked → Unlocked → Dashes → **Designer** (or http://127.0.0.1:8899/ while SimHub runs; port in
+SimHub → FX Unleashed → Dashes → **Designer** (or http://127.0.0.1:8899/ while SimHub runs; port in
 settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas not evaluated). Same look as the plugin.
 
 - **Top bar:** the dash's name (edit in place; amber dot = unsaved), undo/redo, **Edit / Exact / Demo lap** (Exact and
