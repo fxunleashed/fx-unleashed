@@ -21,6 +21,7 @@
   <ItemGroup>
     <Compile Include="*.cs" />
     <None Include="golden-fxpro.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="script-vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\..\*.cs" />
     <Compile Include="..\..\Usb\*.cs" />
     <Compile Include="..\..\Ui\*.cs" />
@@ -29,6 +30,7 @@
     <EmbeddedResource Include="..\..\assets\gtneo-outline.svg" LogicalName="User.FXProRpmSync.gtneo-outline.svg" />
     <EmbeddedResource Include="..\..\docs\legal\*.md" LogicalName="User.FXProRpmSync.Legal.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\Resources\screen-images.json" LogicalName="User.FXProRpmSync.screen-images.json" />
+    <EmbeddedResource Include="..\..\Usb\Bundled\*.json" LogicalName="User.FXProRpmSync.Bundled.%(Filename)%(Extension)" />
     <Reference Include="GameReaderCommon"><HintPath>$(SimHubPath)GameReaderCommon.dll</HintPath></Reference>
     <Reference Include="SimHub.Plugins"><HintPath>$(SimHubPath)SimHub.Plugins.dll</HintPath></Reference>
     <Reference Include="SimHub.Logging"><HintPath>$(SimHubPath)SimHub.Logging.dll</HintPath></Reference>

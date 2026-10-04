@@ -10,7 +10,7 @@ namespace User.FXProRpmSync
 {
     /// <summary>
     /// Sharing a dash as one file (<c>&lt;id&gt;.fxdash.json</c>, images inside) and taking one in. A dash from a file gets
-    /// the library's rules (format, size, no scripts) and never overwrites anything: if its id is taken it gets a new one.
+    /// the library's rules (format, size, checked scripts) and never overwrites anything: if its id is taken it gets a new one.
     /// Links to library items (<see cref="LinkFor"/>) are the other way to share; see docs/dash-format.md "Sharing".
     /// </summary>
     public static class DashShare

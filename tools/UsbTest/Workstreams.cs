@@ -15,6 +15,8 @@ static class WorkstreamTests
         ShareTests();
         ServerOrigins();
         TrafficPanelTests();
+        BundledDashTests();
+        ScriptCheckTests();
         RealLibrary();
     }
 
@@ -57,7 +59,7 @@ static class WorkstreamTests
             bool refused = false; try { client.Download(got.Items[0]); } catch { refused = true; }
             Check("C: a download that doesn't match its sha256 is refused", refused);
             // scripts refused
-            var js = dash.Clone(); js.Elements[0].Bind = "js:return 1";
+            var js = dash.Clone(); js.Elements[0].Bind = "js:return eval(1)";
             Check("C: js: bindings refused", LibraryClient.Check(js, 100).Any(x => x.Contains("js:")));
             var sf = dash.Clone(); sf.ScriptsFolder = "x";
             Check("C: scripts folder refused", LibraryClient.Check(sf, 100).Count > 0);
@@ -79,7 +81,7 @@ static class WorkstreamTests
             var s2 = new UsbSettings();
             var halo = new LibraryItem { Id = "halo", Name = "HALO", Version = "1.0.0" };
             var slip = new LibraryItem { Id = "slipstream", Name = "SLIPSTREAM", Version = "1.0.0" };
-            var other = new LibraryItem { Id = "apex", Name = "APEX", Version = "1.0.0" };
+            var other = new LibraryItem { Id = "not-bundled-dash", Name = "Not bundled", Version = "1.0.0" }; // (APEX, HALO and the others come with the plugin now)
             var byHand = dash.Clone(); byHand.Id = "fx-halo"; DashTools.Save(byHand);
             var plain = dash.Clone(); plain.Id = "slipstream"; DashTools.Save(plain);
             var noId = System.IO.Path.Combine(DashLibrary.Folder, "from-a-friend.json");
@@ -151,7 +153,7 @@ static class WorkstreamTests
 
             // refusals: what the library refuses, the receiver refuses
             string Refusal(string file, string content) { var f = System.IO.Path.Combine(inbox, file); System.IO.File.WriteAllText(f, content); try { DashShare.Read(f); return null; } catch (System.Exception ex) { return ex.Message; } }
-            var js = mine.Clone(); js.Elements[0].Bind = "js:return 1";
+            var js = mine.Clone(); js.Elements[0].Bind = "js:return eval(1)";
             Check("share: a js: formula is refused", (Refusal("js.fxdash.json", DashTools.Serialize(js)) ?? "").Contains("js:"));
             var sf = mine.Clone(); sf.ScriptsFolder = "x";
             Check("share: a scripts folder is refused", Refusal("sf.fxdash.json", DashTools.Serialize(sf)) != null);
@@ -163,7 +165,7 @@ static class WorkstreamTests
             Check("share: a file over the size limit", (Refusal("big.fxdash.json", new string(' ', LibraryClient.MaxDashBytes + 10)) ?? "").Contains("too big"));
             bool exportJs = false; try { DashShare.Export(js, System.IO.Path.Combine(inbox, "nojs")); } catch { exportJs = true; }
             Check("share: a dash with js: isn't exported (the receiver would refuse it)", exportJs && !System.IO.File.Exists(System.IO.Path.Combine(inbox, "nojs.fxdash.json")));
-            Check("share: nothing refused was saved", DashLibrary.Load(null).All(x => x.Id != "x" && x.Elements.All(e => e.Bind != "js:return 1")));
+            Check("share: nothing refused was saved", DashLibrary.Load(null).All(x => x.Id != "x" && x.Elements.All(e => e.Bind != "js:return eval(1)")));
 
             Check("share: slugs", DashShare.Slug("Night Stint 24h!") == "night-stint-24h" && DashShare.Slug("a") == null && DashShare.Slug("  ") == null && DashShare.Slug(new string('a', 100)).Length == 64);
             Check("share: library links match the website's pages", DashShare.LinkFor("dash", "slipstream") == "https://fxunleashed.com/library/#dash-slipstream"
@@ -202,6 +204,91 @@ static class WorkstreamTests
             int status = int.Parse(r.Split(' ')[1]);
             return (status, r.Substring(0, r.IndexOf("\r\n\r\n")));
         }
+    }
+
+    // the checked-script rules (ScriptCheck); the same cases run against the library's copy of the rules
+    static void ScriptCheckTests()
+    {
+        var path = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "script-vectors.json");
+        var v = Newtonsoft.Json.Linq.JObject.Parse(System.IO.File.ReadAllText(path));
+        var bad = new System.Collections.Generic.List<string>();
+        int allowed = 0, refused = 0;
+        foreach (var c in v["allow"])
+        {
+            allowed++;
+            var p = ScriptCheck.Check((string)c["source"]);
+            if (p.Count > 0) bad.Add("should pass: " + (string)c["name"] + " -> " + p[0]);
+        }
+        foreach (var c in v["refuse"])
+        {
+            refused++;
+            var p = ScriptCheck.Check((string)c["source"]);
+            if (p.Count == 0) bad.Add("should be refused: " + (string)c["name"]);
+        }
+        Check($"S: the shared script cases ({allowed} allowed, {refused} refused) all come out right", bad.Count == 0, string.Join("; ", bad));
+        Check("S: a script over the length limit is refused", ScriptCheck.Check("return 1;" + new string(' ', ScriptCheck.MaxChars)).Count > 0);
+        Check("S: a text over the length limit is refused", ScriptCheck.Check("return '" + new string('a', ScriptCheck.MaxTextChars + 1) + "';").Count > 0);
+        Check("S: deeply nested code is refused", ScriptCheck.Check("return " + new string('(', 3) + string.Concat(Enumerable.Repeat("!", 40)) + "1" + new string(')', 3) + ";").Count > 0);
+        Check("S: a long chain of 'else if' is refused", ScriptCheck.Check(string.Concat(Enumerable.Range(0, 60).Select(i => $"if (root.a == {i}) {{ root.b = {i}; }} else ")) + "{ root.b = 0; }").Count > 0);
+        Check("S: null and nothing check without throwing", ScriptCheck.Check(null).Count == 0 && ScriptCheck.Check("").Count == 0);
+
+        // a dash: allowed scripts pass the library rules, an unsafe one doesn't, a scripts folder never does
+        var d = BuiltInDashes.MustangGt3();
+        var withLatch = d.Clone();
+        withLatch.Elements[0].Bind = "js:" + (string)v["allow"][0]["source"];
+        Check("S: a dash with the LIFT latch passes the library's check", LibraryClient.Check(withLatch, 1000).Count == 0, string.Join("; ", LibraryClient.Check(withLatch, 1000)));
+        var evil = d.Clone();
+        evil.Elements[0].Bind = "js:return eval('1');";
+        Check("S: a dash with eval does not", LibraryClient.Check(evil, 1000).Any(x => x.Contains("js:")));
+        var folder = withLatch.Clone(); folder.ScriptsFolder = @"C:\x";
+        Check("S: a scripts folder is still refused", LibraryClient.Check(folder, 1000).Any(x => x.Contains("scripts folder")));
+        var packed = LibraryInstaller.Package(withLatch, new LibraryItem { Id = "script-test", Name = "x", Author = "t", License = "CC0-1.0", Version = "1.0.0" }, System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fxu-script-" + System.Guid.NewGuid().ToString("N")));
+        Check("S: packaging a dash with a checked script works (and drops any scripts folder)", System.IO.File.Exists(System.IO.Path.Combine(packed, "dash.json")));
+        try { System.IO.Directory.Delete(System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(packed)), true); } catch { }
+    }
+
+    // the dashes that come inside the plugin (Usb/Bundled, tools/bundle-dashes.py)
+    static void BundledDashTests()
+    {
+        var errors = new System.Collections.Generic.List<string>();
+        var all = BundledDashes.All(errors);
+        var expected = new[] { "lib-slipstream", "lib-apex", "lib-halo", "lib-nocturne", "lib-nocturne-blue", "lib-nocturne-red", "lmgt3-mclaren-720s", "toyota-gr010-hybrid" };
+        Check("B: all eight dashes come with the plugin", errors.Count == 0 && all.Count == expected.Length && expected.All(id => all.Any(d => d.Id == id)), string.Join("; ", errors));
+        Check("B: each is read-only (built in and bundled) and names its author", all.All(d => d.BuiltIn && d.Bundled && !string.IsNullOrWhiteSpace(d.Author)));
+        var lmu = all.Where(d => d.Id == "lmgt3-mclaren-720s" || d.Id == "toyota-gr010-hybrid").ToList();
+        Check("B: the two LMU conversions credit Redadeg and say they were converted", lmu.Count == 2 && lmu.All(d => d.Author.Contains("Redadeg") && d.Description.Contains("Converted") && d.Description.Contains("lmu-dashboards.com")));
+        Check("B: no scripts folder path from the author's PC is kept", all.All(d => d.ScriptsFolder == null));
+        Check("B: every bundled dash passes the layout check with no errors", all.All(d => DashTools.Check(d).Errors == 0),
+              string.Join(", ", all.Where(d => DashTools.Check(d).Errors > 0).Select(d => d.Id)));
+        Check("B: every bundled dash passes the library's rules (format, size, checked scripts)", all.All(d => LibraryClient.Check(d, 100000).Count == 0),
+              string.Join("; ", all.SelectMany(d => LibraryClient.Check(d, 100000).Select(x => d.Id + ": " + x))));
+
+        // the loader: bundled dashes are in the list, and a file with the same id takes the place of the bundled one
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fxu-bundled-" + System.Guid.NewGuid().ToString("N"));
+        var oldRoot = DashLibrary.Root;
+        try
+        {
+            DashLibrary.Root = root;
+            var list = DashLibrary.Load(null);
+            Check("B: the dash list holds the Mustang and all eight bundled dashes", list.Any(d => d.Id == BuiltInDashes.MustangId) && expected.All(id => list.Any(d => d.Id == id && d.Bundled)));
+            var mine = BuiltInDashes.MustangGt3(); mine.Id = "lib-halo"; mine.Name = "Halo, updated from the library"; mine.BuiltIn = false;
+            DashTools.Save(mine);
+            list = DashLibrary.Load(null);
+            Check("B: a file with a bundled dash's id replaces it (no duplicate)", list.Count(d => d.Id == "lib-halo") == 1 && list.First(d => d.Id == "lib-halo").Name.StartsWith("Halo, updated") && !list.First(d => d.Id == "lib-halo").Bundled);
+
+            // the library recognises them as installed, and offers an update only for a newer version
+            var s = new UsbSettings();
+            var item = new LibraryItem { Id = "slipstream", Name = "SLIPSTREAM", Version = "1.0.0" };
+            var rec = LibraryInstaller.Installed(s, item, DashLibrary.LocalIds());
+            Check("B: the library shows a bundled dash as installed, at the version it came with", rec != null && rec.Found && rec.Bundled && rec.DashId == "lib-slipstream" && rec.Version == "1.0.0");
+            Check("B: no update for the same version", !LibraryInstaller.UpdateAvailable(s, item, DashLibrary.LocalIds()));
+            // the two LMU conversions keep their own dash ids but are library items too
+            var toyota = LibraryInstaller.Installed(s, new LibraryItem { Id = "toyota-gr010-hybrid", Name = "Toyota GR010 Hybrid", Version = "1.0.0", MinPlugin = "0.5.2" }, DashLibrary.LocalIds());
+            Check("B: the library shows a bundled LMU conversion as installed under its own dash id", toyota != null && toyota.Found && toyota.Bundled && toyota.DashId == "toyota-gr010-hybrid");
+            item.Version = "1.1.0";
+            Check("B: a newer version in the library is an update", LibraryInstaller.UpdateAvailable(s, item, DashLibrary.LocalIds()));
+        }
+        finally { DashLibrary.Root = oldRoot; try { System.IO.Directory.Delete(root, true); } catch { } }
     }
 
     // what the designer's Wheel traffic panel is built on (fxdash verify and fit-bands)

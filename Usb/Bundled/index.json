@@ -1,0 +1,98 @@
+[
+ {
+  "Id": "apex",
+  "Library": true,
+  "InLibrary": true,
+  "Name": "APEX",
+  "Author": "FX Unleashed",
+  "Description": "Original hot-lapping dash: delta to best with a delta bar, predicted lap, live sector splits against your best lap, tyre temperatures and pressures, and your settings at a glance.",
+  "Version": "1.0.0",
+  "Source": null,
+  "License": "CC-BY-4.0",
+  "Sha256": "bd7571664262d34ba4945a8039a2f36b6e1e0cfc004c06c54689b51a0f3ba7aa"
+ },
+ {
+  "Id": "halo",
+  "Library": true,
+  "InLibrary": true,
+  "Name": "HALO",
+  "Author": "FX Unleashed",
+  "Description": "Original hot-lapping dash: the gear in a brushed-metal halo whose ring glows with your delta, chamfered plates for delta, predicted, last and best lap, sector splits and a tyre heat map, with your settings at a glance.",
+  "Version": "1.0.0",
+  "Source": null,
+  "License": "CC-BY-4.0",
+  "Sha256": "9a5685cfce5276a4eb162a2347361e92fdc00475effefe4afbca6319bcc5a273"
+ },
+ {
+  "Id": "lmgt3-mclaren-720s",
+  "Library": false,
+  "InLibrary": true,
+  "Name": "LMGT3 McLaren 720S GT3",
+  "Author": "Redadeg (lmu-dashboards.com)",
+  "Description": "Converted for the FX Pro by FX Unleashed from Redadeg's SimHub dash \"LMGT3 McLaren 720S GT3 Evo\" (https://lmu-dashboards.com).",
+  "Version": "1.0.0",
+  "Source": "Redadeg's SimHub dash \"LMGT3 McLaren 720S GT3 Evo\", https://lmu-dashboards.com",
+  "License": "Converted work: see Source",
+  "Sha256": "82f431c909c98a7cf9b0d256fdb2a41ddddb33c22d1a1f52404db685b8e7d91f"
+ },
+ {
+  "Id": "nocturne",
+  "Library": true,
+  "InLibrary": true,
+  "Name": "NOCTURNE Green",
+  "Author": "FX Unleashed",
+  "Description": "Night endurance in neon green, modelled and rendered in 3D: a turbine lens for the gear and delta, glass fuel and energy cylinders, laps of fuel and stint, a timing tower with class colours, race clock, flags and a race-progress bar whose colour follows the day. Made for the screen's RAM drive.",
+  "Version": "1.0.0",
+  "Source": null,
+  "License": "CC-BY-4.0",
+  "Sha256": "bc27f58f83ff38b75a5c9ae57c3893c44b092d31f6ce6453fb23b32fd90eded1"
+ },
+ {
+  "Id": "nocturne-blue",
+  "Library": true,
+  "InLibrary": true,
+  "Name": "NOCTURNE Blue",
+  "Author": "FX Unleashed",
+  "Description": "NOCTURNE in deep blue: night endurance, modelled and rendered in 3D. A turbine lens for the gear and delta, glass fuel and energy cylinders, a timing tower with class colours, race clock, flags and a race-progress bar whose colour follows the day. Made for the screen's RAM drive.",
+  "Version": "1.0.0",
+  "Source": null,
+  "License": "CC-BY-4.0",
+  "Sha256": "bae15bb1e5b96e4bbe0cac24beb52a8e26619d1760212ce992acfefcf5370f33"
+ },
+ {
+  "Id": "nocturne-red",
+  "Library": true,
+  "InLibrary": true,
+  "Name": "NOCTURNE Red",
+  "Author": "FX Unleashed",
+  "Description": "NOCTURNE in red: night endurance, modelled and rendered in 3D. A turbine lens for the gear and delta, glass fuel and energy cylinders, a timing tower with class colours, race clock, flags and a race-progress bar whose colour follows the day. Made for the screen's RAM drive.",
+  "Version": "1.0.0",
+  "Source": null,
+  "License": "CC-BY-4.0",
+  "Sha256": "7c95a1d30082f10fea38c755af4ee70647187d61260b1e091cbbf1ed3e29db92"
+ },
+ {
+  "Id": "slipstream",
+  "Library": true,
+  "InLibrary": true,
+  "Name": "SLIPSTREAM",
+  "Author": "FX Unleashed",
+  "Description": "Original hot-lapping dash in a livery look: a huge gear, a hero delta with tape, predicted, last and best lap, sector splits and tyre temperatures as colour blocks, and a settings strip.",
+  "Version": "1.0.0",
+  "Source": null,
+  "License": "CC-BY-4.0",
+  "Sha256": "d97500201fcabf630d0fd17ed02d613e2fb759f48e7306feee172d1289bce967"
+ },
+ {
+  "Id": "toyota-gr010-hybrid",
+  "Library": false,
+  "InLibrary": true,
+  "Name": "Toyota GR010 Hybrid",
+  "Author": "Redadeg (lmu-dashboards.com)",
+  "Description": "Converted for the FX Pro by FX Unleashed from Redadeg's SimHub dash \"Toyota GR010 Hybrid\" (https://lmu-dashboards.com).",
+  "Version": "1.0.0",
+  "Source": "Redadeg's SimHub dash \"Toyota GR010 Hybrid\", https://lmu-dashboards.com",
+  "License": "Converted work: see Source",
+  "Sha256": "4beceb7e91607fca10e89768f9295fc873ce09bb13f04e434d069a962d5c8088"
+ }
+]

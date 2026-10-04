@@ -13,8 +13,9 @@ distributed by this project anywhere.
 Credits
 - Car rev light data: Lovely Car Data by Lovely Sim Racing and contributors
   (https://github.com/Lovely-Sim-Racing/lovely-car-data), CC BY-NC-SA 4.0. Downloaded at runtime, not bundled.
-- The built-in LMGT3 Ford Mustang GT3 dash is after the SimHub dash of the same name by Redadeg (lmu-dashboards.com),
-  used with the author's permission.
+- The built-in LMGT3 Ford Mustang GT3 dash, and the LMGT3 McLaren 720S GT3 and Toyota GR010 Hybrid dashes that come with the
+  plugin (and are in the library), are converted for the FX Pro screen from the SimHub dashes of the same names by Redadeg,
+  from lmu-dashboards.com (https://lmu-dashboards.com).
 - assets/Simagic_FX-Pro.atsrdevice (a layout for ATSR-Hub EVO by ATSR-Alex) is generated from ATSR-Hub's
   GSI FPE-V2 device preset by tools/atsr.
 - SimHub by Wotever hosts the plugin; its DLLs are referenced at build time and not redistributed.

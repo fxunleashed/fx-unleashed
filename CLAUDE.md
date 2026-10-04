@@ -45,8 +45,9 @@ python tools/publish-check.py . --history           # nothing secret or Simagic'
    the running plugin understands is refused whole, never half-loaded.
 3. **The version lives in one place:** `<Version>` in `FXProRpmSync.csproj` (SemVer; `release.ps1` sets it). Tags are
    `vX.Y.Z`, pre-releases `vX.Y.Z-beta.N`.
-4. **Dashes and library items contain no scripts:** no `js:` formulas, no executable content. 1 MB cap. The format is
-   in [docs/dash-format.md](docs/dash-format.md).
+4. **Dashes and library items run no code of their own:** a `js:` formula is allowed only if it passes `Usb/ScriptCheck.cs`
+   (a short allow-list of safe parts, the same rules as the library's CI, shared test cases in `tools/UsbTest/script-vectors.json`);
+   no scripts folder, no other executable content. 1 MB cap. The format is in [docs/dash-format.md](docs/dash-format.md).
 5. **The updater installs only on a click, after every check passes** (hash, size, version, `minSimHub`), keeps the old
    DLL as `.old` for Roll back, and a start-up marker rolls back by itself after three starts that didn't finish. Don't
    weaken any of it.

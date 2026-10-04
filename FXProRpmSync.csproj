@@ -40,6 +40,7 @@
     <EmbeddedResource Include="assets\gtneo-outline.svg" LogicalName="User.FXProRpmSync.gtneo-outline.svg" />
     <EmbeddedResource Include="assets\logo.png" LogicalName="User.FXProRpmSync.logo.png" />
     <EmbeddedResource Include="Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Usb\Bundled\*.json" LogicalName="User.FXProRpmSync.Bundled.%(Filename)%(Extension)" />
     <EmbeddedResource Include="docs\legal\*.md" LogicalName="User.FXProRpmSync.Legal.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Resources\screen-images.json" LogicalName="User.FXProRpmSync.screen-images.json" />
   </ItemGroup>

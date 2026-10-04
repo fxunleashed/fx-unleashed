@@ -32,6 +32,9 @@ namespace User.FXProRpmSync
         public string MinPlugin;
         /// <summary>Measured by the plugin when packaged: first draw and a demo lap.</summary>
         public int BytesStatic, BytesPerSecond;
+        /// <summary>index.json only: the dash has a checked script (ScriptCheck); the library page and the plugin say so.</summary>
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public bool HasScript;
         /// <summary>sha256 (hex, lower case) of dash.json.</summary>
         public string Sha256;
         /// <summary>index.json only: paths relative to the library's base URL.</summary>
@@ -55,6 +58,8 @@ namespace User.FXProRpmSync
         public DateTime When;
         /// <summary>Not installed from the library but already here (see LibraryInstaller.FindLocal); never saved in the settings.</summary>
         [JsonIgnore] public bool Found;
+        /// <summary>A Found dash that comes inside the plugin (BundledDashes); its Version is the bundled one.</summary>
+        [JsonIgnore] public bool Bundled;
         /// <summary>The dash's id in the plugin: "lib-&lt;id&gt;" for an install, the local dash's own id for a found one.</summary>
         [JsonIgnore] public string DashId;
     }
@@ -64,7 +69,7 @@ namespace User.FXProRpmSync
     /// dashes/&lt;id&gt;/{dash.json, meta.json, preview.png}, savers/&lt;id&gt;/..., and a generated index.json.
     /// Installing writes the dash into the dashes folder (or a screensaver into the savers folder) and reloads: no
     /// plugin update, no restart. Every download is checked against the index's sha256 and against the same safety
-    /// rules the library's CI applies (Check): no scripts, no newer format, size caps.
+    /// rules the library's CI applies (Check): checked scripts only, no newer format, size caps.
     /// The base URL can be a local folder or file:// (testing, offline use).
     /// </summary>
     public sealed class LibraryClient
@@ -147,8 +152,8 @@ namespace User.FXProRpmSync
             if (d?.Elements == null || d.Elements.Count == 0) { p.Add("not a dash (no elements)"); return p; }
             if (d.FormatVersion > DashDefinition.CurrentFormat) p.Add($"made for a newer plugin (dash format {d.FormatVersion}): update the plugin");
             if (!string.IsNullOrEmpty(d.ScriptsFolder)) p.Add("uses a scripts folder (JavaScript): not allowed in the library");
-            if (d.Bindings.Any(b => b.TrimStart().StartsWith("js:", StringComparison.OrdinalIgnoreCase)))
-                p.Add("uses js: formulas (JavaScript): not allowed in the library");
+            // a js: formula is code SimHub runs: only a checked script (a short list of safe parts, see ScriptCheck / SCRIPTS.md) may be in the library
+            foreach (var why in ScriptCheck.CheckDash(d)) p.Add("has a js: formula that isn't allowed in the library: " + why);
             if (bytes > MaxDashBytes) p.Add($"too big ({bytes / 1024} KB, max {MaxDashBytes / 1024} KB)");
             return p;
         }
@@ -249,16 +254,20 @@ namespace User.FXProRpmSync
                 var sv = s.Savers?.FirstOrDefault(x => x.Id == "lib-" + item.Id && x.File != null && File.Exists(x.File));
                 return sv == null ? null : new LibraryInstall { Id = item.Id, Kind = item.Kind, File = sv.File, Found = true, DashId = sv.Id };
             }
-            var ids = localDashIds?.ToList();
-            if (ids == null) return null;
+            var ids = localDashIds?.ToList() ?? new List<string>();
             string hit = new[] { "lib-" + item.Id, item.Id, "fx-" + item.Id }.FirstOrDefault(n => ids.Contains(n));
-            return hit == null ? null : new LibraryInstall { Id = item.Id, Kind = item.Kind, Found = true, DashId = hit };
+            if (hit != null) return new LibraryInstall { Id = item.Id, Kind = item.Kind, Found = true, DashId = hit };
+            // not in the folder: one that comes inside the plugin, with the version it came with (a newer one in the library is an update)
+            var bundled = BundledDashes.ForLibraryItem(item.Id);
+            return bundled == null ? null : new LibraryInstall { Id = item.Id, Kind = item.Kind, Found = true, Bundled = true, DashId = bundled.DashId, Version = bundled.Version };
         }
 
         public static bool UpdateAvailable(UsbSettings s, LibraryItem item, IList<string> localDashIds = null)
         {
             var rec = Installed(s, item, localDashIds);
-            if (rec == null || rec.Found) return false;
+            if (rec == null) return false;
+            // a dash that was already here: only one that comes with the plugin knows its version
+            if (rec.Found) return SemVer.TryParse(item.Version, out var a1) && SemVer.TryParse(rec.Version, out var b1) && a1.CompareTo(b1) > 0;
             if (SemVer.TryParse(item.Version, out var a) && SemVer.TryParse(rec.Version, out var b)) return a.CompareTo(b) > 0;
             return !string.Equals(rec.Sha256, item.Sha256, StringComparison.OrdinalIgnoreCase);
         }
@@ -271,7 +280,8 @@ namespace User.FXProRpmSync
         {
             if (!LibraryClient.ValidId(meta.Id)) throw new Exception("the id must be lower case letters, digits and dashes (2-64)");
             var d = source.Clone();
-            d.Id = meta.Id; d.Name = meta.Name ?? d.Name; d.Author = meta.Author ?? d.Author; d.Description = meta.Description ?? d.Description;
+            d.ScriptsFolder = null; // a path on this PC: the library never uses it
+            d.Id = meta.Id; d.Name = meta.Name ?? d.Name; d.Author = meta.Author ?? d.Author; d.Description = meta.Description ?? d.Description; d.Source = meta.Source ?? d.Source;
             d.FormatVersion = DashDefinition.CurrentFormat;
             var json = Encoding.UTF8.GetBytes(DashTools.Serialize(d));
             var problems = LibraryClient.Check(d, json.Length);

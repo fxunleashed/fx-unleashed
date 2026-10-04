@@ -64,7 +64,7 @@ namespace User.FXProRpmSync
             }
             if (readable.Count > 0 && !TermsGate.Accepted(owner, plugin,
                     (readable.Count == 1 ? "Import " + firstName : "Import these " + readable.Count + " dash files") +
-                    "?\n\nIt comes from a file, not from the library. The plugin checks its format, its size and that it contains no scripts, " +
+                    "?\n\nIt comes from a file, not from the library. The plugin checks its format, its size and that any script in it passes the library's safety check, " +
                     "but not who made it or whether they allow it to be shared. A dash can only draw on the wheel's screen and read SimHub values.",
                     "Import a dash file"))
                 return done;

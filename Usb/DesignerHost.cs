@@ -125,8 +125,10 @@ namespace User.FXProRpmSync
             {
                 var local = DashLibrary.LocalIds();
                 foreach (var item in new LibraryClient(s.LibraryUrl).GetIndex().Items) // the cached copy when offline
-                    if (!list.Any(x => x.id == item.Id && x.kind == item.Kind) && LibraryInstaller.FindLocal(s, item, local) != null)
-                        list.Add(new { id = item.Id, kind = item.Kind, version = item.Version });
+                {
+                    var found = list.Any(x => x.id == item.Id && x.kind == item.Kind) ? null : LibraryInstaller.FindLocal(s, item, local);
+                    if (found != null) list.Add(new { id = item.Id, kind = item.Kind, version = found.Version ?? item.Version });
+                }
             }
             catch { }
             return list;

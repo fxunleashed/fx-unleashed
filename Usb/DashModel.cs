@@ -42,6 +42,8 @@ namespace User.FXProRpmSync
         public string ScriptsFolder;
 
         [JsonIgnore] public bool BuiltIn;
+        /// <summary>Comes inside the plugin (BundledDashes): read-only like a built-in, and replaced by a file with the same Id in the dashes folder.</summary>
+        [JsonIgnore] public bool Bundled;
         [JsonIgnore] public string FilePath;
 
         /// <summary>Every data binding the dash uses (values, conditions, colours, pop-up watches).</summary>
@@ -203,6 +205,7 @@ namespace User.FXProRpmSync
         public static List<DashDefinition> Load(List<string> errors)
         {
             var list = new List<DashDefinition>(BuiltInDashes.All());
+            list.AddRange(BundledDashes.All(errors));
             try
             {
                 if (!Directory.Exists(Folder)) return list;
@@ -218,6 +221,8 @@ namespace User.FXProRpmSync
                         d.FilePath = file;
                         if (string.IsNullOrWhiteSpace(d.Id)) d.Id = "file:" + Path.GetFileNameWithoutExtension(file);
                         if (string.IsNullOrWhiteSpace(d.Name)) d.Name = Path.GetFileNameWithoutExtension(file);
+                        // a file with a bundled dash's Id (installed or updated from the library, or the user's own copy) takes its place
+                        list.RemoveAll(x => x.Bundled && x.Id == d.Id);
                         if (list.Any(x => x.Id == d.Id)) d.Id += " (" + Path.GetFileName(file) + ")";
                         list.Add(d);
                     }

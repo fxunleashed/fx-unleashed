@@ -86,6 +86,11 @@ Colours: `"#RRGGBB"`, `"#AARRGGBB"` (alpha blends shapes over what's under them)
 - a SimHub formula: `"ncalc:<NCalc>"` (e.g. `"ncalc:[DataCorePlugin.GameData.NewData.Rpms] > 7000"`) or
   `"js:<JavaScript>"` (a function body with `return`, SimHub's `$prop('...')` available). Evaluated by SimHub's own
   engine while SimHub runs. Previews (preview mode) show `PreviewText` / follow `PreviewVisible` instead.
+  **Library rule:** a dash in the library (or imported from a file) may only carry *checked* `js:` formulas: made of `if`/`else`,
+  `return`, `var`/`let`/`const`, numbers, texts, `root.name` (memory kept between updates), the usual operators,
+  `$prop('<written-out property>')` and `Math.*`, nothing else (no loops, functions, `eval`, indexing...), at most 2000 characters
+  and 16 scripts per dash. `ScriptsFolder` is never allowed. The rules and the refusal messages are in `Usb/ScriptCheck.cs`;
+  the library's [SCRIPTS.md](https://github.com/fxunleashed/fx-unleashed-library/blob/main/SCRIPTS.md) explains them to authors.
 
 **Demo mode** (the Demo button, the designer's Demo lap and Show on wheel without a game, `fxdash render --mode demo`)
 fills every binding from the simulated lap: built-in keys directly; `prop:`, `ncalc:` and `js:` bindings are evaluated

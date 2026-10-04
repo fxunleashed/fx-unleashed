@@ -299,8 +299,8 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
 - **Library** (`Usb/Library.cs`, `Ui/LibraryPanel.cs`, `Ui/PackageDialog.cs`): the community library repo
   (fx-unleashed-library: `dashes/<id>/{dash.json, meta.json, preview.png}`, `savers/...`, `index.json`). Browse on the
   Dashes and Idle tabs; install writes the dash into the dashes folder (or a screensaver into the savers folder) and
-  reloads: no restart. Every download is checked against the index's sha256 and the library rules (no `js:` or
-  scripts folder, no newer dash format, size caps, `MinPlugin`). "Package for the library" (Dashes tab, or
+  reloads: no restart. Every download is checked against the index's sha256 and the library rules (only checked `js:`
+  scripts, see `Usb/ScriptCheck.cs`, and no scripts folder, no newer dash format, size caps, `MinPlugin`). "Package for the library" (Dashes tab, or
   `fxdash package`) writes an item folder with the measured cost and a rendered preview. The base URL can be a local
   folder (`UsbSettings.LibraryUrl`), used by `UsbTest` (`FXU_LIBRARY=<checkout>`).
 - **Website install**: `POST /api/library/install?kind=&id=` on the designer server; the item is looked up by id in the

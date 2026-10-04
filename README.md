@@ -26,7 +26,8 @@ It has two modes:
 
 - **Your own dashes:** design them in the browser with the built-in designer (it shows them on the wheel while you
   edit and checks they can't flicker or lag), convert SimHub dashes, or install them from the
-  [library](https://fxunleashed.com/library/) in a click. Pick one or more per car; the dash button steps through them.
+  [library](https://fxunleashed.com/library/) in a click. Nine dashes (the Mustang, McLaren and Toyota LMU dashes, APEX, HALO, SLIPSTREAM and three
+  NOCTURNEs) come with the plugin. Pick one or more per car; the dash button steps through them.
 - **Every light:** presets and an editor per group (rev lights, side lights, buttons, encoders), each car's real shift
   lights, alerts (flags, spotter, pit limiter, ABS/TC, low fuel, invalid lap, custom alerts from any SimHub value) in
   your order, encoder rings that show their setting, buttons that light while pressed. Or let ATSR-Hub (we publish its FX Pro profile: [lights guide](https://fxunleashed.com/docs/lights/)) or any SimHub
@@ -230,7 +231,7 @@ Set `SIMHUB_INSTALL_PATH` if SimHub isn't in `C:\Program Files (x86)\SimHub\`. D
 - **Car rev light data:** [Lovely Car Data](https://github.com/Lovely-Sim-Racing/lovely-car-data) by Lovely Sim Racing
   and contributors, [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/), downloaded at runtime,
   not bundled.
-- **Built-in Mustang dash:** after the SimHub dash "LMGT3 Ford Mustang GT3" by Redadeg ([lmu-dashboards.com](https://lmu-dashboards.com)), used with the author's permission.
+- **LMU dashes (Mustang GT3, McLaren 720S GT3, Toyota GR010 Hybrid):** converted for the FX Pro screen from the SimHub dashes of the same names by Redadeg, from [lmu-dashboards.com](https://lmu-dashboards.com).
 - **Logo and drawings:** our own (`tools/brand/make_brand.py`).
 
 FX Unleashed is an independent community project, not affiliated with or endorsed by Simagic. Simagic, FX Pro and

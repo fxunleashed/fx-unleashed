@@ -118,6 +118,12 @@ namespace User.FXProRpmSync
                 body.Children.Add(new TextBlock { Text = item.Description, Foreground = Theme.Text2, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, MaxHeight = 34, Margin = new Thickness(0, 4, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
             if (item.BytesPerSecond > 0)
                 body.Children.Add(new TextBlock { Text = $"{item.BytesPerSecond / 1000.0:0.0} KB/s on the wheel" + (item.License != null ? "  ·  " + item.License : ""), Foreground = Theme.Text3, FontSize = 10.5, Margin = new Thickness(0, 2, 0, 0) });
+            if (item.HasScript)
+                body.Children.Add(new TextBlock
+                {
+                    Text = "Contains a checked script", Foreground = Theme.Text3, FontSize = 10.5, Margin = new Thickness(0, 2, 0, 0),
+                    ToolTip = "SimHub runs this dash's js: formulas. The library only takes scripts made of a short list of safe parts, checked automatically (SCRIPTS.md in the library), and the plugin checks again before installing.",
+                });
 
             var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             var rec = LibraryInstaller.Installed(S, item, localIds);
@@ -144,7 +150,7 @@ namespace User.FXProRpmSync
         private static TextBlock InstalledMark(LibraryInstall rec)
         {
             var t = new TextBlock { Text = "Installed ✓", Foreground = Theme.Green, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-            if (rec.Found) t.ToolTip = "You already have this dash (" + rec.DashId + "), so it isn't installed again.";
+            if (rec.Found) t.ToolTip = rec.Bundled ? "This dash comes with the plugin, so there is nothing to install." : "You already have this dash (" + rec.DashId + "), so it isn't installed again.";
             return t;
         }
 

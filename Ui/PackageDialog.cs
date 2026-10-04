@@ -30,7 +30,7 @@ namespace User.FXProRpmSync
             p.Children.Add(Theme.Title("Package \"" + d.Name + "\" for the library", 17));
             p.Children.Add(Theme.Note("Makes a package for the library: the plugin renders its preview and measures what it sends to the wheel. You then " +
                                       "send it with the library's form (a free GitHub account is needed) and, if it passes the checks, it is published right away. " +
-                                      "Dashes with JavaScript (js: formulas, scripts) can't go in the library.", new Thickness(0, 6, 0, 12)));
+                                      "A js: formula can go in only if it passes the library's script check (a short list of safe parts, see SCRIPTS.md in the library); a scripts folder never can.", new Thickness(0, 6, 0, 12)));
             // a dash is shown while you race; a screensaver between sessions: the library keeps them apart, so say which this is
             string chosen = kind == "saver" ? "saver" : "dash";
             var kindBox = new ComboBox { Width = 380 };
