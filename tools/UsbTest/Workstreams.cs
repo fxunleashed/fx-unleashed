@@ -285,6 +285,10 @@ static class WorkstreamTests
             // the two LMU conversions keep their own dash ids but are library items too
             var toyota = LibraryInstaller.Installed(s, new LibraryItem { Id = "toyota-gr010-hybrid", Name = "Toyota GR010 Hybrid", Version = "1.0.0", MinPlugin = "0.5.2" }, DashLibrary.LocalIds());
             Check("B: the library shows a bundled LMU conversion as installed under its own dash id", toyota != null && toyota.Found && toyota.Bundled && toyota.DashId == "toyota-gr010-hybrid");
+            var mustang = LibraryInstaller.Installed(s, new LibraryItem { Id = "lmgt3-mustang", Name = "LMGT3 Ford Mustang GT3", Version = "1.0.0" }, DashLibrary.LocalIds());
+            Check("B: the library shows the built-in Mustang as installed, with nothing to update at the same version", mustang != null && mustang.Found && mustang.Bundled && mustang.DashId == BuiltInDashes.MustangId && !LibraryInstaller.UpdateAvailable(s, new LibraryItem { Id = "lmgt3-mustang", Version = "1.0.0" }, DashLibrary.LocalIds()));
+            var must = BuiltInDashes.MustangGt3();
+            Check("B: the Mustang credits Redadeg and lmu-dashboards.com and passes the library's rules", must.Author.Contains("Redadeg") && must.Description.Contains("lmu-dashboards.com") && !must.Description.Contains("permission") && LibraryClient.Check(must, 100000).Count == 0);
             item.Version = "1.1.0";
             Check("B: a newer version in the library is an update", LibraryInstaller.UpdateAvailable(s, item, DashLibrary.LocalIds()));
         }

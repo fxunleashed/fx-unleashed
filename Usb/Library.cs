@@ -259,6 +259,8 @@ namespace User.FXProRpmSync
             if (hit != null) return new LibraryInstall { Id = item.Id, Kind = item.Kind, Found = true, DashId = hit };
             // not in the folder: one that comes inside the plugin, with the version it came with (a newer one in the library is an update)
             var bundled = BundledDashes.ForLibraryItem(item.Id);
+            if (bundled == null && item.Id == BuiltInDashes.MustangId) // built into the plugin's code, also an item of the library
+                return new LibraryInstall { Id = item.Id, Kind = item.Kind, Found = true, Bundled = true, DashId = BuiltInDashes.MustangId, Version = BuiltInDashes.MustangLibraryVersion };
             return bundled == null ? null : new LibraryInstall { Id = item.Id, Kind = item.Kind, Found = true, Bundled = true, DashId = bundled.DashId, Version = bundled.Version };
         }
 

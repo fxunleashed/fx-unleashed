@@ -296,6 +296,8 @@ namespace User.FXProRpmSync
     public static class BuiltInDashes
     {
         public const string MustangId = "lmgt3-mustang";
+        /// <summary>The version the library's item for the Mustang (same id) carries; the plugin has it built in, so the library shows it as installed.</summary>
+        public const string MustangLibraryVersion = "1.0.0";
 
         public static IEnumerable<DashDefinition> All()
         {
@@ -326,7 +328,9 @@ namespace User.FXProRpmSync
             {
                 Id = MustangId,
                 Name = "LMGT3 Ford Mustang GT3",
-                Author = "after Redadeg's SimHub dash, with permission",
+                Author = "Redadeg (lmu-dashboards.com)",
+                Description = "Converted for the FX Pro by FX Unleashed from Redadeg's SimHub dash \"LMGT3 Ford Mustang GT3\" (https://lmu-dashboards.com).",
+                Source = "Redadeg's SimHub dash \"LMGT3 Ford Mustang GT3\", https://lmu-dashboards.com",
                 BuiltIn = true,
             };
             var el = d.Elements;

@@ -20,6 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "Usb", "Bundled")
 
 KEEP_OWN_ID = {"lmgt3-mclaren-720s", "toyota-gr010-hybrid"}
+# Library items whose dash is built into the plugin's code (BuiltInDashes), so there is nothing to bundle
+IN_CODE = {"lmgt3-mustang"}
 
 
 def sha(path):
@@ -32,7 +34,7 @@ def main(library):
     folder = os.path.join(library, "dashes")
     for item in sorted(os.listdir(folder)):
         meta = json.load(open(os.path.join(folder, item, "meta.json"), encoding="utf-8"))
-        if meta.get("Kind", "dash") != "dash":
+        if meta.get("Kind", "dash") != "dash" or item in IN_CODE:
             continue
         target = os.path.join(OUT, item + ".json")
         shutil.copyfile(os.path.join(folder, item, "dash.json"), target)
