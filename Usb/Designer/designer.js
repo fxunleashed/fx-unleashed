@@ -100,7 +100,13 @@ const isConditional = e => visList(e).length > 0;
 const pageOf = e => { for (const c of visList(e)) { const m = /^page:(\d+)$/i.exec(String(c).trim()); if (m) return Number(m[1]); } return null; };
 const pageCount = () => !dash ? 1 : Math.max(1, (dash.Pages || []).length, ...dash.Elements.map(e => (pageOf(e) ?? -1) + 1));
 const pageName = i => (dash && dash.Pages && dash.Pages[i]) || `Page ${i + 1}`;
-const onPage = e => { const p = pageOf(e); return p === null || p === page; };
+// more sets of pages (PageSets, "page2:N".."page4:N"): flipped on their own on the wheel; here the page selector shows
+// flip k = page k of every set (each wrapping on its own pages), as the server's render does; the pages editor edits set 1
+const setPages = e => visList(e).map(c => /^page([2-4]):(\d+)$/i.exec(String(c).trim())).filter(m => m).map(m => [Number(m[1]), Number(m[2])]);
+const setCount = k => !dash ? 1 : Math.max(1, ((dash.PageSets || [])[k - 2]?.Pages || []).length, ...dash.Elements.flatMap(e => setPages(e).filter(([s]) => s === k).map(([, p]) => p + 1)));
+const flipCount = () => Math.max(pageCount(), setCount(2), setCount(3), setCount(4));
+const hasSets = () => [2, 3, 4].some(k => setCount(k) > 1);
+const onPage = e => { const p = pageOf(e); if (p !== null && p !== page % pageCount()) return false; return setPages(e).every(([k, n]) => n === page % setCount(k)); };
 const otherConds = e => visList(e).filter(c => !/^page:\d+$/i.test(String(c).trim()));
 // with an overlay picked: what shows while it's up (its conditions, and its parents'; blinking and staged items too;
 // what takes turns with it hides)
@@ -178,7 +184,7 @@ function loadImages() {
   for (const [k, v] of Object.entries(dash.Images || {})) { const img = new Image(); img.onload = draw; img.src = 'data:image/png;base64,' + v; images[k] = img; }
 }
 const blankDash = () => ({ FormatVersion: 2, Id: 'my-dash', Name: 'My dash', Author: '', Description: '', Elements: [], Images: {} });
-function renderAll() { if (page >= pageCount()) page = 0; renderHeader(); renderPages(); renderLayers(); renderInspector(); draw(); updateHint(); }
+function renderAll() { if (page >= flipCount()) page = 0; renderHeader(); renderPages(); renderLayers(); renderInspector(); draw(); updateHint(); }
 // ---------- pages: names, order, adding and removing (the elements' "page:N" follow) ----------
 function ensurePages() { if (!dash.Pages || dash.Pages.length < pageCount()) dash.Pages = Array.from({ length: pageCount() }, (_, i) => pageName(i)); }
 function remapPages(map) { // map: old index -> new index, or null (the element's page goes)
@@ -299,14 +305,18 @@ function setOverlay(i) {
 
 function renderPages() {
   const seg = $('pageSeg'); if (!seg) return;
-  const n = pageCount();
+  const n = flipCount();
   seg.hidden = n < 2;
   if (n < 2) { seg.innerHTML = ''; return; }
-  seg.innerHTML = Array.from({ length: n }, (_, i) => `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Show ${esc(pageName(i))} (the driver flips pages with a wheel button)">${esc(pageName(i))}</button>`).join('');
+  // with more sets of pages: a button per flip, its title the page of each set it shows
+  const flipTitle = i => [pageName(i % pageCount()), ...[2, 3, 4].filter(k => setCount(k) > 1).map(k => ((dash.PageSets || [])[k - 2]?.Pages || [])[i % setCount(k)] || `Page ${i % setCount(k) + 1}`)].join(' + ');
+  seg.innerHTML = Array.from({ length: n }, (_, i) => hasSets()
+    ? `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Shows ${esc(flipTitle(i))} (Next page flips every set; Next page 2-4 one set each)">${i + 1}</button>`
+    : `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Show ${esc(pageName(i))} (the driver flips pages with a wheel button)">${esc(pageName(i))}</button>`).join('');
   seg.querySelectorAll('[data-page]').forEach(b => b.onclick = () => setPage(Number(b.dataset.page)));
 }
 function setPage(i) {
-  page = clamp(i, 0, pageCount() - 1);
+  page = clamp(i, 0, flipCount() - 1);
   renderPages(); renderLayers(); draw(); refreshExact(); scheduleWheel();
 }
 function renderHeader() { $('dashName').value = dash.Name || ''; $('dashId').textContent = dash.Id ? dash.Id + '.json' : ''; }
@@ -1347,7 +1357,7 @@ function overlaysSection() {
     const rows = r.Overlays.slice().sort((a, b) => (b.FlashingUpdates - a.FlashingUpdates) || (Math.max(b.ShowBytes, b.HideBytes) - Math.max(a.ShowBytes, a.HideBytes))).slice(0, 40).map(o => {
       const ov = byFirst(elementIndex(o.Overlay)); const name = ov ? ov.name : elementLabel(o.Overlay);
       const most = Math.max(o.ShowBytes, o.HideBytes), cls = o.FlashingUpdates ? 'err' : most > TRAFFIC_BUDGET ? 'warn' : '';
-      return `<div class="tr-row ov ${cls}" data-ov="${ov ? ov.index : -1}" data-pg="${o.Page}" title="Show this overlay${pageCount() > 1 ? ' on this page' : ''}"><span>${esc(name)}${pageCount() > 1 ? ` <em>${esc(pageName(o.Page))}</em>` : ''}</span><span class="n">${fmtRate(o.ShowBytes).replace('/s', '')}</span><span class="n">${fmtRate(o.HideBytes).replace('/s', '')}</span><span class="n">${o.FlashingUpdates ? o.FlashingUpdates + ' flash' : ''}</span></div>`;
+      return `<div class="tr-row ov ${cls}" data-ov="${ov ? ov.index : -1}" data-pg="${o.Page}" title="Show this overlay${flipCount() > 1 ? ' on this page' : ''}"><span>${esc(name)}${flipCount() > 1 ? ` <em>${esc(hasSets() ? 'flip ' + (o.Page + 1) : pageName(o.Page))}</em>` : ''}</span><span class="n">${fmtRate(o.ShowBytes).replace('/s', '')}</span><span class="n">${fmtRate(o.HideBytes).replace('/s', '')}</span><span class="n">${o.FlashingUpdates ? o.FlashingUpdates + ' flash' : ''}</span></div>`;
     }).join('');
     body = head + `<div class="tr-row head ov"><span>Overlay</span><span class="n">Shows</span><span class="n">Goes</span><span class="n"></span></div>` + rows;
   }
@@ -1356,7 +1366,7 @@ function overlaysSection() {
 function wireOverlaysSection(box) {
   const c = box.querySelector('[data-act="checkoverlays"]'); if (c) c.onclick = checkOverlays;
   const t = box.querySelector('[data-act="taketurns"]'); if (t) t.onclick = takeTurns;
-  box.querySelectorAll('.tr-row.ov[data-ov]').forEach(el => { const i = Number(el.dataset.ov); if (i < 0) return; el.onclick = () => { if (pageCount() > 1) page = clamp(Number(el.dataset.pg), 0, pageCount() - 1); renderPages(); setOverlay(i); }; });
+  box.querySelectorAll('.tr-row.ov[data-ov]').forEach(el => { const i = Number(el.dataset.ov); if (i < 0) return; el.onclick = () => { if (flipCount() > 1) page = clamp(Number(el.dataset.pg), 0, flipCount() - 1); renderPages(); setOverlay(i); }; });
 }
 async function checkOverlays() {
   if (overlayCheckBusy || !dash) return;

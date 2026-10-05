@@ -37,12 +37,13 @@ The machine-readable version of this page: `fxdash schema` or `GET /api/schema`.
   "Images": { "logo@120x40": "<base64 PNG>" },   // only for image elements
   "Source": "SimHub dash ...",   // set by the importer
   "ScriptsFolder": "...",        // JavaScript helpers for js: bindings (imports)
-  "Pages": ["Tyres", "Delta"]    // optional: pages the driver flips through (see Pages)
+  "Pages": ["Tyres", "Delta"],   // optional: pages the driver flips through (see Pages)
+  "PageSets": [ { "Name": "Laptimes", "Pages": ["Last", "Best"] } ]   // optional: more sets of pages (see Pages)
 }
 ```
 
-A dash is saved with the lowest format that holds what it uses: format 3 only when it has pages, so a dash without pages
-still loads in plugins from before pages. A plugin refuses a dash made for a newer format rather than half-load it.
+A dash is saved with the lowest format that holds what it uses: format 3 only when it has pages, 4 when it has more
+than one set of pages, so a dash without them still loads in plugins from before them. A plugin refuses a dash made for a newer format rather than half-load it.
 
 ## Elements
 
@@ -119,7 +120,8 @@ Formats: any .NET number format (`"0"`, `"0.0"`, `"0.00"`), `int`, `laptime` (m:
 - `PreviewVisible`: `false` = hidden in previews where the condition isn't evaluated (SimHub formulas), and in the
   demo where it can't be.
   The importer sets it for pop-ups and warnings.
-- `page:N` in `Visible`: the element is on page N (0 = the first) of the dash's `Pages`; see Pages.
+- `page:N` in `Visible`: the element is on page N (0 = the first) of the dash's `Pages`; `page2:N`, `page3:N`,
+  `page4:N`: on page N of another set of pages. See Pages.
 - `ColorBind`: a binding giving a colour (`"#FF0000"`, a colour name) or a number mapped through `ColorStops`
   `[{"Value": 0, "Color": "#00FF00"}, {"Value": 100, "Color": "#FF0000"}]` (blended between). Replaces `Color` for
   text, rects and bars, the fill for boxes/ellipses with a `Fill`.
@@ -139,6 +141,24 @@ screen commands (the Mustang flips its strip above the settings row between tyre
   area (a strip, a panel) and a flip is a few KB. `fxdash verify` flips the pages during its lap and reports
   `PageFlips` / `WorstPageFlipBytes`; checks never call elements on different pages overlapping.
 - Previews show page 0 (`fxdash render --page N`, `/api/render?page=N`, the designer's page buttons).
+
+#### More sets of pages
+
+Parts of a dash can flip on their own, like SimHub widgets on different screen commands (the AMR flips its fuel, lap
+times and tyres with three buttons):
+
+- `"PageSets": [ { "Name": "Laptimes", "Pages": ["Last", "Current", "Predicted", "Best"] }, ... ]`: up to three more
+  sets. The first is set 2, and its elements carry `"page2:N"`; then `"page3:N"`, `"page4:N"`. `Pages` / `"page:N"`
+  stay set 1. An element can be on a page of more than one set.
+- "Next page" / "Previous page" flip every set (each wraps on its own pages); "Next page 2" / "Previous page 2" (wheel
+  buttons, or SimHub's `UsbDashNextPage2` / `UsbDashPreviousPage2`, up to 4) flip one set. They're generic: bound
+  once, they flip set 2 of any dash that has one. Each set comes back on the page it was left on.
+- `page2` (to `page4`) gives that set's page now, as `page` does for set 1.
+- Format 4 (plugin 0.7.0). The importer makes each widget on its own screen commands a set, numbered by the commands
+  (the lowest first), so set 1 is the widget on SimHub's first commands.
+- Checks never call elements on different pages of the same set overlapping (on different sets they can show
+  together). `fxdash verify`, `render --page N` and the designer's page buttons show flip N: page N of every set, each
+  wrapping on its own pages, so flips 0 to the biggest set's count show every page of every set.
 
 ## Checks
 

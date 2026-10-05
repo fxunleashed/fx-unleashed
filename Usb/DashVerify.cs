@@ -105,7 +105,7 @@ namespace User.FXProRpmSync
                 var secBy = new Dictionary<string, long>();
                 int steps = (int)Math.Round(seconds * 30);
                 // a dash with pages flips through them during the run (each page shown a few times), as a driver would
-                int pages = d.PageCount, page = 0;
+                int pages = d.FlipCount, page = 0;
                 if (pages > 1) res.PageEvery = Math.Max(2, Math.Min(15, Math.Floor(seconds / (pages * 3))));
                 double nextFlip = res.PageEvery;
                 for (int k = 1; k <= steps; k++)
@@ -116,7 +116,7 @@ namespace User.FXProRpmSync
                     showcase?.Apply(v, now); // the wheel's demo: the overlays in turn
                     bool flip = pages > 1 && now >= nextFlip;
                     if (flip) { page = (page + 1) % pages; nextFlip += res.PageEvery; res.PageFlips++; }
-                    v.Page = page;
+                    DashPages.ShowFlip(v, d, page);
                     var vis = d.Elements.Select(e => e.Visible == null || e.Visible.All(c => v.Truthy(c) ?? (e.PreviewVisible ?? true))).ToArray();
                     bool popup = wasVis == null || vis.Where((x, i) => x != wasVis[i]).Any();
                     VerifyEvent ev = null;
@@ -249,7 +249,7 @@ namespace User.FXProRpmSync
             var groups = show.Groups;
             List<string> Own(DashElement e) => OverlayShowcase.Own(e);
             double now = t0;
-            int pages = d.PageCount;
+            int pages = d.FlipCount;
             foreach (var g in groups.Take(120))
                 for (int page = 0; page < pages; page++)
                 {
@@ -274,7 +274,7 @@ namespace User.FXProRpmSync
                         DashValues v = null;
                         for (int j = 0; j < 3; j++) v = demo.Step(1 / 30.0);
                         now += 0.1;
-                        v.Page = page;
+                        DashPages.ShowFlip(v, d, page);
                         if (k < 0) { foreach (var kv in parentForce) v.Set(kv.Key, kv.Value); r.Update(v, now); wasVis = null; continue; }
                         if (on) foreach (var kv in force) v.Set(kv.Key, kv.Value);
                         var vis = d.Elements.Select(e => e.Visible == null || e.Visible.All(c => v.Truthy(c) ?? (e.PreviewVisible ?? true))).ToArray();

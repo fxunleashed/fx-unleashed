@@ -28,9 +28,10 @@ namespace User.FXProRpmSync
     /// </summary>
     public class DashDefinition
     {
-        /// <summary>The newest format this plugin reads. 3 = pages (Pages / "page:N" conditions); a dash is saved with the
-        /// lowest format that holds what it uses (RequiredFormat), so dashes without pages still load in older plugins.</summary>
-        public const int CurrentFormat = 3;
+        /// <summary>The newest format this plugin reads. 3 = pages (Pages / "page:N" conditions), 4 = more page sets (PageSets /
+        /// "page2:N"...); a dash is saved with the lowest format that holds what it uses (RequiredFormat), so dashes without
+        /// them still load in older plugins.</summary>
+        public const int CurrentFormat = 4;
 
         public int FormatVersion = CurrentFormat;
         public string Id;
@@ -50,6 +51,12 @@ namespace User.FXProRpmSync
         /// Null = no pages. See DashPages.
         /// </summary>
         public List<string> Pages;
+        /// <summary>
+        /// More sets of pages, each flipped on its own (Next / Previous page 2, 3, 4: SimHub widgets on their own screen
+        /// commands); Next / Previous page flips every set. PageSets[0] is set 2: its elements carry "page2:N", and so on.
+        /// Null = only the one set (Pages). See DashPages.
+        /// </summary>
+        public List<DashPageSet> PageSets;
 
         [JsonIgnore] public bool BuiltIn;
         /// <summary>Comes inside the plugin (BundledDashes): read-only like a built-in, and replaced by a file with the same Id in the dashes folder.</summary>
@@ -67,47 +74,136 @@ namespace User.FXProRpmSync
 
         /// <summary>How many pages it flips through: its Pages, or the highest "page:N" any element uses (1 = no pages).</summary>
         [JsonIgnore]
-        public int PageCount => Math.Max(Math.Max(1, Pages?.Count ?? 0), Elements.Select(DashPages.PageOf).Where(p => p.HasValue).Select(p => p.Value + 1).DefaultIfEmpty(1).Max());
+        public int PageCount => PageCountOf(0);
 
-        /// <summary>The lowest format that holds what this dash uses (what it's saved as): 3 with pages, else 2.</summary>
+        /// <summary>How many pages set `set` (0 = the first, Pages) has: its names, or the highest page its elements use.</summary>
+        public int PageCountOf(int set) => Math.Max(Math.Max(1, NamesOf(set)?.Count ?? 0),
+            Elements.Select(e => DashPages.PageOf(e, set)).Where(p => p.HasValue).Select(p => p.Value + 1).DefaultIfEmpty(1).Max());
+
+        /// <summary>Flips that show every page of every set (DashPages.ShowFlip): its biggest set's pages (1 = no pages).</summary>
         [JsonIgnore]
-        public int RequiredFormat => (Pages != null && Pages.Count > 0) || Elements.Any(e => DashPages.PageOf(e).HasValue) ? 3 : 2;
+        public int FlipCount => Enumerable.Range(0, DashPages.MaxSets).Max(PageCountOf);
+
+        /// <summary>How many sets of pages it has (1 = one set or none; up to DashPages.MaxSets): the last set that flips.</summary>
+        [JsonIgnore]
+        public int SetCount
+        {
+            get
+            {
+                int n = 1;
+                for (int set = 1; set < DashPages.MaxSets; set++)
+                    if (PageCountOf(set) > 1) n = set + 1;
+                return n;
+            }
+        }
+
+        /// <summary>The lowest format that holds what this dash uses (what it's saved as): 4 with more page sets, 3 with
+        /// pages, else 2.</summary>
+        [JsonIgnore]
+        public int RequiredFormat =>
+            (PageSets != null && PageSets.Any(p => p?.Pages != null && p.Pages.Count > 0)) || Elements.Any(e => DashPages.SetsOf(e).Any(x => x > 0)) ? 4
+            : (Pages != null && Pages.Count > 0) || Elements.Any(e => DashPages.PageOf(e).HasValue) ? 3 : 2;
 
         /// <summary>A page's name ("Page 2" when it has none).</summary>
-        public string PageName(int page) => Pages != null && page >= 0 && page < Pages.Count && !string.IsNullOrWhiteSpace(Pages[page]) ? Pages[page] : "Page " + (page + 1);
+        public string PageName(int page) => PageName(0, page);
+
+        /// <summary>A page's name in a set ("Page 2" when it has none).</summary>
+        public string PageName(int set, int page)
+        {
+            var names = NamesOf(set);
+            return names != null && page >= 0 && page < names.Count && !string.IsNullOrWhiteSpace(names[page]) ? names[page] : "Page " + (page + 1);
+        }
+
+        /// <summary>A set's name: its PageSets name, else "Pages" / "Pages 2"...</summary>
+        public string SetName(int set) =>
+            set > 0 && PageSets != null && set - 1 < PageSets.Count && !string.IsNullOrWhiteSpace(PageSets[set - 1]?.Name) ? PageSets[set - 1].Name
+            : set == 0 ? "Pages" : "Pages " + (set + 1);
+
+        private List<string> NamesOf(int set) => set == 0 ? Pages : PageSets != null && set - 1 < PageSets.Count ? PageSets[set - 1]?.Pages : null;
+    }
+
+    /// <summary>A set of pages flipped on its own (DashDefinition.PageSets): what it shows ("Laptimes") and its pages' names.</summary>
+    public class DashPageSet
+    {
+        public string Name;
+        public List<string> Pages;
     }
 
     /// <summary>
     /// Pages of a dash: an element is on page N when its Visible holds "page:N"; the values snapshot carries the page shown
     /// now (DashValues.Page), so "page:N" is a condition like any other and the renderer shows/hides a page's elements with
-    /// the same repaint as any condition (only the page's area is drawn on a flip).
+    /// the same repaint as any condition (only the page's area is drawn on a flip). A dash can have more sets of pages,
+    /// each flipped on its own: "page2:N" is page N of set 2 (DashDefinition.PageSets), up to "page4:N".
     /// </summary>
     public static class DashPages
     {
         public const string Prefix = "page:";
+        /// <summary>Sets of pages a dash can have (set 1 = Pages, sets 2-4 = PageSets).</summary>
+        public const int MaxSets = 4;
 
-        public static string Condition(int page) => Prefix + page.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        public static string Condition(int page) => Condition(0, page);
 
-        /// <summary>The page in a condition ("page:2" -> 2), or null.</summary>
-        public static int? Parse(string cond)
+        /// <summary>The condition for page `page` of set `set` (0 = the first: "page:N"; 1 = "page2:N"...).</summary>
+        public static string Condition(int set, int page) =>
+            (set == 0 ? "page" : "page" + (set + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)) + ":" + page.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        private static readonly System.Text.RegularExpressions.Regex rx =
+            new System.Text.RegularExpressions.Regex(@"^\s*page([2-4])?\s*:\s*(\d+)\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>A page condition's set (0-3) and page ("page:2" -> 0, 2; "page3:1" -> 2, 1); false for any other.</summary>
+        public static bool TryParse(string cond, out int set, out int page)
         {
-            if (cond == null || !cond.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)) return null;
-            return int.TryParse(cond.Substring(Prefix.Length).Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n) && n >= 0 ? n : (int?)null;
+            set = page = 0;
+            var m = cond == null ? null : rx.Match(cond);
+            if (m == null || !m.Success || !int.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out page)) return false;
+            set = m.Groups[1].Success ? m.Groups[1].Value[0] - '1' : 0;
+            return true;
         }
 
-        /// <summary>The page an element is on, or null (every page).</summary>
-        public static int? PageOf(DashElement e)
+        /// <summary>The page in a first-set condition ("page:2" -> 2), or null (also for another set's).</summary>
+        public static int? Parse(string cond) => TryParse(cond, out var set, out var p) && set == 0 ? p : (int?)null;
+
+        /// <summary>A page condition of any set ("page:N", "page2:N"...).</summary>
+        public static bool IsPage(string cond) => TryParse(cond, out _, out _);
+
+        /// <summary>The page an element is on in the first set, or null (every page).</summary>
+        public static int? PageOf(DashElement e) => PageOf(e, 0);
+
+        /// <summary>The page an element is on in set `set`, or null (every page of that set).</summary>
+        public static int? PageOf(DashElement e, int set)
         {
             if (e?.Visible == null) return null;
-            foreach (var c in e.Visible) { var p = Parse(c); if (p.HasValue) return p; }
+            foreach (var c in e.Visible) if (TryParse(c, out var s, out var p) && s == set) return p;
             return null;
         }
 
-        /// <summary>Never shown together: on two different pages.</summary>
+        /// <summary>The sets an element is on a page of.</summary>
+        public static IEnumerable<int> SetsOf(DashElement e)
+        {
+            if (e?.Visible == null) yield break;
+            foreach (var c in e.Visible) if (TryParse(c, out var s, out _)) yield return s;
+        }
+
+        /// <summary>Never shown together: on two different pages of the same set.</summary>
         public static bool Apart(DashElement a, DashElement b)
         {
-            var pa = PageOf(a); var pb = PageOf(b);
-            return pa.HasValue && pb.HasValue && pa.Value != pb.Value;
+            for (int set = 0; set < MaxSets; set++)
+            {
+                var pa = PageOf(a, set); var pb = PageOf(b, set);
+                if (pa.HasValue && pb.HasValue && pa.Value != pb.Value) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Flip `k` of a dash in `v`: page k of every set, each wrapping round its own pages (k from 0 to
+        /// FlipCount - 1 shows every page of every set: what Next page does, from the first pages).</summary>
+        public static void ShowFlip(DashValues v, DashDefinition d, int k)
+        {
+            for (int set = 0; set < MaxSets; set++)
+            {
+                int n = d.PageCountOf(set);
+                v.SetPage(set, n > 1 ? ((k % n) + n) % n : 0);
+            }
         }
 
         /// <summary>`page` moved by `step`, wrapping round `count`.</summary>

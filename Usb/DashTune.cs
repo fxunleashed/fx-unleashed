@@ -391,7 +391,7 @@ namespace User.FXProRpmSync
         private static int NeedWidth(DashElement e, int font) => Texts(e).Select(t => Width(font, t)).DefaultIfEmpty(0).Max();
 
         /// <summary>Always shown, or always on its page (a page is no condition of its own: it shows whenever its page does).</summary>
-        private static bool OnItsPage(DashElement x) => x.Visible == null || x.Visible.Count == 0 || x.Visible.All(c => DashPages.Parse(c).HasValue);
+        private static bool OnItsPage(DashElement x) => x.Visible == null || x.Visible.Count == 0 || x.Visible.All(DashPages.IsPage);
 
         private static bool Clash(Rectangle a, Rectangle b) { var o = Rectangle.Intersect(a, b); return o.Width > 2 && o.Height > 2; }
 
@@ -447,7 +447,7 @@ namespace User.FXProRpmSync
         {
             // what comes and goes over other things: a value of its own, or a pop-up's opaque shape
             // (pages are no condition of their own here: an element on a page is shown on its own terms there)
-            List<string> Own(DashElement x) => x.Visible.Where(c => !OverlayShowcase.IsTurn(c) && !DashPages.Parse(c).HasValue).ToList();
+            List<string> Own(DashElement x) => x.Visible.Where(c => !OverlayShowcase.IsTurn(c) && !DashPages.IsPage(c)).ToList();
             bool Opaque(DashElement x) => x.Type == "rect" || ((x.Type == "box" || x.Type == "ellipse") && x.Fill != null);
             foreach (var top in d.Elements.Where(x => x.Visible != null && x.Visible.Count >= 1 &&
                                                       ((x.Type == "value" && !InPopup(d, x)) || (Opaque(x) && x.Opacity >= 100))).ToList())

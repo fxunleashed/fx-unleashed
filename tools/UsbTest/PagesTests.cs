@@ -7,7 +7,7 @@ using User.FXProRpmSync;
 using static FeatureTests;
 
 /// <summary>
-/// Dash pages (DashDefinition.Pages, "page:N" conditions), the dim element, the importer's pages / overlay screens /
+/// Dash pages (DashDefinition.Pages, "page:N" conditions; PageSets, "page2:N"...), the dim element, the importer's pages / overlay screens /
 /// blinking / layer opacity, the overlay sweep of verify, the shape pictures of the RAM drive, and the built-in Mustang
 /// (tools/dashes/make_mustang.py) passing every gate.
 /// </summary>
@@ -16,6 +16,7 @@ static class PagesTests
     public static void Run()
     {
         Pages();
+        PageSets();
         Format();
         Dim();
         Import();
@@ -71,6 +72,89 @@ static class PagesTests
         s.DashPages["pages-test"] = 7;
         Check("pages: a saved page past the dash's pages starts it on the first", UsbController.SavedPage(s, d) == 0);
         Check("pages: wheel buttons can flip pages", WheelButtons.Actions.Any(a => a.Id == "pagenext") && WheelButtons.Actions.Any(a => a.Id == "pageprev"));
+    }
+
+    /// <summary>Three sets of pages in three spots: set 1 (2 pages), set 2 (4), set 3 (2).</summary>
+    static DashDefinition ThreeSets() => new DashDefinition
+    {
+        Id = "sets-test", Name = "Sets", Pages = new List<string> { "Energy", "Fuel" },
+        PageSets = new List<DashPageSet>
+        {
+            new DashPageSet { Name = "Laptimes", Pages = new List<string> { "Last", "Current", "Predicted", "Best" } },
+            new DashPageSet { Name = "Tyres", Pages = new List<string> { "Pressures", "Temps" } },
+        },
+        Elements =
+        {
+            new DashElement { Type = "value", Name = "energy", Bind = "speed", X = 10, Y = 10, W = 200, H = 50, Font = 100, Samples = new[] { "388" }, Visible = new List<string> { "page:0" } },
+            new DashElement { Type = "value", Name = "fuel", Bind = "rpm", X = 10, Y = 10, W = 200, H = 50, Font = 100, Samples = new[] { "8888" }, Visible = new List<string> { "page:1" } },
+            new DashElement { Type = "value", Name = "last", Bind = "lastLapTime", Format = "laptime", X = 10, Y = 100, W = 300, H = 50, Font = 100, Samples = new[] { "8:88.888" }, Visible = new List<string> { "page2:0" } },
+            new DashElement { Type = "value", Name = "current", Bind = "currentLapTime", Format = "laptime", X = 10, Y = 100, W = 300, H = 50, Font = 100, Samples = new[] { "8:88.888" }, Visible = new List<string> { "page2:1" } },
+            new DashElement { Type = "value", Name = "predicted", Bind = "predictedLap", Format = "laptime", X = 10, Y = 100, W = 300, H = 50, Font = 100, Samples = new[] { "8:88.888" }, Visible = new List<string> { "page2:2" } },
+            new DashElement { Type = "value", Name = "best", Bind = "bestLapTime", Format = "laptime", X = 10, Y = 100, W = 300, H = 50, Font = 100, Samples = new[] { "8:88.888" }, Visible = new List<string> { "page2:3" } },
+            new DashElement { Type = "value", Name = "pressure", Bind = "speed", X = 10, Y = 200, W = 200, H = 50, Font = 100, Samples = new[] { "388" }, Visible = new List<string> { "page3:0" } },
+            new DashElement { Type = "value", Name = "temp", Bind = "gear", Format = "gear", X = 10, Y = 200, W = 200, H = 50, Font = 100, Samples = new[] { "8" }, Visible = new List<string> { "page3:1" } },
+        },
+    };
+
+    static void PageSets()
+    {
+        Check("sets: page conditions name their set (page:N = set 1, page2:N = set 2...)",
+              DashPages.TryParse("page2:3", out var s1, out var p1) && s1 == 1 && p1 == 3 && DashPages.TryParse("page:1", out var s0, out var p0) && s0 == 0 && p0 == 1
+              && !DashPages.IsPage("page5:0") && !DashPages.IsPage("page:x") && !DashPages.IsPage("pages") && DashPages.Parse("page2:1") == null && DashPages.Condition(2, 1) == "page3:1");
+        var v = new DashValues { Page = 1 };
+        v.SetPage(1, 2);
+        Check("sets: each set's page is a condition and a value of its own", v.Truthy("page2:2") == true && v.Truthy("page2:1") == false && v.Truthy("page:1") == true && v.Truthy("page3:0") == true && v.Number("page2") == 2);
+        Check("sets: their keys are known (no unknown-key warning)", DashValues.KnownKey("page2:0") && DashValues.KnownKey("page4:9") && DashValues.KnownKey("page2") && DashValues.KnownKey("page4") && !DashValues.KnownKey("page5"));
+
+        var d = ThreeSets();
+        Check("sets: counted per set, and the flips that show every page", d.SetCount == 3 && d.PageCountOf(0) == 2 && d.PageCountOf(1) == 4 && d.PageCountOf(2) == 2 && d.FlipCount == 4 && d.PageCount == 2);
+        Check("sets: names of sets and their pages", d.SetName(1) == "Laptimes" && d.PageName(1, 2) == "Predicted" && d.SetName(3) == "Pages 4" && d.PageName(2, 5) == "Page 6");
+        Check("sets: apart only on different pages of the same set", DashPages.Apart(d.Elements[2], d.Elements[3]) && !DashPages.Apart(d.Elements[0], d.Elements[2]) && !DashPages.Apart(d.Elements[2], d.Elements[6]));
+        Check("sets: a dash with more sets needs format 4 (one set stays 3)", d.RequiredFormat == 4 && TwoPages().RequiredFormat == 3 && DashDefinition.CurrentFormat == 4);
+        var c = DashTools.Check(d);
+        Check("sets: check has no errors or warnings (elements on other pages never overlap)", c.Issues.Count == 0, string.Join("; ", c.Issues.Select(i => i.ToString())));
+        var fv = new DashValues();
+        DashPages.ShowFlip(fv, d, 3);
+        Check("sets: flip k shows page k of every set, each wrapping on its own", fv.PageIn(0) == 1 && fv.PageIn(1) == 3 && fv.PageIn(2) == 1 && fv.PageIn(3) == 0);
+
+        // one set flipped on the screen: only its area changes, and the screen ends as a full redraw of that state
+        using (var screen = new PreviewScreen())
+        {
+            var r = new DashRenderer(screen, d, 0, 0);
+            r.DrawAll();
+            var demo = new UsbDemo(d) { BudgetMs = null };
+            var a = demo.Step(0.1); r.Update(a, 0.1);
+            var b = demo.Step(0.1); b.SetPage(1, 2); r.Update(b, 0.2);
+            using (var full = new PreviewScreen())
+            {
+                var fr = new DashRenderer(full, d, 0, 0); fr.DrawAll(); fr.Update(b, 0.2);
+                Check("sets: after one set flips the screen is what a full redraw draws", Same(screen, full));
+            }
+        }
+        var vr = DashVerify.Run(d, 0, 0, 30, overlays: true);
+        Check("sets: verify flips every set and passes", vr.PageFlips > 0 && vr.Ok && vr.FlashingUpdates == 0 && vr.RedrawMismatch == null, $"{vr.PageFlips} flips; {string.Join("; ", vr.Problems)}");
+
+        var st = new UsbSettings();
+        st.DashPages["sets-test"] = 1; st.DashPages["sets-test#2"] = 3; st.DashPages["sets-test#3"] = 5;
+        Check("sets: each set comes back on the page it was left on (a page past its pages: the first)",
+              UsbController.SavedPage(st, d, 0) == 1 && UsbController.SavedPage(st, d, 1) == 3 && UsbController.SavedPage(st, d, 2) == 0);
+        Check("sets: wheel buttons flip one set each (and Next page all of them)",
+              Enumerable.Range(2, 3).All(k => WheelButtons.Actions.Any(x => x.Id == "pagenext" + k) && WheelButtons.Actions.Any(x => x.Id == "pageprev" + k)));
+
+        var dir = Path.Combine(Path.GetTempPath(), "fxdash-sets-" + Guid.NewGuid().ToString("N"));
+        var keep = DashLibrary.Root;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "PluginsData", "Common", "FXProRpmSync", "Dashes"));
+            DashLibrary.Root = dir;
+            var saved = ThreeSets(); saved.FormatVersion = 1;
+            var file = DashTools.Save(saved);
+            var back = JsonConvert.DeserializeObject<DashDefinition>(File.ReadAllText(file));
+            Check("sets: saved as format 4 with its sets", back.FormatVersion == 4 && back.PageSets?.Count == 2 && back.PageSets[0].Pages.Count == 4);
+            var errors = new List<string>();
+            Check("sets: a format 4 dash loads", DashLibrary.Load(errors).Any(x => x.Id == "sets-test" && x.SetCount == 3), string.Join("; ", errors));
+        }
+        finally { DashLibrary.Root = keep; try { Directory.Delete(dir, true); } catch { } }
     }
 
     static bool Same(PreviewScreen a, PreviewScreen b)
@@ -153,12 +237,23 @@ static class PagesTests
         try { d = SimHubImport.Import(path, new ImportOptions { FitWidth = 790, FitHeight = 460 }, out report); }
         finally { DashLibrary.Root = keep; }
         Check("import: the widget's two flipped screens become two pages", d.Pages?.Count == 2 && d.Elements.Any(e => DashPages.PageOf(e) == 0) && d.Elements.Any(e => DashPages.PageOf(e) == 1));
-        Check("import: a widget on other screen commands (a dismissable warning) isn't paged", report.Notes.Any(n => n.Contains("Low NRG") && n.Contains("other screen commands")));
+        Check("import: a widget on its own screen commands (a dismissable warning) becomes a second set of pages",
+              d.PageSets?.Count == 1 && d.PageSets[0].Name == "Low NRG" && d.Elements.Any(e => DashPages.PageOf(e, 1) == 0), string.Join(" | ", report.Notes));
         Check("import: overlay screens come in, shown while their trigger holds", d.Elements.Any(e => e.Visible != null && e.Visible.Contains("ncalc:![EngineIgnitionOn]")) && d.Elements.Any(e => e.Visible != null && e.Visible.Contains("ncalc:changed(1800, [EngineIgnitionOn])")));
         Check("import: blinking items blink (a blink() condition)", d.Elements.Any(e => e.Name == "ENG off" && e.Visible.Any(c => c.Contains("blink("))));
         Check("import: a layer's opacity reaches its children (dim indicator arrows)", d.Elements.Any(e => e.Name == "Links" && e.Type == "image" && e.Opacity == 20 && (e.Visible == null || e.Visible.Count == 0)));
         Check("import: the headlights' see-through black layer becomes a dim", d.Elements.Any(e => e.Type == "dim" && e.Name == "HEADLIGHT" && e.Opacity == 50));
-        Check("import: the result needs format 3", d.RequiredFormat == 3);
+        Check("import: the result needs format 4 (a second set of pages)", d.RequiredFormat == 4);
+
+        // the AMR: three widgets flipped on their own commands, numbered by them (1/2, 4, 5)
+        var amr = SimHubImport.Installed(Path.Combine(simhub, "DashTemplates")).FirstOrDefault(x => x.Name == "LMGT3 Aston Martin").Path;
+        if (amr == null) { Console.WriteLine("skip  import: SimHub dash \"LMGT3 Aston Martin\" isn't installed"); return; }
+        DashLibrary.Root = simhub;
+        try { d = SimHubImport.Import(amr, new ImportOptions { FitWidth = 790, FitHeight = 460 }, out report); }
+        finally { DashLibrary.Root = keep; }
+        Check("import: widgets on their own screen commands become sets of pages, numbered by the commands",
+              d.SetCount == 3 && d.PageCountOf(0) == 2 && d.PageCountOf(1) == 4 && d.PageCountOf(2) == 2 && d.SetName(1) == "Laptimes" && d.SetName(2) == "Tyre Widget",
+              $"{d.SetCount} sets: {string.Join(", ", Enumerable.Range(0, d.SetCount).Select(k => d.SetName(k) + " " + d.PageCountOf(k)))}");
     }
 
     /// <summary>Formulas broken in the SimHub dash a dash was converted from, kept as they are (SimHub fails on them the

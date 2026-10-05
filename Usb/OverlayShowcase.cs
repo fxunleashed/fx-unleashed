@@ -19,7 +19,7 @@ namespace User.FXProRpmSync
 
         /// <summary>An element's own conditions: not its page, not the "take turns" ones.</summary>
         public static List<string> Own(DashElement e) =>
-            (e.Visible ?? new List<string>()).Where(c => !DashPages.Parse(c).HasValue && !IsTurn(c)).Distinct().ToList();
+            (e.Visible ?? new List<string>()).Where(c => !DashPages.IsPage(c) && !IsTurn(c)).Distinct().ToList();
 
         /// <summary>A "take turns" condition: !(an overlay's conditions), or an overlay's script returning the opposite.</summary>
         public static bool IsTurn(string c) => c.StartsWith("ncalc:!(") || (c.StartsWith("js:") && ScriptReturn(c, out var r) && r.StartsWith("!("));

@@ -207,8 +207,14 @@ namespace User.FXProRpmSync
             private double s, ox, oy;
             private readonly Dictionary<string, ZipArchive> zips = new Dictionary<string, ZipArchive>(StringComparer.OrdinalIgnoreCase);
             private int counter;
-            /// <summary>The SimHub screen commands (next, previous) of the widget whose screens became the dash's pages.</summary>
-            private (int, int) pagerCommands;
+            /// <summary>
+            /// Widgets whose screens the driver flips (SimHub's next / previous screen commands), each a set of the dash's
+            /// pages; widgets on the same commands with as many screens share one (SimHub flips them together). Their
+            /// elements carry a placeholder condition until NumberPageSets numbers the sets by their commands.
+            /// </summary>
+            private readonly List<Pager> pagers = new List<Pager>();
+            private sealed class Pager { public int Next, Prev, Count; public string Name; public List<string> Names; }
+            private const string PagerMark = "\u0001pager:";
 
             public Context(string path, ImportOptions opt) { this.path = path; this.opt = opt; folder = Path.GetDirectoryName(path); }
 
@@ -264,6 +270,7 @@ namespace User.FXProRpmSync
                         for (int k = from; k < def.Elements.Count; k++) def.Elements[k].PreviewVisible = false;
                         overlays++;
                     }
+                    NumberPageSets();
                     Dims();
                     MarkOverlays();
                     Declutter();
@@ -737,27 +744,63 @@ namespace User.FXProRpmSync
                         Items(screens[i]["Items"] as JArray, inner.With(inner.OX, inner.OY, inner.Scale, new[] { Equals(screenBind, i) }));
                     Report.Note($"widget \"{file}\": {screens.Count} screens, switched by its formula");
                 }
-                else if (flipped && screens.Count > 1 && (def.Pages == null || (pagerCommands == (next, prev) && def.Pages.Count == screens.Count)))
+                else if (flipped && screens.Count > 1 && (pagers.Any(x => x.Next == next && x.Prev == prev && x.Count == screens.Count) || pagers.Count < DashPages.MaxSets))
                 {
-                    // the dash flips one set of pages (one page number), on one pair of SimHub screen commands: another widget
-                    // on the same commands with as many screens follows the same number, as SimHub would flip both
-                    bool first = def.Pages == null;
-                    if (first) { def.Pages = new List<string>(); pagerCommands = (next, prev); }
+                    // a set of pages per pair of SimHub screen commands; another widget on the same commands with as many
+                    // screens follows the same set, as SimHub would flip both
+                    var pager = pagers.FirstOrDefault(x => x.Next == next && x.Prev == prev && x.Count == screens.Count);
+                    bool first = pager == null;
+                    if (first)
+                    {
+                        pager = new Pager { Next = next, Prev = prev, Count = screens.Count, Name = ((string)it["Name"] ?? Path.GetFileNameWithoutExtension(file)).Trim(), Names = new List<string>() };
+                        pagers.Add(pager);
+                    }
+                    int id = pagers.IndexOf(pager);
                     for (int k = 0; k < screens.Count; k++)
                     {
                         // SimHub's widget screens start at InitialScreenIndex: page 0 is that one, the rest follow in order
                         int i = (initial + k) % screens.Count;
-                        if (first) def.Pages.Add(ScreenTitle(screens[i], i));
-                        Items(screens[i]["Items"] as JArray, inner.With(inner.OX, inner.OY, inner.Scale, new[] { DashPages.Condition(k) }));
+                        if (first) pager.Names.Add(ScreenTitle(screens[i], i));
+                        Items(screens[i]["Items"] as JArray, inner.With(inner.OX, inner.OY, inner.Scale, new[] { PagerMark + id + ":" + k }));
                     }
-                    Report.Note($"widget \"{file}\": {screens.Count} screens flipped by the driver, imported as pages ({string.Join(", ", def.Pages)}): bind Next / Previous page to a wheel button");
                 }
                 else
                 {
-                    if (flipped && screens.Count > 1) Report.Note($"widget \"{file}\": {screens.Count} screens on other screen commands than the dash's pages: only its first screen imported");
+                    if (flipped && screens.Count > 1) Report.Note($"widget \"{file}\": {screens.Count} screens on screen commands past the dash's {DashPages.MaxSets} sets of pages: only its first screen imported");
                     Items(screens[Math.Max(0, Math.Min(screens.Count - 1, initial))]["Items"] as JArray, inner);
                 }
                 Report.Converted++;
+            }
+
+            /// <summary>
+            /// The flipped widgets as the dash's sets of pages, numbered by their SimHub screen commands (the lowest first:
+            /// set 1 = Next / Previous page, then Next / Previous page 2...): the placeholder conditions become "page:N",
+            /// "page2:N"...; Pages and PageSets get the screens' names.
+            /// </summary>
+            private void NumberPageSets()
+            {
+                if (pagers.Count == 0) return;
+                int Key(Pager x) => new[] { x.Next, x.Prev }.Where(c => c > 0).DefaultIfEmpty(int.MaxValue).Min();
+                var order = pagers.OrderBy(Key).ToList();
+                foreach (var e in def.Elements)
+                    if (e.Visible != null)
+                        for (int c = 0; c < e.Visible.Count; c++)
+                        {
+                            var v = e.Visible[c];
+                            if (!v.StartsWith(PagerMark, StringComparison.Ordinal)) continue;
+                            var parts = v.Substring(PagerMark.Length).Split(':');
+                            int set = order.IndexOf(pagers[int.Parse(parts[0], CultureInfo.InvariantCulture)]);
+                            e.Visible[c] = DashPages.Condition(set, int.Parse(parts[1], CultureInfo.InvariantCulture));
+                        }
+                def.Pages = order[0].Names;
+                if (order.Count > 1)
+                    def.PageSets = order.Skip(1).Select(x => new DashPageSet { Name = x.Name, Pages = x.Names }).ToList();
+                if (order.Count == 1)
+                    Report.Note($"widget \"{order[0].Name}\": {order[0].Count} screens flipped by the driver, imported as pages ({string.Join(", ", def.Pages)}): bind Next / Previous page to a wheel button");
+                else
+                    Report.Note($"{order.Count} widgets flipped by the driver on their own, imported as sets of pages: " +
+                                string.Join("; ", order.Select((x, i) => $"{x.Name} ({string.Join(", ", x.Names)}): Next / Previous page{(i == 0 ? "" : " " + (i + 1))}")) +
+                                ". Next / Previous page flip them all");
             }
 
             /// <summary>

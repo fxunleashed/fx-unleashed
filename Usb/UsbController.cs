@@ -594,40 +594,66 @@ namespace User.FXProRpmSync
 
         public void StopPreview() { previewDash = null; wake.Set(); }
 
-        // Pages of the shown dash (DashDefinition.Pages). Flips come from SimHub actions and wheel buttons on their own
-        // threads; the loop applies them before the next dash update, so only it touches the renderer.
+        // Pages of the shown dash (DashDefinition.Pages, and PageSets: sets 2-4). Flips come from SimHub actions and wheel
+        // buttons on their own threads; the loop applies them before the next dash update, so only it touches the renderer.
+        // pageSteps flips every set (Next / Previous page), setSteps[k] set k alone (Next / Previous page 2-4).
         private int pageSteps;
+        private readonly int[] setSteps = new int[DashPages.MaxSets];
         private volatile int page;
+        /// <summary>The page shown in sets 2-4 (index 0 = set 2); the loop alone writes it.</summary>
+        private readonly int[] setPages = new int[DashPages.MaxSets - 1];
         private volatile int previewPage = -1;
         /// <summary>The designer's overlay picker: the values that bring that overlay up on the wheel, or null.</summary>
         private volatile Dictionary<string, bool> previewForce;
 
-        /// <summary>Flip the shown dash's pages by `step` (wraps round). Nothing happens on a dash without pages.</summary>
+        /// <summary>Flip the shown dash's pages by `step` (wraps round), every set of them. Nothing happens on a dash without pages.</summary>
         public void StepPage(int step) { Interlocked.Add(ref pageSteps, step); wake.Set(); }
+
+        /// <summary>Flip one set of the shown dash's pages (0 = the first, Pages; 1-3 = PageSets) by `step`.</summary>
+        public void StepPage(int set, int step)
+        {
+            if (set < 0 || set >= DashPages.MaxSets) return;
+            Interlocked.Add(ref setSteps[set], step); wake.Set();
+        }
 
         /// <summary>The shown dash's page now (0 = the first) and how many it has (1 = no pages).</summary>
         public int DashPage => page;
         public int DashPageCount => dash?.PageCount ?? 1;
         /// <summary>The shown page's name, or null when the dash has no pages.</summary>
         public string DashPageName { get { var d = dash; return d != null && d.PageCount > 1 ? d.PageName(Math.Min(page, d.PageCount - 1)) : null; } }
+        /// <summary>The shown dash's sets of pages (1 = one set or none).</summary>
+        public int DashSetCount => dash?.SetCount ?? 1;
+        /// <summary>The page shown now in a set of the shown dash.</summary>
+        public int DashPageIn(int set) => set == 0 ? page : set - 1 < setPages.Length ? setPages[set - 1] : 0;
 
         /// <summary>The page a dash was left on (0 when it never was), within its pages.</summary>
-        internal static int SavedPage(UsbSettings s, DashDefinition d)
+        internal static int SavedPage(UsbSettings s, DashDefinition d) => SavedPage(s, d, 0);
+
+        /// <summary>The page a set of a dash was left on: set 1 under the dash's id, sets 2-4 under "id#2"...</summary>
+        internal static int SavedPage(UsbSettings s, DashDefinition d, int set)
         {
-            if (d == null || d.PageCount < 2 || s.DashPages == null || d.Id == null) return 0;
-            lock (s.DashPages) return s.DashPages.TryGetValue(d.Id, out var p) && p >= 0 && p < d.PageCount ? p : 0;
+            if (d == null || d.PageCountOf(set) < 2 || s.DashPages == null || d.Id == null) return 0;
+            lock (s.DashPages) return s.DashPages.TryGetValue(PageKey(d, set), out var p) && p >= 0 && p < d.PageCountOf(set) ? p : 0;
         }
+
+        private static string PageKey(DashDefinition d, int set) => set == 0 ? d.Id : d.Id + "#" + (set + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         private void ApplyPageSteps(UsbSettings s)
         {
-            int steps = Interlocked.Exchange(ref pageSteps, 0);
+            int all = Interlocked.Exchange(ref pageSteps, 0);
             var d = dash;
-            if (steps == 0 || d == null || d.PageCount < 2) return;
-            page = DashPages.Step(page, steps, d.PageCount);
-            lastDash = -1; // drawn at once, not at the next 10 Hz tick
-            if (previewDash != null || d.Id == null) return; // a designer preview isn't remembered
-            if (s.DashPages == null) s.DashPages = new Dictionary<string, int>();
-            lock (s.DashPages) s.DashPages[d.Id] = page;
+            for (int set = 0; set < DashPages.MaxSets; set++)
+            {
+                int steps = all + Interlocked.Exchange(ref setSteps[set], 0);
+                int count = d?.PageCountOf(set) ?? 1;
+                if (steps == 0 || d == null || count < 2) continue;
+                int now = DashPages.Step(DashPageIn(set), steps, count);
+                if (set == 0) page = now; else setPages[set - 1] = now;
+                lastDash = -1; // drawn at once, not at the next 10 Hz tick
+                if (previewDash != null || d.Id == null) continue; // a designer preview isn't remembered
+                if (s.DashPages == null) s.DashPages = new Dictionary<string, int>();
+                lock (s.DashPages) s.DashPages[PageKey(d, set)] = now;
+            }
         }
 
         /// <summary>SimHub's current values while a game runs (else null), for the designer's live render.</summary>
@@ -1113,7 +1139,10 @@ namespace User.FXProRpmSync
             }
             dash = want;
             page = pd != null && previewPage >= 0 ? Math.Min(previewPage, dash.PageCount - 1) : SavedPage(s, dash);
+            for (int set = 1; set < DashPages.MaxSets; set++)
+                setPages[set - 1] = pd != null && previewPage >= 0 ? previewPage % dash.PageCountOf(set) : SavedPage(s, dash, set);
             Interlocked.Exchange(ref pageSteps, 0);
+            for (int set = 0; set < DashPages.MaxSets; set++) Interlocked.Exchange(ref setSteps[set], 0);
             var room = DashRenderer.Room(dash);
             int padL = pd != null ? previewLeft : s.PadLeft, padT = pd != null ? previewTop : s.PadTop;
             renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, padL), room.Right), Math.Min(Math.Max(0, padT), room.Down));
@@ -1329,6 +1358,7 @@ namespace User.FXProRpmSync
             {
                 lastDash = now;
                 v.Page = page;
+                for (int set = 1; set < DashPages.MaxSets; set++) v.SetPage(set, setPages[set - 1]);
                 var force = previewDash != null ? previewForce : null;
                 if (force != null) foreach (var kv in force) v.Set(kv.Key, kv.Value);
                 long bytes0 = screen?.Bytes ?? 0;

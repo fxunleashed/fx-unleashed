@@ -34,6 +34,7 @@ namespace User.FXProRpmSync
             ("absActive", "ABS working now"), ("tcActive", "TC working now"), ("pitLimiter", "Pit limiter on"),
             ("spotterLeft", "A car on your left"), ("spotterRight", "A car on your right"), ("lapInvalid", "This lap is invalidated"),
             ("page", "The dash's page shown now (0 = the first); \"page:N\" in Visible = only on page N"),
+            ("page2", "The page shown now in the dash's second set of pages (PageSets; also page3, page4); \"page2:N\" in Visible = only on its page N"),
             ("clock", "Time of day, HH:mm (screensavers)"), ("date", "Date, e.g. SAT 27 SEP (screensavers)"),
         };
 
@@ -69,6 +70,20 @@ namespace User.FXProRpmSync
 
         /// <summary>The dash's page shown now (DashDefinition.Pages): "page" gives it, "page:N" is true on page N.</summary>
         public int Page;
+        /// <summary>The page shown now in sets 2-4 (DashDefinition.PageSets; index 0 = set 2): "page2" gives set 2's,
+        /// "page2:N" is true on its page N. Null = all on their first page.</summary>
+        public int[] SetPages;
+
+        /// <summary>The page shown now in set `set` (0 = the first).</summary>
+        public int PageIn(int set) => set == 0 ? Page : SetPages != null && set - 1 < SetPages.Length ? SetPages[set - 1] : 0;
+
+        /// <summary>Sets the page shown in set `set`.</summary>
+        public void SetPage(int set, int page)
+        {
+            if (set == 0) { Page = page; return; }
+            if (SetPages == null) SetPages = new int[DashPages.MaxSets - 1];
+            SetPages[set - 1] = page;
+        }
 
         public void Set(string key, object value) { if (value != null) v[key] = value; }
 
@@ -76,8 +91,13 @@ namespace User.FXProRpmSync
         public object Raw(string key)
         {
             if (key == null) return null;
-            if (key.StartsWith(DashPages.Prefix, StringComparison.OrdinalIgnoreCase)) { var p = DashPages.Parse(key); return p.HasValue ? (object)(p.Value == Page) : null; }
-            if (key.Equals("page", StringComparison.OrdinalIgnoreCase)) return (double)Page;
+            if (key.StartsWith("page", StringComparison.OrdinalIgnoreCase))
+            {
+                if (DashPages.TryParse(key, out var set, out var p)) return p == PageIn(set);
+                if (key.Equals("page", StringComparison.OrdinalIgnoreCase)) return (double)Page;
+                for (int k = 2; k <= DashPages.MaxSets; k++)
+                    if (key.Equals("page" + k, StringComparison.OrdinalIgnoreCase)) return (double)PageIn(k - 1);
+            }
             if (v.TryGetValue(key, out var o)) return o;
             var alias = Alias(key);
             return alias != null && v.TryGetValue(alias, out o) ? o : null;
@@ -86,7 +106,8 @@ namespace User.FXProRpmSync
         private static readonly HashSet<string> keySet = new HashSet<string>(Keys.Select(k => k.Key), StringComparer.OrdinalIgnoreCase);
 
         /// <summary>A built-in key, or a SimHub binding that's an alias of one: it has a value without SimHub.</summary>
-        public static bool KnownKey(string bind) => !string.IsNullOrEmpty(bind) && (keySet.Contains(bind) || Alias(bind) != null || bind.StartsWith("saver.", StringComparison.OrdinalIgnoreCase) || DashPages.Parse(bind).HasValue);
+        public static bool KnownKey(string bind) => !string.IsNullOrEmpty(bind) && (keySet.Contains(bind) || Alias(bind) != null || bind.StartsWith("saver.", StringComparison.OrdinalIgnoreCase) || DashPages.IsPage(bind)
+            || bind.Equals("page3", StringComparison.OrdinalIgnoreCase) || bind.Equals("page4", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>The binding has a value here (or is an alias of a key that has one).</summary>
         public bool Has(string key) => Raw(key) != null;

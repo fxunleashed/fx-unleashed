@@ -320,7 +320,7 @@ namespace User.FXProRpmSync
                 last = now;
                 // all of the dash: its overlays in turn, its pages one after the other
                 showcase.Apply(v, now - start);
-                v.Page = Dash.PageCount > 1 ? (int)((now - start) / 10) % Dash.PageCount : 0;
+                DashPages.ShowFlip(v, Dash, Dash.FlipCount > 1 ? (int)((now - start) / 10) % Dash.FlipCount : 0);
             }
             renderer.Update(v, now);
             target.Source = Theme.ToImage(screen.Bitmap);

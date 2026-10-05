@@ -43,7 +43,8 @@ namespace User.FXProRpmSync
                 ["Elements"] = "list, drawn in order (later on top)", ["Images"] = "name -> base64 PNG, for image elements",
                 ["Source"] = "where an import came from", ["ScriptsFolder"] = "JavaScript helpers for js: bindings",
                 ["Pages"] = "optional: names of the pages the driver flips through (Next / Previous page); an element is on page N with \"page:N\" (0 = the first) in Visible, on every page without one. Saved as format 3 only when used",
-                ["FormatVersion"] = "2, or 3 for a dash with pages (older plugins refuse format 3 rather than show every page at once)",
+                ["PageSets"] = "optional: more sets of pages, each flipped on its own (parts of a dash that flip separately: fuel, lap times, tyres): [{Name, Pages: [names]}]; the first is set 2, its elements carry \"page2:N\", then \"page3:N\", \"page4:N\". Next / Previous page flip every set, Next / Previous page 2-4 one set each. Saved as format 4 only when used",
+                ["FormatVersion"] = "2, 3 for a dash with pages, 4 with more sets of pages (PageSets); older plugins refuse a newer format rather than show every page at once",
             },
             elementTypes = new Dictionary<string, string>
             {
@@ -63,7 +64,7 @@ namespace User.FXProRpmSync
             {
                 ["Type"] = "see elementTypes", ["Name"] = "for messages and the designer",
                 ["X,Y,W,H"] = "box in screen pixels (0,0 = top left of 800x480)",
-                ["Visible"] = "condition(s): a binding or list of bindings, all must be true (number != 0, true, non-empty text); \"page:N\" = only on page N",
+                ["Visible"] = "condition(s): a binding or list of bindings, all must be true (number != 0, true, non-empty text); \"page:N\" = only on page N (\"page2:N\"... of another set of pages)",
                 ["ColorBind"] = "binding giving a colour (#RRGGBB, #AARRGGBB, name) or a number mapped through ColorStops",
                 ["ColorStops"] = "[{Value, Color}] blended between, for a numeric ColorBind",
                 ["Opacity"] = "0-100 for shapes",
@@ -282,7 +283,7 @@ namespace User.FXProRpmSync
         /// </summary>
         public static byte[] Render(DashDefinition d, string mode = "preview", double seconds = 20, int left = 0, int top = 0, DashValues values = null, bool tiles = false, int page = 0, int overlay = -1)
         {
-            page = Math.Max(0, Math.Min(d.PageCount - 1, page));
+            page = Math.Max(0, Math.Min(d.FlipCount - 1, page));
             // an overlay shown (the designer's overlay picker): its conditions true, as OverlayShowcase brings it up
             var force = new OverlayShowcase(d).ForceFor(overlay);
             DashValues Shown(DashValues v) { if (force != null) foreach (var kv in force) v.Set(kv.Key, kv.Value); return v; }
@@ -291,13 +292,13 @@ namespace User.FXProRpmSync
                 var r = new DashRenderer(p, d, left, top);
                 if (tiles) { r.EnableTiles(); r.UseTiles(true); } // as on a wheel with the RAM drive: full-colour pictures
                 r.DrawAll();
-                if (values != null) { values.Page = page; r.Update(Shown(values), 0); }
+                if (values != null) { DashPages.ShowFlip(values, d, page); r.Update(Shown(values), 0); }
                 else if (mode == "demo")
                 {
                     var demo = new UsbDemo(d) { BudgetMs = null };
-                    for (double t = 0.1; t <= seconds; t += 0.1) { var v = demo.Step(0.1); v.Page = page; r.Update(Shown(v), t); }
+                    for (double t = 0.1; t <= seconds; t += 0.1) { var v = demo.Step(0.1); DashPages.ShowFlip(v, d, page); r.Update(Shown(v), t); }
                 }
-                else r.Update(Shown(new DashValues { Preview = true, Running = true, Page = page }), 0);
+                else { var pv = new DashValues { Preview = true, Running = true }; DashPages.ShowFlip(pv, d, page); r.Update(Shown(pv), 0); }
                 return p.Png();
             }
         }

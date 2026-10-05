@@ -2491,7 +2491,14 @@ namespace User.FXProRpmSync
                 var page = DashPages.PageOf(e);
                 if (page.HasValue && def.Pages != null && def.Pages.Count > 0 && page.Value >= def.Pages.Count)
                     Add("warning", e, $"on page {page.Value + 1}, but the dash has {def.Pages.Count} pages (Pages)");
-                if (e.Type == "popup" && page.HasValue) Add("warning", e, "a pop-up can't be on a page (it shows over every page)");
+                for (int set = 1; set < DashPages.MaxSets; set++)
+                {
+                    var sp = DashPages.PageOf(e, set);
+                    var names = def.PageSets != null && set - 1 < def.PageSets.Count ? def.PageSets[set - 1]?.Pages : null;
+                    if (sp.HasValue && names != null && names.Count > 0 && sp.Value >= names.Count)
+                        Add("warning", e, $"on page {sp.Value + 1} of set {set + 1}, but that set has {names.Count} pages (PageSets)");
+                }
+                if (e.Type == "popup" && DashPages.SetsOf(e).Any()) Add("warning", e, "a pop-up can't be on a page (it shows over every page)");
             }
 
             var texts = staticLabels.Concat(dynamic.Where(n => n.Kind == "label" || n.Kind == "value")).ToList();

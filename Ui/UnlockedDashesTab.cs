@@ -86,11 +86,30 @@ namespace User.FXProRpmSync
             bindings.Children.Add(new WheelButtonBinding(plugin, "prev", "Previous dash"));
             bindings.Children.Add(new WheelButtonBinding(plugin, "pagenext", "Next page"));
             bindings.Children.Add(new WheelButtonBinding(plugin, "pageprev", "Previous page"));
+            // dashes whose parts flip on their own (the AMR's fuel, lap times and tyres): Next / Previous page flip them
+            // all; these flip one set each, the same buttons for every such dash
+            var sets = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            sets.Children.Add(new TextBlock
+            {
+                Text = "Some dashes have parts that flip on their own (fuel, lap times, tyres). Next page flips them all; these flip one set each, for every dash that has them.",
+                Foreground = Theme.Text3, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
+            });
+            for (int set = 2; set <= DashPages.MaxSets; set++)
+            {
+                sets.Children.Add(new WheelButtonBinding(plugin, "pagenext" + set, "Next page " + set));
+                sets.Children.Add(new WheelButtonBinding(plugin, "pageprev" + set, "Previous page " + set));
+            }
+            bindings.Children.Add(new Expander { Header = "More sets of pages (dashes with parts that flip on their own)", Content = sets, Margin = new Thickness(0, 6, 0, 0) });
             var other = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
             other.Children.Add(Theme.Binding("Next dash", "UsbNextDash"));
             other.Children.Add(Theme.Binding("Previous dash", "UsbPreviousDash"));
             other.Children.Add(Theme.Binding("Next page", "UsbDashNextPage"));
             other.Children.Add(Theme.Binding("Previous page", "UsbDashPreviousPage"));
+            for (int set = 2; set <= DashPages.MaxSets; set++)
+            {
+                other.Children.Add(Theme.Binding("Next page " + set, "UsbDashNextPage" + set));
+                other.Children.Add(Theme.Binding("Previous page " + set, "UsbDashPreviousPage" + set));
+            }
             bindings.Children.Add(new Expander { Header = "A keyboard key or another controller instead (through SimHub)", Content = other, Margin = new Thickness(0, 6, 0, 0) });
             list.Children.Add(bindings);
             Children.Add(Theme.CardBox(list));
@@ -311,7 +330,7 @@ namespace User.FXProRpmSync
                     // the dash showing now flips its pages (a dash with pages, e.g. the Mustang's tyres / delta strip)
                     var shownRef = refs.Count > 0 ? refs[Math.Max(0, Math.Min(refs.Count - 1, current))] : null;
                     var shown = shownRef != null && !DashRef.IsWheel(shownRef) ? DashCache.Find(DashRef.Id(shownRef)) : null;
-                    bool paged = shown != null && shown.PageCount > 1;
+                    bool paged = shown != null && (shown.PageCount > 1 || shown.SetCount > 1);
                     foreach (var (text, step, icon) in new[] { ("Previous page", -1, ""), ("Next page", +1, "") })
                     {
                         var b = Theme.Btn(text, () => Usb?.StepPage(step), icon: icon);
@@ -320,6 +339,7 @@ namespace User.FXProRpmSync
                         ToolTipService.SetShowOnDisabled(b, true);
                         row.Children.Add(b);
                     }
+                    if (shown != null) AddSetButtons(row.Children, shown, demoing);
                 }
                 if (target != null) row.Children.Add(Theme.Btn("Back to the default", () => { plugin.DeleteUsbCarDash(target); if (target != plugin.DashCarKey) target = null; Refresh(true); }, icon: ""));
                 listPanel.Children.Add(row);
@@ -554,7 +574,7 @@ namespace User.FXProRpmSync
                 demo.IsEnabled = Usb?.FirmwarePatched == true;
                 focusButtons.Children.Add(demo);
                 // its pages, while its demo runs
-                if (!wheel && d != null && d.PageCount > 1)
+                if (!wheel && d != null && (d.PageCount > 1 || d.SetCount > 1))
                     foreach (var (text, step, icon) in new[] { ("Previous page", -1, ""), ("Next page", +1, "") })
                     {
                         var b = Theme.Btn(text, () => Usb?.StepPage(step), icon: icon);
@@ -563,6 +583,7 @@ namespace User.FXProRpmSync
                         ToolTipService.SetShowOnDisabled(b, true);
                         focusButtons.Children.Add(b);
                     }
+                if (!wheel && d != null) AddSetButtons(focusButtons.Children, d, demoing);
             }
             if (!wheel && d != null)
             {
@@ -641,6 +662,23 @@ namespace User.FXProRpmSync
         }
 
         // ---------- Files ----------
+
+        /// <summary>A dash with more than one set of pages: a button per set flipping that set alone (Next page 2...).</summary>
+        private void AddSetButtons(UIElementCollection to, DashDefinition d, bool demoing)
+        {
+            if (d.SetCount < 2) return;
+            for (int set = 0; set < d.SetCount; set++)
+            {
+                if (d.PageCountOf(set) < 2) continue;
+                int k = set;
+                var b = Theme.Btn("Next " + d.SetName(set), () => Usb?.StepPage(k, +1));
+                b.IsEnabled = demoing;
+                b.ToolTip = (demoing ? "Flips this part of the dash on the wheel" : "Start the demo to flip it here")
+                            + (set == 0 ? "" : $" (in a session: Next page {set + 1})");
+                ToolTipService.SetShowOnDisabled(b, true);
+                to.Add(b);
+            }
+        }
 
         private void OpenDesigner(string dashId)
         {

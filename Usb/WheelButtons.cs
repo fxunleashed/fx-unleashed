@@ -33,7 +33,9 @@ namespace User.FXProRpmSync
         /// <summary>Action ids a wheel button can run, with their names on the settings page.</summary>
         public static readonly (string Id, string Name)[] Actions =
         {
-            ("next", "Next dash"), ("prev", "Previous dash"), ("pagenext", "Next page"), ("pageprev", "Previous page"), ("sleep", "Sleep / wake"),
+            ("next", "Next dash"), ("prev", "Previous dash"), ("pagenext", "Next page"), ("pageprev", "Previous page"),
+            ("pagenext2", "Next page 2"), ("pageprev2", "Previous page 2"), ("pagenext3", "Next page 3"), ("pageprev3", "Previous page 3"),
+            ("pagenext4", "Next page 4"), ("pageprev4", "Previous page 4"), ("sleep", "Sleep / wake"),
             ("screen", "Screen on / off"), ("wheeldash", "Custom / wheel's own dash"),
             ("ledup", "Lights brighter"), ("leddown", "Lights dimmer"),
             ("screenup", "Screen brighter"), ("screendown", "Screen dimmer"),
@@ -149,6 +151,9 @@ namespace User.FXProRpmSync
                 case "prev": plugin.CycleUsbDash(-1); break;
                 case "pagenext": plugin.Usb?.StepPage(+1); break;
                 case "pageprev": plugin.Usb?.StepPage(-1); break;
+                // one set of pages: "pagenext2" = set 2 (PageSets[0])
+                case "pagenext2": case "pagenext3": case "pagenext4": plugin.Usb?.StepPage(action[8] - '1', +1); break;
+                case "pageprev2": case "pageprev3": case "pageprev4": plugin.Usb?.StepPage(action[8] - '1', -1); break;
                 case "sleep": if (plugin.Usb?.Sleeping == true) plugin.Usb.Wake(); else plugin.Usb?.SleepNow(); break;
                 case "screen": plugin.ToggleScreen(); break;
                 case "wheeldash": plugin.ToggleWheelDash(); break;

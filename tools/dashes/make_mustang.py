@@ -56,6 +56,21 @@ report = fx('import', SIMHUB_DASH, raw, '--fit', '790,460')['report']
 d = json.load(open(raw, encoding='utf-8'))
 E = d['Elements']
 
+# The "Low NRG" widget flips on its own SimHub commands (its warning / a blank screen, so the driver can dismiss it): the
+# importer makes that a second set of pages (format 4, plugin 0.7.0). The Mustang keeps the warning as it was built
+# (shown whenever its conditions hold, format 3, any 0.6 plugin): its first screen, without the page condition.
+if d.get('PageSets'):
+    assert [p['Name'] for p in d['PageSets']] == ['Low NRG'], d['PageSets']
+    E[:] = [e for e in E if not any(isinstance(c, str) and c.startswith('page2:') and c != 'page2:0' for c in (e.get('Visible') or []))]
+    for e in E:
+        v = e.get('Visible')
+        if isinstance(v, list) and 'page2:0' in v:
+            v.remove('page2:0')
+        elif v == 'page2:0':
+            e['Visible'] = None
+    d['PageSets'] = None
+    d['FormatVersion'] = 3
+
 
 def vis(e):
     v = e.get('Visible')
