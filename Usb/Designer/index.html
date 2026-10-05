@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FX Pro Dash Studio</title>
+<title>FX Unleashed Dash Studio</title>
 <link rel="stylesheet" href="designer.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23120a0c'/%3E%3Cpath d='M4 9c0-3 3-4 8-4s8 1 8 4v6c0 2-1 3-3 3l-2-2H9l-2 2c-2 0-3-1-3-3z' fill='none' stroke='%23ff1f2d' stroke-width='2'/%3E%3C/svg%3E">
 </head>
@@ -12,7 +12,7 @@
   <header id="top">
     <div class="brand">
       <div class="mark" data-icon="wheel"></div>
-      <div class="name"><b>FX</b>PRO <span style="font-weight:300">UNLOCKED</span><small>DASH STUDIO</small></div>
+      <div class="name"><b>FX</b> <span style="font-weight:300">UNLEASHED</span><small>DASH STUDIO</small></div>
     </div>
     <div class="docname">
       <input id="dashName" spellcheck="false" title="The dash's name (shown in the plugin's dash list)">
@@ -30,6 +30,9 @@
       <button data-view="exact" title="The exact picture the wheel draws (rendered by the plugin)"><span data-icon="eye"></span>Exact</button>
       <button data-view="demo" title="The exact picture with a simulated lap"><span data-icon="play"></span>Demo lap</button>
     </div>
+    <div class="seg pages" id="pageSeg" hidden title="The dash's pages"></div>
+    <div style="position:relative"><button class="btn" id="btnOverlay" hidden><span data-icon="popup"></span><span id="overlayText">Overlays</span></button>
+      <div class="menu ov-menu" id="overlayMenu" style="left:0; top:42px"></div></div>
     <button class="btn" id="btnWheel" title="Show this dash on your FX Pro while you edit"><span class="live"></span>On wheel</button>
     <button class="pill busy" id="checksPill" title="Layout checks: click for details"><span class="dot"></span><span id="checksText">Checking…</span></button>
     <button class="pill busy" id="ramPill" title="What this dash takes on the screen's RAM drive"><span class="dot"></span><span id="ramText">Screen RAM …</span></button>
@@ -44,6 +47,8 @@
         <hr>
         <button data-act="new"><span data-icon="plus"></span>New empty dash</button>
         <button data-act="import"><span data-icon="import"></span>Import a SimHub dash…</button>
+        <hr>
+        <button data-act="addpage"><span data-icon="layers"></span>Add a page</button>
         <hr>
         <button data-act="keys"><span data-icon="keyboard"></span>Keyboard shortcuts<kbd>?</kbd></button>
         <button data-act="delete" class="danger"><span data-icon="trash"></span>Delete this dash from the library</button>
@@ -112,7 +117,7 @@
     </div>
     <div id="drawer">
       <header>
-        <div class="dtabs" id="drawerTabs"><button data-dtab="checks" class="on">Checks</button><button data-dtab="traffic">Wheel traffic</button></div>
+        <div class="dtabs" id="drawerTabs"><button data-dtab="checks" class="on">Checks</button><button data-dtab="traffic">Wheel traffic</button><button data-dtab="ram">Screen RAM</button></div>
         <span class="note" id="costText" style="color:var(--text3)"></span>
         <div class="meter" title="Time to draw the dash on the wheel (the wheel's screen takes ~25 KB/s)"><i id="costMeter" style="width:0"></i></div>
         <div class="spacer"></div>
@@ -120,6 +125,7 @@
       </header>
       <div class="list" id="issues"></div>
       <div class="list" id="traffic" hidden></div>
+      <div class="list" id="ramList" hidden></div>
     </div>
   </main>
 

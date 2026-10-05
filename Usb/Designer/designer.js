@@ -1,4 +1,4 @@
-// FX Pro Dash Studio (served by the FX Unleashed plugin or `fxdash serve`). Edits the dash JSON format
+// FX Unleashed Dash Studio (served by the FX Unleashed plugin or `fxdash serve`). Edits the dash JSON format
 // (docs/dash-format.md); checks, exact previews, SimHub import and the wheel go through the local API (GET /api).
 // Agents: window.fxdash = { dash, load(d), check() }.
 'use strict';
@@ -66,6 +66,7 @@ const TYPES = {
   image: { name: 'Picture', blurb: 'From a file', icon: 'image' },
   deltabar: { name: 'Delta bar', blurb: 'Gain / loss', icon: 'deltabar' },
   popup: { name: 'Pop-up', blurb: 'On TC / ABS change', icon: 'popup' },
+  dim: { name: 'Dim', blurb: 'Darkens the screen', icon: 'eyeoff' },
 };
 const DEFAULTS = {
   label: { Text: 'LABEL', W: 180, H: 30, Font: 14, Color: '#D3D3D3', Align: 'left' },
@@ -76,7 +77,7 @@ const DEFAULTS = {
   gradient: { W: 200, H: 100, Colors: ['#1B1F3C', '#428AED'], Angle: 90 },
   bar: { Bind: 'rpmPercent', Min: 0, Max: 100, W: 500, H: 30, Color: '#00FF40', Fill: '#202020', Orientation: 'horizontal' },
   deltabar: { Bind: 'delta', H: 50, Segments: 7, Pitch: 28, SegmentWidth: 20, Range: 1, PositiveColor: '#FF0000', NegativeColor: '#00FF00', SegmentColor: '#808080' },
-  popup: { W: 240, H: 160, Radius: 10, Font: 101, ValueFont: 35, Duration: 2, Color: '#000000', Watch: [{ Bind: 'tcLevel', Label: 'TC', Color: '#28598B', Format: 'int' }] },
+  popup: { W: 240, H: 160, Radius: 10, Font: 101, ValueFont: 35, Duration: 2, Color: '#000000', Watch: [{ Bind: 'tcLevel', Label: 'TC', Color: '#28598B', Format: 'int' }] },  dim: { X: 0, Y: 0, W: 0, H: 0, Opacity: 50, Visible: 'ncalc:[DataCorePlugin.GameRawData.CurrentPlayer.mHeadlights]' },
 };
 const FORMATS = [['0', '123'], ['0.0', '12.3'], ['0.00', '1.23'], ['int', 'Whole'], ['laptime', '1:23.456'], ['gear', 'R N 1'], ['delta', '+0.12'], ['text', 'Text']];
 const PALETTE = ['#FFFFFF', '#D3D3D3', '#8A8F98', '#3A3F4A', '#1B1F3C', '#000000', '#FF1F2D', '#FF1A1A', '#FF5A00', '#FFB000', '#FFD000', '#FFFF00',
@@ -89,11 +90,37 @@ const undoStack = [], redoStack = [];
 const images = {};
 let zoom = 1, view = 'edit', clipboard = null;
 let pad = { l: 10, t: 20 };
+let page = 0; // the page shown (dashes with pages: Pages + "page:N" conditions)
+let overlay = -1, overlays = []; // the overlay shown in the previews (index in /api/overlays), the dash's overlays
 
 const isShape = t => ['rect', 'ellipse', 'box', 'gradient', 'image'].includes(t);
 const visList = e => !e.Visible ? [] : Array.isArray(e.Visible) ? e.Visible : [e.Visible];
 const isConditional = e => visList(e).length > 0;
-const shownInPreview = e => !isConditional(e) || e.PreviewVisible !== false;
+// pages: an element is on page N when its conditions hold "page:N"; without one it's on every page
+const pageOf = e => { for (const c of visList(e)) { const m = /^page:(\d+)$/i.exec(String(c).trim()); if (m) return Number(m[1]); } return null; };
+const pageCount = () => !dash ? 1 : Math.max(1, (dash.Pages || []).length, ...dash.Elements.map(e => (pageOf(e) ?? -1) + 1));
+const pageName = i => (dash && dash.Pages && dash.Pages[i]) || `Page ${i + 1}`;
+const onPage = e => { const p = pageOf(e); return p === null || p === page; };
+const otherConds = e => visList(e).filter(c => !/^page:\d+$/i.test(String(c).trim()));
+// with an overlay picked: what shows while it's up (its conditions, and its parents'; blinking and staged items too;
+// what takes turns with it hides)
+function overlayShows(e) {
+  const o = overlays[overlay]; if (!o) return false;
+  const forced = new Set(); for (let x = o; x; x = overlays[x.parent]) x.conditions.forEach(c => forced.add(c));
+  // the negations that go false: of each forced condition, and of every part of them joined in order (as written)
+  const nc = o.conditions.filter(c => c.startsWith('ncalc:')).map(c => c.slice(6)).slice(0, 8), joined = new Set();
+  for (const c of forced) if (c.startsWith('ncalc:')) joined.add(c.slice(6));
+  for (let mask = 1; mask < (1 << nc.length); mask++) { const part = nc.filter((c, i) => (mask >> i) & 1); if (part.length > 1) joined.add(part.map(c => '(' + c + ')').join(' and ')); }
+  for (const c of otherConds(e)) {
+    if (forced.has(c)) continue;
+    if (/blink\(/i.test(c) || /^ncalc:\s*!\s*changed\(/i.test(c)) continue;
+    return false;
+  }
+  for (const c of visList(e).map(String))
+    if (c.startsWith('ncalc:!(') && joined.has(c.slice(8, -1))) return false;
+  return true;
+}
+const shownInPreview = e => onPage(e) && (overlay >= 0 ? overlayShows(e) : (otherConds(e).length === 0 || e.PreviewVisible !== false));
 const nameOf = e => e.Name || e.Text || e.Bind || e.Type;
 const cur = () => dash && dash.Elements[sel];
 
@@ -121,6 +148,7 @@ function begin() { undoStack.push(snapshot()); if (undoStack.length > 300) undoS
 function changed(opt = {}) {
   setDirty(true);
   if (!opt.keepLayers) renderLayers();
+  renderPages();
   draw();
   if (opt.inspector) renderInspector();
   scheduleCheck(); scheduleWheel(); saveDraft(); updateHint();
@@ -139,7 +167,7 @@ function load(d, opt = {}) {
   dash.Images = dash.Images || {};
   undoStack.length = 0; redoStack.length = 0; updateUndo();
   setDirty(!!opt.dirty);
-  sel = -1; hover = -1;
+  sel = -1; hover = -1; overlay = -1; page = 0;
   loadImages();
   renderAll();
   scheduleCheck(0); scheduleWheel();
@@ -150,7 +178,137 @@ function loadImages() {
   for (const [k, v] of Object.entries(dash.Images || {})) { const img = new Image(); img.onload = draw; img.src = 'data:image/png;base64,' + v; images[k] = img; }
 }
 const blankDash = () => ({ FormatVersion: 2, Id: 'my-dash', Name: 'My dash', Author: '', Description: '', Elements: [], Images: {} });
-function renderAll() { renderHeader(); renderLayers(); renderInspector(); draw(); updateHint(); }
+function renderAll() { if (page >= pageCount()) page = 0; renderHeader(); renderPages(); renderLayers(); renderInspector(); draw(); updateHint(); }
+// ---------- pages: names, order, adding and removing (the elements' "page:N" follow) ----------
+function ensurePages() { if (!dash.Pages || dash.Pages.length < pageCount()) dash.Pages = Array.from({ length: pageCount() }, (_, i) => pageName(i)); }
+function remapPages(map) { // map: old index -> new index, or null (the element's page goes)
+  for (const e of dash.Elements) {
+    const l = visList(e).map(String); let hit = false;
+    const out = [];
+    for (const c of l) {
+      const m = /^page:(\d+)$/i.exec(c.trim());
+      if (!m) { out.push(c); continue; }
+      hit = true; const to = map(Number(m[1]));
+      if (to !== null && to !== undefined) out.push('page:' + to);
+    }
+    if (!hit) continue;
+    if (out.length) e.Visible = out.length === 1 ? out[0] : out; else { delete e.Visible; delete e.PreviewVisible; }
+  }
+}
+function addPage() {
+  begin(); ensurePages();
+  if (dash.Pages.length === 0) dash.Pages = ['Page 1'];
+  dash.Pages.push('Page ' + (dash.Pages.length + 1));
+  page = dash.Pages.length - 1;
+  changed({ inspector: true });
+  toast(dash.Pages.length === 2 ? 'Two pages: what you had shows on every page. Put elements on a page with Show when, Page' : 'Page added: put elements on it with Show when, Page', 'ok', 4200);
+}
+function renamePage(i, name) { begin(); ensurePages(); dash.Pages[i] = name.trim() || ('Page ' + (i + 1)); changed({ keepLayers: false }); }
+function movePage(i, dir) {
+  const j = i + dir; ensurePages(); if (j < 0 || j >= dash.Pages.length) return;
+  begin();
+  [dash.Pages[i], dash.Pages[j]] = [dash.Pages[j], dash.Pages[i]];
+  remapPages(k => k === i ? j : k === j ? i : k);
+  if (page === i) page = j; else if (page === j) page = i;
+  changed({ inspector: true });
+}
+async function deletePage(i) {
+  ensurePages();
+  const on = dash.Elements.filter(e => pageOf(e) === i).length;
+  let keep = false;
+  if (on) {
+    const r = await ask({ title: `Remove "${pageName(i)}"?`, icon: 'trash', danger: true, ok: 'Remove the page',
+      text: `${on} element${on === 1 ? ' is' : 's are'} on this page. Remove ${on === 1 ? 'it' : 'them'} with the page, or keep ${on === 1 ? 'it' : 'them'} on every page instead.`,
+      fields: [{ k: 'keep', label: 'Keep them, on every page', type: 'check' }] });
+    if (!r) return; keep = !!r[0];
+  }
+  begin();
+  if (!keep) dash.Elements = dash.Elements.filter(e => pageOf(e) !== i);
+  dash.Pages.splice(i, 1);
+  remapPages(k => k === i ? null : k > i ? k - 1 : k);
+  if (dash.Pages.length < 2) { delete dash.Pages; remapPages(() => null); }
+  page = clamp(page > i ? page - 1 : page, 0, Math.max(0, pageCount() - 1));
+  sel = Math.min(sel, dash.Elements.length - 1);
+  changed({ inspector: true });
+}
+function putOnPage(e, p) { // p: a page index, or null for every page
+  const l = otherConds(e);
+  if (p !== null) l.unshift('page:' + p);
+  if (l.length) e.Visible = l.length === 1 ? l[0] : l; else { delete e.Visible; delete e.PreviewVisible; }
+}
+function pagesEditor() {
+  const n = pageCount();
+  if (n < 2) return `<div class="note">One page. Add a page to let the driver flip part of the dash (a strip, a panel) with a wheel button, like a SimHub widget's screens.</div><button class="btn" data-pg="add">${icon('plus')}Add a page</button>`;
+  return `<div class="pages-ed">${Array.from({ length: n }, (_, i) => `<div class="pg-row ${i === page ? 'on' : ''}">
+      <button class="pg-num" data-pg="go" data-i="${i}" title="Show this page">${i + 1}</button>
+      <input class="in" data-pg="name" data-i="${i}" value="${esc(pageName(i))}" spellcheck="false" title="The page's name (the settings page and SimHub's UsbDashPage property show it)">
+      <span class="pg-n" title="Elements on this page only">${dash.Elements.filter(e => pageOf(e) === i).length}</span>
+      <button class="btn icon ghost" data-pg="up" data-i="${i}" title="Move up" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button>
+      <button class="btn icon ghost" data-pg="down" data-i="${i}" title="Move down" ${i === n - 1 ? 'disabled' : ''}>${icon('down')}</button>
+      <button class="btn icon ghost" data-pg="del" data-i="${i}" title="Remove this page">${icon('trash')}</button></div>`).join('')}
+    <button class="btn" data-pg="add">${icon('plus')}Add a page</button></div>
+    <div class="note">The driver flips pages with a wheel button (plugin: Dashes tab, Next page / Previous page). Put elements on a page with <b>Show when → Page</b>, or right-click them; elements on no page show on every page. Keep pages to one area: a flip redraws only what changes.</div>`;
+}
+function wirePagesEditor(root) {
+  root.querySelectorAll('[data-pg]').forEach(b => {
+    const i = Number(b.dataset.i), a = b.dataset.pg;
+    if (a === 'name') { b.onchange = () => renamePage(i, b.value); b.onkeydown = ev => { if (ev.key === 'Enter') b.blur(); }; return; }
+    b.onclick = () => ({ add: addPage, go: () => setPage(i), up: () => movePage(i, -1), down: () => movePage(i, 1), del: () => deletePage(i) })[a]();
+  });
+}
+
+// ---------- overlays: the dash's pop-ups, warnings and screens that show on a condition ----------
+let overlaysTimer = null;
+function scheduleOverlays() { clearTimeout(overlaysTimer); overlaysTimer = setTimeout(loadOverlays, 500); }
+async function loadOverlays() {
+  if (!dash) return;
+  try { overlays = await post('/api/overlays', dash); } catch (e) { overlays = []; }
+  if (overlay >= overlays.length) overlay = -1;
+  renderOverlayPick();
+}
+function overlayLabel(o) { return o ? `${o.name}` : ''; }
+function renderOverlayPick() {
+  const b = $('btnOverlay'); if (!b) return;
+  b.hidden = !overlays.length;
+  b.classList.toggle('on', overlay >= 0);
+  $('overlayText').textContent = overlay >= 0 ? overlayLabel(overlays[overlay]) : `Overlays (${overlays.filter(o => o.major).length || overlays.length})`;
+  b.title = overlay >= 0 ? 'Showing this overlay in the previews and on the wheel: click to pick another, or none' : 'Preview one of the dash\'s overlays (pop-ups, warnings, pit and flag screens): they only show on their condition';
+}
+function openOverlayPick() {
+  const m = $('overlayMenu'); if (!m) return;
+  const depth = o => { let d = 0; for (let x = o; x && x.parent >= 0 && d < 4; x = overlays[x.parent]) d++; return d; };
+  m.innerHTML = `<div class="ov-head">Show an overlay<small>Previews and the wheel show it as if its condition held</small></div>`
+    + `<button data-ov="-1" class="${overlay < 0 ? 'on' : ''}">${icon('eye')}<span>None: the dash as it drives</span></button><hr>`
+    + (() => {
+      // its condition, shortened, under the name ("when [Flag_Blue]")
+      const when = o => { const c = o.conditions.filter(x => !overlays[o.parent] || !overlays[o.parent].conditions.includes(x)).map(x => x.replace(/^(ncalc|js):/, '').replace(/\s+/g, ' ')).join(' & '); return c.length > 70 ? c.slice(0, 67) + '…' : c; };
+      const row = o => `<button data-ov="${o.index}" class="${overlay === o.index ? 'on' : ''}" style="padding-left:${12 + depth(o) * 16}px" title="${esc(o.conditions.join('  &  '))}">${icon(depth(o) ? 'cond' : o.major ? 'popup' : 'eye')}<span>${esc(o.name)}<small>${esc(when(o))}</small></span><kbd>${o.elements}</kbd></button>`;
+      // (small items inside an overlay show with it: not listed on their own)
+      const major = overlays.filter(o => o.major), minor = overlays.filter(o => !o.major && o.parent < 0);
+      return (major.length ? `<div class="ov-sec">Overlays</div>` + major.map(row).join('') : '')
+        + (minor.length ? `<div class="ov-sec">Small conditional items</div>` + minor.map(row).join('') : '');
+    })();
+  m.classList.add('open');
+  m.querySelectorAll('[data-ov]').forEach(x => x.onclick = () => { m.classList.remove('open'); setOverlay(Number(x.dataset.ov)); });
+}
+function setOverlay(i) {
+  overlay = i;
+  renderOverlayPick(); renderLayers(); draw(); refreshExact(); scheduleWheel();
+  if (i >= 0 && overlays[i] && overlays[i].first >= 0) flashAt(bounds(dash.Elements[overlays[i].first]));
+}
+
+function renderPages() {
+  const seg = $('pageSeg'); if (!seg) return;
+  const n = pageCount();
+  seg.hidden = n < 2;
+  if (n < 2) { seg.innerHTML = ''; return; }
+  seg.innerHTML = Array.from({ length: n }, (_, i) => `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Show ${esc(pageName(i))} (the driver flips pages with a wheel button)">${esc(pageName(i))}</button>`).join('');
+  seg.querySelectorAll('[data-page]').forEach(b => b.onclick = () => setPage(Number(b.dataset.page)));
+}
+function setPage(i) {
+  page = clamp(i, 0, pageCount() - 1);
+  renderPages(); renderLayers(); draw(); refreshExact(); scheduleWheel();
+}
 function renderHeader() { $('dashName').value = dash.Name || ''; $('dashId').textContent = dash.Id ? dash.Id + '.json' : ''; }
 function updateHint() { $('hint').style.opacity = dash && dash.Elements.length ? 0 : 1; }
 
@@ -163,10 +321,14 @@ function draw() {
   if (canvas.width !== Math.round(W * scale)) { canvas.width = Math.round(W * scale); canvas.height = Math.round(H * scale); }
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  let dim = 0;
   dash.Elements.forEach((e, i) => {
+    if (e.Type === 'dim') { if (shownInPreview(e) && (overlay >= 0 || !isConditional(e))) dim = Math.max(dim, Math.min(95, e.Opacity ?? 50)); return; }
     if (e.Type === 'popup' ? i !== sel : !shownInPreview(e)) return;
     ctx.save(); drawElement(e); ctx.restore();
   });
+  // a dim shown: the screen darker by its opacity (the wheel lowers its backlight)
+  if (dim > 0) { ctx.fillStyle = `rgba(0,0,0,${dim / 100})`; ctx.fillRect(0, 0, W, H); }
   placeOverlay();
 }
 
@@ -260,6 +422,7 @@ function drawText(e, text, colour) {
 function bounds(e) {
   if (!e) return null;
   if (e.Type === 'deltabar') { const xs = segX(e), x0 = Math.min(...xs), x1 = Math.max(...xs) + (e.SegmentWidth || 30); return { x: x0, y: e.Y || 0, w: x1 - x0, h: e.H || 0 }; }
+  if (e.Type === 'dim') return { x: 0, y: 0, w: W, h: H }; // the whole screen
   return { x: e.X || 0, y: e.Y || 0, w: e.W || 0, h: e.H || 0 };
 }
 
@@ -525,6 +688,8 @@ function openContext(x, y) {
   m.innerHTML = e ? `<button data-c="dup">${icon('copy')}Duplicate<kbd>Ctrl D</kbd></button><button data-c="copy">${icon('copy')}Copy<kbd>Ctrl C</kbd></button>` +
     (clipboard ? `<button data-c="paste">${icon('plus')}Paste<kbd>Ctrl V</kbd></button>` : '') +
     `<hr><button data-c="front">${icon('front')}Bring to front</button><button data-c="back">${icon('back')}Send to back</button><hr>` +
+    (pageCount() > 1 ? `<button data-c="pgall" class="${pageOf(e) === null ? 'on' : ''}">${icon('layers')}On every page</button>` +
+      Array.from({ length: pageCount() }, (_, i) => `<button data-c="pg${i}" class="${pageOf(e) === i ? 'on' : ''}">${icon('layers')}Only on ${esc(pageName(i))}</button>`).join('') + '<hr>' : '') +
     `<button data-c="del" class="danger">${icon('trash')}Delete<kbd>Del</kbd></button>`
     : `<button data-c="paste" ${clipboard ? '' : 'disabled'}>${icon('plus')}Paste<kbd>Ctrl V</kbd></button>`;
   m.style.left = Math.min(x, innerWidth - 230) + 'px'; m.style.top = Math.min(y, innerHeight - 260) + 'px';
@@ -532,10 +697,12 @@ function openContext(x, y) {
   m.classList.add('open');
   m.querySelectorAll('button').forEach(b => b.onclick = () => {
     hideMenus();
-    ({ dup: duplicate, copy: copySel, paste, del: removeSel, front: () => moveTo(sel, dash.Elements.length - 1), back: () => moveTo(sel, 0) })[b.dataset.c]();
+    const c = b.dataset.c;
+    if (c.startsWith('pg')) { const el = cur(); if (!el) return; begin(); const p = c === 'pgall' ? null : Number(c.slice(2)); putOnPage(el, p); if (p !== null) page = p; changed({ inspector: true }); return; }
+    ({ dup: duplicate, copy: copySel, paste, del: removeSel, front: () => moveTo(sel, dash.Elements.length - 1), back: () => moveTo(sel, 0) })[c]();
   });
 }
-function hideMenus() { $('ctxMenu').classList.remove('open'); $('moreMenu').classList.remove('open'); closePop(); }
+function hideMenus() { $('ctxMenu').classList.remove('open'); $('moreMenu').classList.remove('open'); const om = $('overlayMenu'); if (om) om.classList.remove('open'); closePop(); }
 document.addEventListener('mousedown', ev => {
   if (!ev.target.closest('.menu') && !ev.target.closest('#btnMore')) { $('ctxMenu').classList.remove('open'); $('moreMenu').classList.remove('open'); }
   if (!ev.target.closest('.pop') && !ev.target.closest('[data-pop]')) closePop();
@@ -585,9 +752,9 @@ function renderLayers() {
     const cond = isConditional(e);
     return `<li class="layer ${i === sel ? 'sel' : ''} ${shownInPreview(e) ? '' : 'off'}" draggable="true" data-i="${i}">` +
       `<span class="grip">${icon('grip')}</span><span class="ti">${icon((TYPES[e.Type] || {}).icon || 'rect')}</span>` +
-      `<span class="nm"><div>${esc(nameOf(e))}</div><small>${esc((TYPES[e.Type] || { name: e.Type }).name)}${cond ? ' · conditional' : ''}</small></span>` +
+      `<span class="nm"><div>${esc(nameOf(e))}</div><small>${esc((TYPES[e.Type] || { name: e.Type }).name)}${pageOf(e) !== null ? ' · ' + esc(pageName(pageOf(e))) : ''}${otherConds(e).length ? ' · conditional' : ''}</small></span>` +
       (iss ? `<span class="flag ${iss.level === 'error' ? 'err' : ''}" title="${esc(iss.text)}">${icon('warn')}</span>` : '') +
-      (cond ? `<button class="eye" data-eye="${i}" title="${e.PreviewVisible === false ? 'Hidden in previews: click to show' : 'Shown in previews: click to hide'}">${icon(e.PreviewVisible === false ? 'eyeoff' : 'eye')}</button>` : '') +
+      (otherConds(e).length ? `<button class="eye" data-eye="${i}" title="${e.PreviewVisible === false ? 'Hidden in previews: click to show' : 'Shown in previews: click to hide'}">${icon(e.PreviewVisible === false ? 'eyeoff' : 'eye')}</button>` : '') +
       `</li>`;
   }).join('');
   ul.querySelectorAll('.layer').forEach(li => {
@@ -736,6 +903,7 @@ function renderInspector() {
     case 'bar': st += f('Fill', colorIn('Color', e.Color)) + f('Empty', colorIn('Fill', e.Fill, true)); break;
     case 'deltabar': st += f('Slower', colorIn('PositiveColor', e.PositiveColor)) + f('Faster', colorIn('NegativeColor', e.NegativeColor)) + f('Off', colorIn('SegmentColor', e.SegmentColor)) +
       f('Segments', rangeIn('Segments', e.Segments || 7, 2, 15)) + f('Seg. width', rangeIn('SegmentWidth', e.SegmentWidth || 30, 2, 80, ' px')) + f('Spacing', rangeIn('Pitch', e.Pitch || 40, 4, 100, ' px')); break;
+    case 'dim': st += f('Darker by', rangeIn('Opacity', e.Opacity ?? 50, 0, 95, '%')) + `<div class="note">While its conditions hold (Show when), the whole screen is this much darker: the wheel lowers its backlight, so nothing is redrawn. Not drawn on the canvas.</div>`; break;
     case 'popup': st += f('Text', colorIn('Color', e.Color)) + f('Label font', fontBtn(e, 'Font')) + f('Value font', fontBtn(e, 'ValueFont')) + f('Corners', rangeIn('Radius', e.Radius || 0, 0, 60, ' px')) +
       f('Shows for', rangeIn('Duration', e.Duration ?? 2, 1, 10, ' s')) + f('Watches', `<textarea class="in" rows="4" data-k="Watch" data-kind="json">${esc(JSON.stringify(e.Watch || [], null, 1))}</textarea>`, true) +
       `<div class="note">Each watch: {"Bind": "tcLevel", "Label": "TC", "Color": "#28598B", "Format": "int"}. The pop-up shows when one of them changes.</div>`; break;
@@ -753,9 +921,14 @@ function renderInspector() {
 
   // conditions
   const conds = visList(e);
-  let c = `<div class="chips" id="condChips">${conds.map((b, i) => `<span class="chipb on" title="${esc(bindDesc(b))}">${esc(b)}<span class="x" data-rmcond="${i}">${icon('x')}</span></span>`).join('')}<button class="chipb" data-pop="bind" data-k="__cond">${icon('plus')}Add</button></div>`;
+  let c = '';
+  if (pageCount() > 1 || (dash.Pages && dash.Pages.length)) {
+    const n = Math.max(pageCount(), (dash.Pages || []).length), pg = pageOf(e);
+    c += f('Page', `<select class="in" id="elPage"><option value="">Every page</option>${Array.from({ length: n }, (_, i) => `<option value="${i}" ${pg === i ? 'selected' : ''}>${esc(pageName(i))}</option>`).join('')}</select>`);
+  }
+  c += `<div class="chips" id="condChips">${conds.map((b, i) => `<span class="chipb on" title="${esc(bindDesc(b))}">${esc(b)}<span class="x" data-rmcond="${i}">${icon('x')}</span></span>`).join('')}<button class="chipb" data-pop="bind" data-k="__cond">${icon('plus')}Add</button></div>`;
   c += `<div class="note">${conds.length ? 'Shown only while all of these are true (a number other than 0, or some text).' : 'Always shown. Add a condition to show it only sometimes (a warning, a pit screen).'}</div>`;
-  if (conds.length) c += switchIn('__preview', e.PreviewVisible !== false, 'Show it in the designer and previews');
+  if (otherConds(e).length) c += switchIn('__preview', e.PreviewVisible !== false, 'Show it in the designer and previews');
   html += card('cond', 'Show when', 'cond', c, !conds.length);
 
   // advanced
@@ -773,6 +946,7 @@ function renderDashInspector(p) {
     f('Author', textIn('Author', dash.Author)) +
     f('About', `<textarea class="in" rows="3" data-k="Description" style="font-family:var(--body)">${esc(dash.Description || '')}</textarea>`, true) +
     (dash.Source ? `<div class="note">From ${esc(dash.Source)}</div>` : ''));
+  html += card('pages', 'Pages', 'layers', pagesEditor(), pageCount() < 2);
   html += card('padding', 'Wheel padding', 'fit',
     f('From left', `<div class="range"><input type="range" id="padL" min="0" max="40" value="${pad.l}"><output>${pad.l} px</output></div>`) +
     f('From top', `<div class="range"><input type="range" id="padT" min="0" max="40" value="${pad.t}"><output>${pad.t} px</output></div>`) +
@@ -780,6 +954,7 @@ function renderDashInspector(p) {
   html += `<div class="empty" style="padding:18px">${icon('sparkle')}Select an element on the screen or in Layers to change it.</div>`;
   p.innerHTML = html;
   wireInspector(p, dash);
+  wirePagesEditor(p);
   const upd = () => { pad = { l: Number($('padL').value), t: Number($('padT').value) }; $('padL').nextElementSibling.textContent = pad.l + ' px'; $('padT').nextElementSibling.textContent = pad.t + ' px'; localStorage.setItem('fxdash-pad', JSON.stringify(pad)); draw(); scheduleCheck(); scheduleWheel(); };
   $('padL').oninput = upd; $('padT').oninput = upd;
   if (lastCheck) $('statTime').textContent = lastCheck.cost.StaticSeconds.toFixed(1) + ' s';
@@ -857,6 +1032,15 @@ function wireInspector(root, target) {
   root.querySelectorAll('[data-clear]').forEach(x => x.onclick = ev => { ev.stopPropagation(); begin(); delete target[x.dataset.clear]; changed({ inspector: true, keepLayers: true }); });
   root.querySelectorAll('[data-pop]').forEach(b => b.onclick = ev => { ev.stopPropagation(); openPop(b, b.dataset.pop, b.dataset.k, target); });
   root.querySelectorAll('[data-rmcond]').forEach(x => x.onclick = ev => { ev.stopPropagation(); begin(); const l = visList(target); l.splice(Number(x.dataset.rmcond), 1); if (l.length) target.Visible = l; else { delete target.Visible; delete target.PreviewVisible; } changed({ inspector: true }); });
+  const ep = root.querySelector('#elPage');
+  if (ep) ep.onchange = () => {
+    begin();
+    const l = otherConds(target);
+    if (ep.value !== '') l.unshift('page:' + ep.value);
+    if (l.length) target.Visible = l.length === 1 ? l[0] : l; else { delete target.Visible; delete target.PreviewVisible; }
+    if (ep.value !== '') setPage(Number(ep.value));
+    changed({ inspector: true });
+  };
   const pv = root.querySelector('[data-k="__preview"]');
   if (pv) pv.onchange = () => { begin(); if (pv.checked) delete target.PreviewVisible; else target.PreviewVisible = false; changed({}); };
   root.querySelectorAll('[data-rmtag]').forEach(x => x.onclick = () => { const [k, i] = x.dataset.rmtag.split(':'); begin(); target[k].splice(Number(i), 1); if (!target[k].length) delete target[k]; changed({ inspector: true, keepLayers: true }); });
@@ -985,6 +1169,28 @@ let checkTimer = null, lastCheck = null;
 // The screen's RAM drive (FXProDashes docs/screen-images.md): on a wheel with the RAM-drive screen image, the dash is
 // kept on the screen as pictures (tiles): drawn at once, in full colour. How much of the drive it takes decides how
 // many dashes stay loaded together (instant switching).
+// ---------- the screen's RAM drive: what this dash keeps there ----------
+async function showPictures() {
+  const box = $('ramList'); if (!box || !dash) return;
+  box.innerHTML = `<div class="empty" style="padding:18px">Measuring…</div>`;
+  let res;
+  try { res = await post('/api/pictures', dash); } catch (e) { box.innerHTML = `<div class="empty" style="padding:18px">${icon('warn')}Couldn't measure: ${esc(e.message)}</div>`; return; }
+  const pics = res.pictures, total = res.total, budget = res.budget, picBytes = res.shapes;
+  const kb = b => (b / 1024).toFixed(b < 10240 ? 1 : 0) + ' KB';
+  const rows = pics.sort((a, b) => b.variantBytes - a.variantBytes).map(p => `<div class="tr-row" data-i="${elementIndex(p.element)}" title="Select this element"><span>${esc(elementLabel(p.element))}</span><span class="n">${kb(p.variantBytes)}</span><span class="n">${p.variants > 1 ? p.variants + ' looks' : ''}</span><div class="bar"><i style="width:${(p.variantBytes / Math.max(1, pics[0] ? pics[0].variantBytes : 1) * 100).toFixed(0)}%"></i></div></div>`).join('');
+  box.innerHTML = `<div class="tr">
+    <div class="tr-cards">
+      <div class="tr-card ${total > budget ? 'err' : 'ok'}"><small>On the RAM drive</small><b>${kb(total)}</b><em>of ${kb(budget)}: about ${Math.max(1, Math.floor(budget / Math.max(1, total)))} dash${Math.floor(budget / Math.max(1, total)) === 1 ? '' : 'es'} this size fit together</em></div>
+      <div class="tr-card ok"><small>The dash itself</small><b>${kb(res.own)}</b><em>its look, drawn at once</em></div>
+      <div class="tr-card ok"><small>Shapes that come and go</small><b>${kb(picBytes)}</b><em>${pics.length} picture${pics.length === 1 ? '' : 's'}: each overlay drawn with one command</em></div>
+    </div>
+    <h4>Pictures of shapes that come and go</h4>
+    <div class="tr-row head"><span>Element</span><span class="n">Takes</span><span class="n">Looks</span></div>${rows || '<div class="empty" style="padding:12px">None: nothing in this dash comes and goes with a fixed look.</div>'}
+    <div class="note">On a wheel with the screen's RAM patch, the dash and each overlay's ovals, frames and pictures are kept on the screen as JPEG pictures, so they show at once. A shape that's always under another one's picture lives in that picture; a shape coloured by data has one look per colour stop. Without the patch everything is drawn with rectangles instead.</div>
+  </div>`;
+  box.querySelectorAll('[data-i]').forEach(el => { const i = Number(el.dataset.i); if (i >= 0) el.onclick = () => { select(i, { flash: true, force: true }); switchTab('layers', true); }; });
+}
+
 function showRam(c) {
   const rp = $('ramPill'); if (!rp) return;
   const kb = Math.max(1, Math.round((c.RamBytes || 0) / 1024)), budget = Math.round((c.RamBudget || 344064) / 1024);
@@ -1076,6 +1282,7 @@ function showTraffic() {
     ['Busiest second', fmtRate(v.WorstSecondBytes), v.WorstSecondBytes > TRAFFIC_BUDGET ? 'err' : 'ok', `at ${v.WorstSecondAt} s` + (worstTop ? `: ${elementLabel(worstTop)}` : '')],
     ['Flashing updates', `${v.FlashingUpdates} of ${v.Updates}`, v.FlashingUpdates ? 'err' : 'ok', v.PopupUpdates ? `${v.PopupUpdates} pop-up changes (drawn on purpose)` : 'must be 0'],
     ['Draws in', lastCheck ? lastCheck.cost.StaticSeconds.toFixed(1) + ' s' : '…', lastCheck && lastCheck.cost.StaticSeconds > 8 ? 'warn' : 'ok', 'the first full draw on the wheel'],
+    ...(v.PageFlips ? [['Page flip', fmtRate(v.WorstPageFlipBytes).replace('/s', ''), v.WorstPageFlipBytes > TRAFFIC_BUDGET / 2 ? 'warn' : 'ok', `the biggest of ${v.PageFlips} flips during the lap`]] : []),
   ].map(c => `<div class="tr-card ${c[2]}"><small>${c[0]}</small><b>${esc(c[1])}</b><em>${esc(c[3])}</em></div>`).join('');
 
   const tl = v.Timeline || [];
@@ -1107,8 +1314,10 @@ function showTraffic() {
     <div class="tr-cards">${cards}</div>
     <h4>Bytes to the screen, second by second</h4><div class="tr-spark">${spark}</div>
     <div class="tr-cols"><div><h4>What sends the most</h4><div class="tr-row head"><span>Element</span><span class="n">Sends</span><span class="n">Redraws</span></div>${rows}</div><div><h4>What to look at</h4>${probs}</div></div>
+    ${overlaysSection()}
     <div class="note">Measured on a simulated screen over a ${v.Seconds} s demo lap, the dash updating 10 times a second as on the wheel: the same numbers as <code>fxdash verify</code> and <code>fxdash fit-bands</code>. Click a row to select the element.</div>
   </div>`;
+  wireOverlaysSection(box);
   box.querySelectorAll('[data-i]').forEach(el => {
     const i = Number(el.dataset.i); if (!(i >= 0 && i < dash.Elements.length)) { el.style.cursor = 'default'; return; }
     el.onclick = () => { select(i, { flash: true, force: true }); switchTab('layers', true); };
@@ -1122,6 +1331,54 @@ function showTraffic() {
   const show = box.querySelector('[data-act="checks"]'); if (show) show.onclick = () => setDrawerTab('checks');
 }
 
+// every overlay brought up in turn on every page (fxdash verify --overlays): what it sends, whether anything flashes
+let lastOverlayCheck = null, overlayCheckBusy = false, overlayCheckFor = null;
+function overlaysSection() {
+  if (!overlays.length) return '';
+  const r = lastOverlayCheck && overlayCheckFor === snapshot() ? lastOverlayCheck : null;
+  let body;
+  if (overlayCheckBusy) body = `<div class="empty" style="padding:12px">Bringing up each of the ${overlays.length} overlays on ${pageCount() > 1 ? 'every page' : 'the dash'}, over a running lap… (up to a minute for a big dash)</div>`;
+  else if (!r) body = `<div class="note">The demo lap doesn't reach most overlays (pit screens, flags, warnings). Check them all: each comes up in turn over the running lap, as on the wheel.</div>`;
+  else {
+    const flashing = r.Overlays.filter(o => o.FlashingUpdates > 0), slow = r.Overlays.filter(o => Math.max(o.ShowBytes, o.HideBytes) > TRAFFIC_BUDGET);
+    const head = flashing.length || r.RedrawMismatch ? `<div class="tr-gate bad"><span class="lv">${icon('warn')}</span><span>${flashing.length ? `${flashing.length} overlay${flashing.length === 1 ? '' : 's'}: something under ${flashing.length === 1 ? 'it' : 'them'} flashes while ${flashing.length === 1 ? 'it shows' : 'they show'}` : 'A drawing error with an overlay up'}</span><button class="btn small primary" data-act="taketurns" title="Values and bars half under an overlay hide while it shows (they'd redraw the overlay at every change)">Make them take turns</button></div>`
+      : `<div class="tr-gate ok"><span class="lv">${icon('ok')}</span><span>Every overlay comes and goes cleanly${slow.length ? `; ${slow.length} take${slow.length === 1 ? 's' : ''} over a second (big ones, about as long as drawing the dash)` : ''}</span></div>`;
+    const byFirst = idx => overlays.find(o => o.first === idx);
+    const rows = r.Overlays.slice().sort((a, b) => (b.FlashingUpdates - a.FlashingUpdates) || (Math.max(b.ShowBytes, b.HideBytes) - Math.max(a.ShowBytes, a.HideBytes))).slice(0, 40).map(o => {
+      const ov = byFirst(elementIndex(o.Overlay)); const name = ov ? ov.name : elementLabel(o.Overlay);
+      const most = Math.max(o.ShowBytes, o.HideBytes), cls = o.FlashingUpdates ? 'err' : most > TRAFFIC_BUDGET ? 'warn' : '';
+      return `<div class="tr-row ov ${cls}" data-ov="${ov ? ov.index : -1}" data-pg="${o.Page}" title="Show this overlay${pageCount() > 1 ? ' on this page' : ''}"><span>${esc(name)}${pageCount() > 1 ? ` <em>${esc(pageName(o.Page))}</em>` : ''}</span><span class="n">${fmtRate(o.ShowBytes).replace('/s', '')}</span><span class="n">${fmtRate(o.HideBytes).replace('/s', '')}</span><span class="n">${o.FlashingUpdates ? o.FlashingUpdates + ' flash' : ''}</span></div>`;
+    }).join('');
+    body = head + `<div class="tr-row head ov"><span>Overlay</span><span class="n">Shows</span><span class="n">Goes</span><span class="n"></span></div>` + rows;
+  }
+  return `<h4>Overlays <button class="btn small" data-act="checkoverlays" ${overlayCheckBusy ? 'disabled' : ''}>${r ? 'Check again' : 'Check every overlay'}</button></h4>${body}`;
+}
+function wireOverlaysSection(box) {
+  const c = box.querySelector('[data-act="checkoverlays"]'); if (c) c.onclick = checkOverlays;
+  const t = box.querySelector('[data-act="taketurns"]'); if (t) t.onclick = takeTurns;
+  box.querySelectorAll('.tr-row.ov[data-ov]').forEach(el => { const i = Number(el.dataset.ov); if (i < 0) return; el.onclick = () => { if (pageCount() > 1) page = clamp(Number(el.dataset.pg), 0, pageCount() - 1); renderPages(); setOverlay(i); }; });
+}
+async function checkOverlays() {
+  if (overlayCheckBusy || !dash) return;
+  overlayCheckBusy = true; showTraffic();
+  const snap = snapshot();
+  try {
+    const tiles = trafficMode === 'ram' ? 1 : 0;
+    lastOverlayCheck = await post(`/api/verify?left=${pad.l}&top=${pad.t}&seconds=20&tiles=${tiles}&overlays=1`, dash);
+    overlayCheckFor = snap;
+  } catch (e) { toast('Overlay check failed: ' + e.message, 'err'); }
+  overlayCheckBusy = false; showTraffic();
+}
+async function takeTurns() {
+  try {
+    const r = await post('/api/take-turns', dash);
+    if (!r.elements) { toast('Nothing to change: no value sits half under an overlay', 'ok'); return; }
+    begin(); dash.Elements = r.elements; changed({ inspector: true });
+    toast(`${r.changes.length} value${r.changes.length === 1 ? '' : 's'} now hide while the overlay over ${r.changes.length === 1 ? 'it' : 'them'} shows`, 'ok', 4200);
+    checkOverlays();
+  } catch (e) { toast('Failed: ' + e.message, 'err'); }
+}
+
 function applyBands() {
   if (!lastBands || !lastBands.elements) return;
   const n = lastBands.changes.length;
@@ -1132,7 +1389,8 @@ function applyBands() {
 // the bottom drawer: Checks and Wheel traffic
 function setDrawerTab(t, open = true) {
   document.querySelectorAll('#drawerTabs button').forEach(b => b.classList.toggle('on', b.dataset.dtab === t));
-  $('issues').hidden = t !== 'checks'; $('traffic').hidden = t !== 'traffic';
+  $('issues').hidden = t !== 'checks'; $('traffic').hidden = t !== 'traffic'; $('ramList').hidden = t !== 'ram';
+  if (t === 'ram') showPictures();
   const meter = $('costMeter').parentElement; meter.style.display = $('costText').style.display = t === 'checks' ? '' : 'none';
   if (open) $('drawer').classList.add('open');
 }
@@ -1172,6 +1430,7 @@ async function runCheck() {
     });
     renderLayers();
     scheduleVerify();
+    scheduleOverlays();
   } catch (e) { $('checksPill').className = 'pill err'; $('checksText').textContent = 'Check failed'; }
 }
 
@@ -1194,7 +1453,7 @@ async function refreshExact() {
   if (view === 'edit' || exactBusy) return;
   exactBusy = true;
   try {
-    const blob = await post(`/api/render?mode=${view === 'demo' ? 'demo' : 'preview'}&seconds=${demoT}&left=0&top=0`, dash);
+    const blob = await post(`/api/render?mode=${view === 'demo' ? 'demo' : 'preview'}&seconds=${demoT}&left=0&top=0&page=${page}&overlay=${overlay}`, dash);
     const img = $('exact'), old = img.src; img.src = URL.createObjectURL(blob); if (old) setTimeout(() => URL.revokeObjectURL(old), 1000);
   } catch (e) { toast('Preview failed: ' + e.message, 'err'); setView('edit'); }
   finally { exactBusy = false; }
@@ -1203,7 +1462,7 @@ async function refreshExact() {
 // ---------- wheel ----------
 let wheelOn = false, wheelTimer = null;
 function scheduleWheel() { if (!wheelOn) return; clearTimeout(wheelTimer); wheelTimer = setTimeout(pushWheel, 600); }
-async function pushWheel() { try { await post(`/api/wheel/show?left=${pad.l}&top=${pad.t}`, dash); } catch (e) { toast('Wheel: ' + e.message, 'err'); setWheel(false); } }
+async function pushWheel() { try { await post(`/api/wheel/show?left=${pad.l}&top=${pad.t}&page=${page}&overlay=${overlay}`, dash); } catch (e) { toast('Wheel: ' + e.message, 'err'); setWheel(false); } }
 async function setWheel(on) {
   wheelOn = on; $('btnWheel').classList.toggle('on', on); $('bezel').classList.toggle('wheel', on);
   if (on) { await pushWheel(); toast('On your wheel: it follows every change'); } else { try { await post('/api/wheel/stop', {}); } catch (e) { } }
@@ -1229,13 +1488,15 @@ function ask({ title, text, icon: ic = 'save', fields = [], ok = 'OK', danger = 
   return new Promise(resolve => {
     $('promptTitle').textContent = title; $('promptText').textContent = text || '';
     $('promptIcon').innerHTML = icon(ic);
-    $('promptBody').innerHTML = fields.map((fl, i) => f(fl.label, `<input class="in" id="pf${i}" value="${esc(fl.value || '')}" spellcheck="false">`)).join('');
+    $('promptBody').innerHTML = fields.map((fl, i) => fl.type === 'check'
+      ? `<label class="switch" style="margin:4px 0"><input type="checkbox" id="pf${i}" ${fl.value ? 'checked' : ''}><i></i><span class="note" style="color:var(--text2)">${esc(fl.label)}</span></label>`
+      : f(fl.label, `<input class="in" id="pf${i}" value="${esc(fl.value || '')}" spellcheck="false">`)).join('');
     $('promptBody').style.display = fields.length ? '' : 'none';
     const okb = $('promptOk'); okb.textContent = ok; okb.className = 'btn primary'; if (danger) okb.style.background = 'linear-gradient(180deg,#ff2b38,#a00)';
     openModal('promptModal');
-    setTimeout(() => { const i = $('pf0'); if (i) { i.focus(); i.select(); } else okb.focus(); }, 60);
+    setTimeout(() => { const i = $('pf0'); if (i && i.type !== 'checkbox') { i.focus(); i.select(); } else okb.focus(); }, 60);
     const done = v => { closeModal('promptModal'); okb.onclick = null; resolve(v); };
-    okb.onclick = () => done(fields.map((_, i) => $('pf' + i).value.trim()));
+    okb.onclick = () => done(fields.map((fl, i) => fl.type === 'check' ? $('pf' + i).checked : $('pf' + i).value.trim()));
     $('promptBody').onkeydown = ev => { if (ev.key === 'Enter') okb.click(); };
     $('promptModal').querySelector('[data-close]').onclick = () => done(null);
   });
@@ -1319,7 +1580,7 @@ async function runImport() {
 function doAct(a) {
   hideMenus();
   ({
-    saveas: () => saveAs(false), download, open: () => $('file').click(), keys: () => openModal('keysModal'), delete: deleteDash,
+    saveas: () => saveAs(false), download, open: () => $('file').click(), keys: () => openModal('keysModal'), delete: deleteDash, addpage: addPage,
     new: async () => { if (await confirmDiscard()) { load(blankDash()); history.replaceState(null, '', location.pathname); } }, import: openImport,
   })[a]();
 }
@@ -1335,7 +1596,8 @@ function wire() {
   $('viewSeg').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.view));
   $('btnWheel').onclick = () => setWheel(!wheelOn);
   $('checksPill').onclick = () => toggleDrawer('checks');
-  $('ramPill').onclick = () => toggleDrawer('checks');
+  $('ramPill').onclick = () => toggleDrawer('ram');
+  $('btnOverlay').onclick = ev => { ev.stopPropagation(); const m = $('overlayMenu'); if (m.classList.contains('open')) m.classList.remove('open'); else openOverlayPick(); };
   $('trafficPill').onclick = () => toggleDrawer('traffic');
   document.querySelectorAll('#drawerTabs button').forEach(b => b.onclick = () => setDrawerTab(b.dataset.dtab, true));
   $('drawerClose').onclick = () => $('drawer').classList.remove('open');

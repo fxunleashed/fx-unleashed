@@ -26,7 +26,8 @@ SimHub → FX Unleashed → Dashes → **Designer** (or **Edit in the designer**
 settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas not evaluated). Same look as the plugin.
 
 - **Top bar:** the dash's name (edit in place; amber dot = unsaved), undo/redo, **Edit / Exact / Demo lap** (Exact and
-  Demo are the plugin's own rendering, exactly what the wheel draws), **On wheel** (the wheel follows every change),
+  Demo are the plugin's own rendering, exactly what the wheel draws), the **page buttons** of a dash with pages (each
+  view and the wheel follow the page picked), **On wheel** (the wheel follows every change),
   the **Checks** pill (layout problems and warnings; click for the list), the **Screen RAM** pill (what the dash takes with the
   screen's RAM patch), the **Wheel traffic** pill, **Save** and a menu (save as, download/open JSON, new, import, delete).
 - **Wheel traffic:** a moment after you stop editing, the designer plays a 60 s demo lap on a simulated screen and shows what
@@ -45,7 +46,23 @@ settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas no
 - **Inspector:** position & size (drag the X/Y/W/H letters to scrub), align in the visible area; text with a **font
   picker** that measures the element's widest text in every screen font ("use the biggest that fits"); colour
   swatches (palette, hex, opacity); **data picker** (searchable, grouped, plain-English, or any SimHub property /
-  formula); format chips; widest-text chips; colour from data; **Show when** conditions as chips; raw JSON.
+  formula); format chips; widest-text chips; colour from data; **Show when** conditions as chips, and the element's
+  **Page** (every page, or one); raw JSON. With nothing selected: the dash's **Pages** (names, in order) and padding.
+- **Pages:** with nothing selected, the **Pages** card lists the dash's pages: rename them, reorder them (elements follow),
+  remove one (its elements go with it, or stay on every page), **Add a page** (also in the menu). Put an element on a page
+  with **Show when → Page** or by right-clicking it ("Only on …" / "On every page"). The page buttons in the top bar pick
+  which page the canvas, Exact, Demo lap and the wheel show.
+- **Overlays:** the **Overlays** button lists the dash's overlays (every set of conditions elements share: pop-ups, warnings,
+  pit and flag screens, start-up screens; inside another one = indented). Pick one and the canvas, Exact, Demo lap and the
+  wheel show it as if its condition held, so you can edit it in place; **None** goes back to the dash as it drives.
+- **Wheel traffic → Overlays:** **Check every overlay** brings each one up in turn on every page over the running lap (as
+  `fxdash verify --overlays`): what it sends when it comes and goes, and whether anything flashes under it. Click a row to
+  preview that overlay. If something flashes, **Make them take turns** hides the values and bars half under an overlay
+  while it shows. With pages, the cards show what a page flip sends.
+- **Screen RAM** (the pill, or the drawer's tab): what the dash keeps on the screen's RAM drive, the dash itself and each
+  picture of a shape that comes and goes (with its looks: a shape coloured by data has one per colour stop), biggest first.
+- **Dim** (Add tab): darkens the whole screen while its conditions hold (headlights on), with the backlight; the canvas
+  shows it darker when its overlay is previewed.
 - **Keys:** arrows (Shift = 10 px), Del, Ctrl+D, Ctrl+C/V, Ctrl+Z/Y, [ ], Esc, Ctrl+S, 1/2/3 views, ? for the list.
 - Development: `FXDASH_DESIGNER_DIR=<repo>\Usb\Designer fxdash serve --port 8898` serves the page's files from disk
   (edit and reload, no rebuild).
@@ -57,9 +74,11 @@ settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas no
 
 - Scaled to fit the screen minus the wheel's padding; the main in-game screen (a screen named Main/Race/Dash, else the
   in-game screen with the most on it), or the one you pick; background/foreground layer screens included; overlay
-  screens not.
+  screens (an ignition-off screen, a start-up splash) drawn last, each shown while its SimHub trigger holds.
 - Layers and widgets flattened (widget screens switched by a formula become groups shown while the formula gives their
-  index), in SimHub's drawing order.
+  index; screens the driver flips with SimHub's screen commands become the dash's **pages**), in SimHub's drawing
+  order. A layer's opacity carries to what's in it; blinking items blink (a `blink()` condition); a see-through black
+  layer over the whole dash becomes a `dim` of the backlight.
 - Shapes, rounded borders, gradients, images (from the dash's `.ressources` zip or SimHub's `ImageLibrary`; stored in
   the dash at their drawn size, reduced to a few colours; if drawing would take longer than the budget, colours are cut,
   then the largest images dropped), text (the tallest screen font that fits; SimHub's fonts can't be used), linear

@@ -198,7 +198,7 @@ namespace User.FXProRpmSync
             d.Name = string.IsNullOrWhiteSpace(item.Name) ? d.Name : item.Name;
             d.Author = item.Author ?? d.Author;
             d.ScriptsFolder = null;
-            d.FormatVersion = DashDefinition.CurrentFormat;
+            d.FormatVersion = d.RequiredFormat;
             string file;
             if (item.Kind == "saver")
             {
@@ -284,7 +284,7 @@ namespace User.FXProRpmSync
             var d = source.Clone();
             d.ScriptsFolder = null; // a path on this PC: the library never uses it
             d.Id = meta.Id; d.Name = meta.Name ?? d.Name; d.Author = meta.Author ?? d.Author; d.Description = meta.Description ?? d.Description; d.Source = meta.Source ?? d.Source;
-            d.FormatVersion = DashDefinition.CurrentFormat;
+            d.FormatVersion = d.RequiredFormat;
             var json = Encoding.UTF8.GetBytes(DashTools.Serialize(d));
             var problems = LibraryClient.Check(d, json.Length);
             if (problems.Count > 0) throw new Exception(string.Join("; ", problems));

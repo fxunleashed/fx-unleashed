@@ -49,7 +49,12 @@ namespace User.FXProRpmSync
 
         /// <summary>The files this dash needs on the screen (each once).</summary>
         public IEnumerable<ScreenTile> Files =>
-            GridTiles.Concat(Bands.Values).Concat(Pictures.Values).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
+            GridTiles.Concat(Bands.Values).Concat(Pictures.Values).Concat(Variants).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
+
+        /// <summary>More pictures of those shapes: with an overlay inside theirs under them (a flag inside the race start
+        /// screen), or in another of their colours (a speed-coloured oval), so they're drawn from a file in that state too
+        /// (DashRenderer picks the one that matches).</summary>
+        public readonly List<ScreenTile> Variants = new List<ScreenTile>();
 
         /// <summary>RAM-drive bytes the files take (their sizes; the drive adds a small entry per file).</summary>
         public int Bytes => Files.Sum(t => t.Jpeg.Length);
@@ -85,11 +90,15 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>A tile of a picture already cut to `r` (32 bpp, r's size).</summary>
+        /// <summary>JPEG quality of the pictures of shapes that come and go (MakeFrom; overlays' ovals, frames, logos): 75 looks
+        /// the same as 88 on them on the wheel's screen and takes a third less of the RAM drive. The dash itself uses Quality.</summary>
+        public static long PictureQuality = 75;
+
         public static ScreenTile MakeFrom(Bitmap part, Rectangle r)
         {
             var t = new ScreenTile { R = r };
             using (var rgb = part.Clone(new Rectangle(0, 0, part.Width, part.Height), PixelFormat.Format24bppRgb))
-                t.Jpeg = Jpeg(rgb, Quality);
+                t.Jpeg = Jpeg(rgb, PictureQuality);
             t.Name = NameFor(t.Jpeg);
             Registry[t.Name] = t.Jpeg;
             return t;

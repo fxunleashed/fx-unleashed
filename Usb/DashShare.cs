@@ -72,7 +72,7 @@ namespace User.FXProRpmSync
             if (id.StartsWith("lib-") && id.Length > 6) id = id.Substring(4);
             d.Name = string.IsNullOrWhiteSpace(d.Name) ? id : d.Name.Trim();
             d.ScriptsFolder = null;
-            d.FormatVersion = DashDefinition.CurrentFormat;
+            d.FormatVersion = d.RequiredFormat;
             d.Source = string.IsNullOrWhiteSpace(d.Source) ? "Imported from a file" : d.Source;
 
             var existing = DashLibrary.Load(null);
@@ -92,7 +92,7 @@ namespace User.FXProRpmSync
         public static string Export(DashDefinition d, string path)
         {
             var copy = d.Clone();
-            copy.FormatVersion = DashDefinition.CurrentFormat;
+            copy.FormatVersion = copy.RequiredFormat;
             copy.ScriptsFolder = null;
             if (!path.EndsWith(Extension, StringComparison.OrdinalIgnoreCase)) path = Regex.Replace(path, @"(\.json)?$", "", RegexOptions.IgnoreCase) + Extension;
             var json = DashTools.Serialize(copy);

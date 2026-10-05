@@ -59,6 +59,8 @@ namespace User.FXProRpmSync
         /// <summary>What the plugin put on the screen's RAM drive (ScreenRam).</summary>
         public ScreenRamState ScreenRam = new ScreenRamState();
         public string DashId = BuiltInDashes.MustangId;
+        /// <summary>The page each dash with pages was left on (by dash id), so it comes back on that page.</summary>
+        public Dictionary<string, int> DashPages = new Dictionary<string, int>();
         public int PadLeft = 10, PadTop = 20;
         public bool LightsEnabled = true;
         /// <summary>Keep the lights on with no game running (ambient effects; rev lights dark). Off = SimPro's lights until a game starts.</summary>
@@ -384,6 +386,9 @@ namespace User.FXProRpmSync
         private bool reverseRev;
         private int dashReloads;
         private UsbDemo demo;
+        private OverlayShowcase showcase;
+        private DashDefinition showcaseFor;
+        private double demoStart;
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private double lastDash, lastDemo, lastLed;
         private volatile string[] props = new string[0];
@@ -573,9 +578,14 @@ namespace User.FXProRpmSync
         public bool PreviewActive => previewDash != null && DateTime.UtcNow.Ticks < Interlocked.Read(ref previewUntilTicks);
 
         /// <summary>Shows a dash from the designer on the wheel (live data while a game runs, else the demo lap).</summary>
-        public void SetPreviewDash(DashDefinition d, int left, int top)
+        public void SetPreviewDash(DashDefinition d, int left, int top, int page = -1, int overlay = -1)
         {
+            previewForce = overlay >= 0 ? new OverlayShowcase(d).ForceFor(overlay) : null;
             previewLeft = left; previewTop = top;
+            // a different page of the same dash: just flipped, not drawn again from scratch
+            if (previewDash != null && page >= 0 && page != this.page && Newtonsoft.Json.JsonConvert.SerializeObject(d).GetHashCode() + "|" + left + "|" + top == previewKey)
+                Interlocked.Exchange(ref pageSteps, page - this.page);
+            previewPage = page;
             previewKey = Newtonsoft.Json.JsonConvert.SerializeObject(d).GetHashCode() + "|" + left + "|" + top;
             previewDash = d;
             Interlocked.Exchange(ref previewUntilTicks, DateTime.UtcNow.AddSeconds(60).Ticks);
@@ -583,6 +593,42 @@ namespace User.FXProRpmSync
         }
 
         public void StopPreview() { previewDash = null; wake.Set(); }
+
+        // Pages of the shown dash (DashDefinition.Pages). Flips come from SimHub actions and wheel buttons on their own
+        // threads; the loop applies them before the next dash update, so only it touches the renderer.
+        private int pageSteps;
+        private volatile int page;
+        private volatile int previewPage = -1;
+        /// <summary>The designer's overlay picker: the values that bring that overlay up on the wheel, or null.</summary>
+        private volatile Dictionary<string, bool> previewForce;
+
+        /// <summary>Flip the shown dash's pages by `step` (wraps round). Nothing happens on a dash without pages.</summary>
+        public void StepPage(int step) { Interlocked.Add(ref pageSteps, step); wake.Set(); }
+
+        /// <summary>The shown dash's page now (0 = the first) and how many it has (1 = no pages).</summary>
+        public int DashPage => page;
+        public int DashPageCount => dash?.PageCount ?? 1;
+        /// <summary>The shown page's name, or null when the dash has no pages.</summary>
+        public string DashPageName { get { var d = dash; return d != null && d.PageCount > 1 ? d.PageName(Math.Min(page, d.PageCount - 1)) : null; } }
+
+        /// <summary>The page a dash was left on (0 when it never was), within its pages.</summary>
+        internal static int SavedPage(UsbSettings s, DashDefinition d)
+        {
+            if (d == null || d.PageCount < 2 || s.DashPages == null || d.Id == null) return 0;
+            lock (s.DashPages) return s.DashPages.TryGetValue(d.Id, out var p) && p >= 0 && p < d.PageCount ? p : 0;
+        }
+
+        private void ApplyPageSteps(UsbSettings s)
+        {
+            int steps = Interlocked.Exchange(ref pageSteps, 0);
+            var d = dash;
+            if (steps == 0 || d == null || d.PageCount < 2) return;
+            page = DashPages.Step(page, steps, d.PageCount);
+            lastDash = -1; // drawn at once, not at the next 10 Hz tick
+            if (previewDash != null || d.Id == null) return; // a designer preview isn't remembered
+            if (s.DashPages == null) s.DashPages = new Dictionary<string, int>();
+            lock (s.DashPages) s.DashPages[d.Id] = page;
+        }
 
         /// <summary>SimHub's current values while a game runs (else null), for the designer's live render.</summary>
         public DashValues LiveNow => LiveFresh ? latest : null;
@@ -1066,6 +1112,8 @@ namespace User.FXProRpmSync
                 want = pd ?? DashLibrary.Load(errors).FirstOrDefault(d => d.Id == id) ?? BuiltInDashes.MustangGt3();
             }
             dash = want;
+            page = pd != null && previewPage >= 0 ? Math.Min(previewPage, dash.PageCount - 1) : SavedPage(s, dash);
+            Interlocked.Exchange(ref pageSteps, 0);
             var room = DashRenderer.Room(dash);
             int padL = pd != null ? previewLeft : s.PadLeft, padT = pd != null ? previewTop : s.PadTop;
             renderer = new DashRenderer(screen, dash, Math.Min(Math.Max(0, padL), room.Right), Math.Min(Math.Max(0, padT), room.Down));
@@ -1106,7 +1154,13 @@ namespace User.FXProRpmSync
         /// <summary>The screensaver whose turn it is (id), while one shows.</summary>
         public string SaverShown { get; private set; }
 
-        private int Brightness(UsbSettings s) => s.ScreenBrightnessNow(plugin.NightActive);
+        /// <summary>The backlight now: the setting (day / night), lowered while the dash dims itself ("dim" elements, e.g.
+        /// headlights on).</summary>
+        private int Brightness(UsbSettings s)
+        {
+            int b = s.ScreenBrightnessNow(plugin.NightActive), dim = renderer?.DimPercent ?? 0;
+            return dim <= 0 ? b : Math.Max(5, (int)Math.Round(b * (100 - dim) / 100.0));
+        }
 
         /// <summary>The quick toggle (UsbWheelDashToggle): show the wheel's own dash instead of the car's custom one, or the
         /// other way round, until toggled back. Not saved.</summary>
@@ -1226,10 +1280,17 @@ namespace User.FXProRpmSync
             }
             else if (testing || demoOn || previewDemo)
             {
-                if (demo == null) { demo = new UsbDemo(); lastDemo = now; }
+                if (demo == null) { demo = new UsbDemo(); lastDemo = demoStart = now; showcase = null; }
                 demo.UseDash(dash);
                 v = demo.Step(now - lastDemo);
                 lastDemo = now;
+                // the demo on the wheel takes the dash's overlays in turn (flags, pit screens, warnings...): the whole dash
+                // shows, not just what the simulated lap reaches
+                if (demoOn && !testing && dash != null)
+                {
+                    if (showcase == null || showcaseFor != dash) { showcase = new OverlayShowcase(dash); showcaseFor = dash; }
+                    showcase.Apply(v, now - demoStart);
+                }
                 Volatile.Write(ref latest, v);
                 State = testing ? "Test" : previewDemo ? "Designer preview" : "Demo";
                 Detail = testing ? (model.HasScreen ? "Showing the demo for a few seconds: the dash should be steady, with no stock dash flickering through." : "Showing the lights on a simulated lap for a few seconds.")
@@ -1263,9 +1324,13 @@ namespace User.FXProRpmSync
             frameS = s; frameV = v; frameSource = source; frameTesting = testing; frameSleeping = sleeping;
             FeedWheelDash(now, demoOn || testing);
             SendLeds(now);
+            ApplyPageSteps(s);
             if (renderer != null && pendingTiles == null && now - lastDash >= 0.1)
             {
                 lastDash = now;
+                v.Page = page;
+                var force = previewDash != null ? previewForce : null;
+                if (force != null) foreach (var kv in force) v.Set(kv.Key, kv.Value);
                 renderer.Update(v, now);
             }
             // The logo goes out in slices (~24 commands per frame) so the lights keep animating while it draws in.

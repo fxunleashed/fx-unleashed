@@ -199,7 +199,7 @@ namespace User.FXProRpmSync
                 var obstacles = new List<(DashElement E, Func<Rectangle> R)>();
                 foreach (var o in d.Elements)
                 {
-                    if (o == v) continue;
+                    if (o == v || DashPages.Apart(o, v)) continue; // (on another page: never shown together)
                     // shown under other conditions than this value: it comes and goes over it
                     // (a pop-up with formula conditions is dealt with later: the value hides while it shows)
                     bool popup = o.Visible != null && o.Visible.Count > 0 && !(v.Visible != null && o.Visible.SequenceEqual(v.Visible));
@@ -247,7 +247,7 @@ namespace User.FXProRpmSync
                                                          && x.Visible != null && x.Visible.Count > 0 && d.Elements.IndexOf(x) > d.Elements.IndexOf(v)).ToList())
                 {
                     var bb = Box(bg);
-                    if (!bb.IntersectsWith(vb) || bb.Contains(vb)) continue;
+                    if (!bb.IntersectsWith(vb) || bb.Contains(vb) || DashPages.Apart(bg, v)) continue;
                     var members = d.Elements.Where(m => m != bg && m.Visible != null && m.Visible.SequenceEqual(bg.Visible)).ToList();
                     Rectangle trimmed = bb;
                     var ov = Rectangle.Intersect(bb, vb);
@@ -390,6 +390,9 @@ namespace User.FXProRpmSync
         /// <summary>The widest text an element must fit, as check measures it (samples, Empty, PreviewText).</summary>
         private static int NeedWidth(DashElement e, int font) => Texts(e).Select(t => Width(font, t)).DefaultIfEmpty(0).Max();
 
+        /// <summary>Always shown, or always on its page (a page is no condition of its own: it shows whenever its page does).</summary>
+        private static bool OnItsPage(DashElement x) => x.Visible == null || x.Visible.Count == 0 || x.Visible.All(c => DashPages.Parse(c).HasValue);
+
         private static bool Clash(Rectangle a, Rectangle b) { var o = Rectangle.Intersect(a, b); return o.Width > 2 && o.Height > 2; }
 
         /// <summary>
@@ -429,10 +432,22 @@ namespace User.FXProRpmSync
         /// pop-up box of its own: both keep updating and redraw each other. The one always shown gets the opposite
         /// condition, so they take turns instead.
         /// </summary>
+        /// <summary>
+        /// Just the "take turns" step (the designer's Fix for overlays): values and bars half under an overlay's box hide
+        /// while it shows, instead of redrawing the box at every change. Returns what changed.
+        /// </summary>
+        public static List<string> TakeTurns(DashDefinition d)
+        {
+            var changes = new List<string>();
+            SwapOverlaid(d, changes, e => $"#{d.Elements.IndexOf(e)} {e.Name}");
+            return changes;
+        }
+
         private static void SwapOverlaid(DashDefinition d, List<string> changes, Func<DashElement, string> name)
         {
             // what comes and goes over other things: a value of its own, or a pop-up's opaque shape
-            List<string> Own(DashElement x) => x.Visible.Where(c => !c.StartsWith("ncalc:!(")).ToList();
+            // (pages are no condition of their own here: an element on a page is shown on its own terms there)
+            List<string> Own(DashElement x) => x.Visible.Where(c => !c.StartsWith("ncalc:!(") && !DashPages.Parse(c).HasValue).ToList();
             bool Opaque(DashElement x) => x.Type == "rect" || ((x.Type == "box" || x.Type == "ellipse") && x.Fill != null);
             foreach (var top in d.Elements.Where(x => x.Visible != null && x.Visible.Count >= 1 &&
                                                       ((x.Type == "value" && !InPopup(d, x)) || (Opaque(x) && x.Opacity >= 100))).ToList())
@@ -444,15 +459,18 @@ namespace User.FXProRpmSync
                 string not = "ncalc:!(" + cond.Substring(6) + ")";
                 int ti = d.Elements.IndexOf(top);
                 // values shown on their own terms (always, or under conditions of their own), not part of this pop-up
-                foreach (var under in d.Elements.Take(ti).Where(x => x.Type == "value" &&
-                                                                      (x.Visible == null || x.Visible.Count == 0 ||
+                // (bars and delta bars too: one half under a pop-up box redraws the box at every change)
+                foreach (var under in d.Elements.Take(ti).Where(x => (x.Type == "value" || (top.Type != "value" && (x.Type == "bar" || x.Type == "deltabar"))) &&
+                                                                      (x.Visible == null || x.Visible.Count == 0 || Own(x).Count == 0 ||
                                                                        // shown whenever the pop-up is (its conditions a part of the pop-up's): always under it
                                                                        // (the take-turns conditions added here don't count)
                                                                        (Own(x).Count < top.Visible.Distinct().Count() && Own(x).All(c => top.Visible.Contains(c)) && !InPopup(d, x)) ||
-                                                                       x.Visible.All(c => c.StartsWith("ncalc:!(")))))
+                                                                       Own(x).Count == 0)))
                 {
-                    // where the value's text is (its box is often far bigger)
-                    var band = Band(under, Widest(under));
+                    // never shown together: on another page than the pop-up
+                    if (DashPages.Apart(under, top)) continue;
+                    // where the value's text is (its box is often far bigger); a bar's whole box
+                    var band = under.Type == "value" ? Band(under, Widest(under)) : Box(under);
                     var o = Rectangle.Intersect(top.Type == "value" ? Band(top, Widest(top)) : Box(top), band);
                     if (o.Width <= 2 || o.Height <= 2) continue;
                     // a shape over all of the value's text hides it anyway (the renderer skips it while covered)
@@ -474,7 +492,7 @@ namespace User.FXProRpmSync
             foreach (var v in d.Elements.Where(x => x.Type == "value").ToList())
             {
                 int fh = DashRenderer.FontHeight(v.Font);
-                foreach (var f in d.Elements.Where(x => x != v && (x.Type == "box" || x.Type == "rect") && (x.Visible == null || x.Visible.Count == 0)))
+                foreach (var f in d.Elements.Where(x => x != v && (x.Type == "box" || x.Type == "rect") && OnItsPage(x) && !DashPages.Apart(x, v)))
                 {
                     var vb = Box(v); var fb = Box(f);
                     var o = Rectangle.Intersect(vb, fb);
@@ -587,6 +605,7 @@ namespace User.FXProRpmSync
                 {
                     var sb = Box(sh);
                     if (!Box(v).IntersectsWith(sb) || sb.Contains(Band(v, Widest(v)))) continue; // (a shape over all of its text hides it anyway)
+                    if (DashPages.Apart(sh, v)) continue; // on another page: never shown together
                     // hidden while that shape shows (they take turns): never on the screen together
                     if (v.Visible != null && sh.Visible != null && sh.Visible.Count > 0 && sh.Visible.All(c => c.StartsWith("ncalc:")))
                     {
@@ -694,7 +713,7 @@ namespace User.FXProRpmSync
                 foreach (var l in d.Elements.Where(x => x.Type == "label" && SameOrAlways(x, v)).ToList())
                 {
                     var lb = Covers(l);
-                    if (lb.Width <= 0 || !Box(v).IntersectsWith(lb) || Box(v).Contains(lb)) continue;
+                    if (lb.Width <= 0 || !Box(v).IntersectsWith(lb) || Box(v).Contains(lb) || DashPages.Apart(l, v)) continue;
                     Trim(v, Rectangle.Inflate(lb, 2, 0), changes, name(v), name(l), slack: 0); // (2 px for the glyphs' overhang)
                 }
             // bars too: a bar running under a label's text (a scale printed over a gauge) redraws the label at each move;
@@ -749,7 +768,7 @@ namespace User.FXProRpmSync
                 var grown = Rectangle.Union(tb, Rectangle.Inflate(band, pad, panel ? 0 : 1));
                 // (a panel only grows a little, as its layout is the designer's, and only sideways)
                 bool hits = !Usable.Contains(grown) || (panel && (grown.Width - tb.Width > 12 || grown.Height != tb.Height)) ||
-                            d.Elements.Any(o => o != v && o != tag && (o.Type == "value" || o.Type == "label") && Clash(grown, Covers(o)) && !Clash(tb, Covers(o))
+                            d.Elements.Any(o => o != v && o != tag && (o.Type == "value" || o.Type == "label") && !DashPages.Apart(o, v) && Clash(grown, Covers(o)) && !Clash(tb, Covers(o))
                                                 && !(o.Visible != null && o.Visible.Count > 0));
                 if (hits)
                 {

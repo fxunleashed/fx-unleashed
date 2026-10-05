@@ -275,6 +275,8 @@ namespace User.FXProRpmSync
         private PreviewScreen screen;
         private DashRenderer renderer;
         private UsbDemo demo;
+        private OverlayShowcase showcase;
+        private double start;
         private string key;
         private double last;
         private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
@@ -292,7 +294,7 @@ namespace User.FXProRpmSync
             if (k == key) return;
             key = k;
             Dash = d;
-            screen?.Dispose(); screen = null; renderer = null; demo = null;
+            screen?.Dispose(); screen = null; renderer = null; demo = null; showcase = null;
             if (d == null) { target.Source = null; return; }
             screen = new PreviewScreen();
             var room = DashRenderer.Room(d);
@@ -312,10 +314,13 @@ namespace User.FXProRpmSync
             DashValues v = u?.DashActive == true && u.ActiveDashName == Dash.Name ? u.Latest : null;
             if (v == null)
             {
-                if (demo == null) { demo = new UsbDemo(); last = now; }
+                if (demo == null) { demo = new UsbDemo(); last = start = now; showcase = new OverlayShowcase(Dash); }
                 demo.UseDash(Dash);
                 v = demo.Step(Math.Min(1, now - last));
                 last = now;
+                // all of the dash: its overlays in turn, its pages one after the other
+                showcase.Apply(v, now - start);
+                v.Page = Dash.PageCount > 1 ? (int)((now - start) / 10) % Dash.PageCount : 0;
             }
             renderer.Update(v, now);
             target.Source = Theme.ToImage(screen.Bitmap);

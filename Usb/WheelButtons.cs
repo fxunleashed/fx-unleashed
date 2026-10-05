@@ -33,7 +33,7 @@ namespace User.FXProRpmSync
         /// <summary>Action ids a wheel button can run, with their names on the settings page.</summary>
         public static readonly (string Id, string Name)[] Actions =
         {
-            ("next", "Next dash"), ("prev", "Previous dash"), ("sleep", "Sleep / wake"),
+            ("next", "Next dash"), ("prev", "Previous dash"), ("pagenext", "Next page"), ("pageprev", "Previous page"), ("sleep", "Sleep / wake"),
             ("screen", "Screen on / off"), ("wheeldash", "Custom / wheel's own dash"),
             ("ledup", "Lights brighter"), ("leddown", "Lights dimmer"),
             ("screenup", "Screen brighter"), ("screendown", "Screen dimmer"),
@@ -147,6 +147,8 @@ namespace User.FXProRpmSync
             {
                 case "next": plugin.CycleUsbDash(+1); break;
                 case "prev": plugin.CycleUsbDash(-1); break;
+                case "pagenext": plugin.Usb?.StepPage(+1); break;
+                case "pageprev": plugin.Usb?.StepPage(-1); break;
                 case "sleep": if (plugin.Usb?.Sleeping == true) plugin.Usb.Wake(); else plugin.Usb?.SleepNow(); break;
                 case "screen": plugin.ToggleScreen(); break;
                 case "wheeldash": plugin.ToggleWheelDash(); break;

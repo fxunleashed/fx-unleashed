@@ -14,10 +14,16 @@ draws it with `sets "ramv: X, Y, ram/NAME"` instead of thousands of `fill`s:
 - **Dash tiles** (`Usb/ScreenTiles.cs`, `DashRenderer.EnableTiles`): the static layer rendered in full colour and
   anti-aliased (no colour reduction), cut into a 160 px grid (5 x 3); a one-colour tile is a single `fill`, not a file.
   Plus **band tiles** (the background under a value's text when it isn't one colour: band + text, two commands) and
-  **picture tiles** (an `image` element that comes and goes, e.g. a tyre-compound or pit icon, blended over the static
-  layer: one command when it shows; `PictureFits` checks nothing under it shows through). File name = hash of the JPEG,
-  so equal tiles are shared between dashes. Registry of every tile's bytes for previews and the mirror.
-- **Repaints**: an area is put back from grid tiles only when exact fills would need more than `TileRepaintFills` (60);
+  **pictures of shapes that come and go** (an icon, an overlay's oval, logo or frame: anything but a plain rectangle
+  with a fixed look, one per colour stop), blended over the static layer and the shapes of its own overlay under it
+  (and a variant per mix of the overlays inside its own, at most `MaxVariants` 12): one command when it shows;
+  `PictureFits` checks that exactly that is under it. Not for a shape over a bar, nor one 16 smooth rectangles draw
+  (`SmoothShapeFills`). `fxdash pictures DASH [--files DIR]` lists them. File name = hash of the JPEG, so equal tiles
+  are shared between dashes. Registry of every tile's bytes for previews and the mirror.
+- **Repaints**: when a solid shape still shown covers all of the area (an overlay's box under its blinking label),
+  only that shape and what's on it are drawn; a hidden label puts back only its text's ink, and a rounded box counts
+  as covering all but its corners. Otherwise an area is put back from grid tiles only when exact fills would need more
+  than `TileRepaintFills` (60);
   pixels put back around text use the colour-reduced layer (`Composite(coarse: true)`), so an anti-aliased line through
   a value's band doesn't become one fill per pixel.
 - **Screensavers** (`ITiledSaver`: the painted ones in `ArtSavers.cs` and the logo `ScreenSaver`): their art as tiles
@@ -73,6 +79,9 @@ Rule from both: before an upload the screen must be idle; keep whatever is drawn
 | Check1 flashing during loading | page repaint after each file | `Held` around each file |
 | Check1 behind the dash after the RAM test | a `delfile` repaints the page on the **next refresh**, after what's drawn right after it | `Delete`/`Unstick` wait `max(40, DoneMs)` after a delete |
 | Mirror showed boxes around values | 24-bit JPEG decode vs exact flat colour | previews round pictures to RGB565 like the screen (`PreviewScreen.To565`); on the wheel they match |
+| Mustang "Low NRG" flashing the value under it | each blink put back 4 grid tiles (the label's whole box reached into its red box's rounded corners, so the box wasn't seen as covering it) | hidden text puts back its ink; a covering shape is looked for first |
+| Mustang setting pop-ups and lap summaries drawing in | anti-aliased fills for boxes that can't have a picture (a delta bar under them), ~60 rectangles | small-shapes rule only for picture candidates, 16 rectangles at most |
+| Overlays stacked in the demo | the lap's own pop-ups came up during a showcase turn | the demo holds other overlays off during a turn |
 | 488 slow to show its numbers | tyre-compound icons (4 stacked, all "visible" in the demo) drawn with ~840 fills | picture tiles; stacked states of one icon: the top one counts |
 
 ## Tuning and tools

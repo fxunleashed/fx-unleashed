@@ -158,7 +158,8 @@ through the base. In each game, bind your wheel buttons and paddles once to that
 
 Steering, pedals and force feedback stay on the base as before. The dash button has a button number of its own (41 with
 the current custom firmware; the Wheel tab shows it and lets you change it). Some games only list 32 buttons, so bind it to a plugin
-action instead (Wheel tab > Quick controls > Wheel buttons), e.g. "Next dash".
+action instead (Wheel tab > Quick controls > Wheel buttons), e.g. "Next dash". Dashes with pages (the built-in Mustang:
+tyres and brakes, or the delta bar) flip with "Next page" / "Previous page" (Dashes tab, Switch while driving).
 
 ## Updating, and going back to stock
 

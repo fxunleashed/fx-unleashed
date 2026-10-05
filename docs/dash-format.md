@@ -1,4 +1,4 @@
-# FX Pro dash format (FormatVersion 2)
+# FX Pro dash format (FormatVersion 3)
 
 > **Where this fits:** a reference for people who write dashes by hand or with an agent. If you just want to use or make dashes, start with the
 > [setup guide](https://fxunleashed.com/start/) (custom firmware, plugin, the screen's RAM patch, then dashes) and the
@@ -27,16 +27,20 @@ The machine-readable version of this page: `fxdash schema` or `GET /api/schema`.
 
 ```json
 {
-  "FormatVersion": 2,
+  "FormatVersion": 3,             // 3 = uses pages; a dash without pages is saved as 2 (older plugins load it)
   "Id": "my-dash",               // file name when saved; unique
   "Name": "My dash",             // shown in the dash list
   "Author": "", "Description": "",
   "Elements": [ ... ],           // drawn in order: later ones on top
   "Images": { "logo@120x40": "<base64 PNG>" },   // only for image elements
   "Source": "SimHub dash ...",   // set by the importer
-  "ScriptsFolder": "..."         // JavaScript helpers for js: bindings (imports)
+  "ScriptsFolder": "...",        // JavaScript helpers for js: bindings (imports)
+  "Pages": ["Tyres", "Delta"]    // optional: pages the driver flips through (see Pages)
 }
 ```
+
+A dash is saved with the lowest format that holds what it uses: format 3 only when it has pages, so a dash without pages
+still loads in plugins from before pages. A plugin refuses a dash made for a newer format rather than half-load it.
 
 ## Elements
 
@@ -55,6 +59,7 @@ Every element: `Type`, `Name` (shown in messages and the designer), `X`, `Y`, `W
 | `bar` | gauge fill | `Bind`, `Min`, `Max` (may be below `Min`), `Orientation` (horizontal / vertical), `Reverse`, `Color` (fill), `Fill` (empty part, optional) |
 | `deltabar` | segments filling from the centre | `Bind`, `Segments` (per side), `SegmentX` (left edges, 2 x Segments) or `Pitch`, `SegmentWidth`, `Range` (value of a full half), `PositiveColor` (left half, value > 0), `NegativeColor` (right half), `SegmentColor` |
 | `popup` | box shown for `Duration` s when a watched value changes | `Watch` [{`Bind`, `Label`, `Color`, `Format`}], `Font` (label), `ValueFont`, `Color` (text), `Radius` |
+| `dim` | while shown (`Visible`), the whole screen is darker by `Opacity` % (0-95), with the backlight: nothing is redrawn. SimHub dashes darken themselves with a see-through black layer (headlights on); the importer turns that into a `dim` | `Opacity`, `Visible` (no box) |
 
 Colours: `"#RRGGBB"`, `"#AARRGGBB"` (alpha blends shapes over what's under them) or colour names.
 
@@ -112,9 +117,26 @@ Formats: any .NET number format (`"0"`, `"0.0"`, `"0.00"`), `int`, `laptime` (m:
 - `PreviewVisible`: `false` = hidden in previews where the condition isn't evaluated (SimHub formulas), and in the
   demo where it can't be.
   The importer sets it for pop-ups and warnings.
+- `page:N` in `Visible`: the element is on page N (0 = the first) of the dash's `Pages`; see Pages.
 - `ColorBind`: a binding giving a colour (`"#FF0000"`, a colour name) or a number mapped through `ColorStops`
   `[{"Value": 0, "Color": "#00FF00"}, {"Value": 100, "Color": "#FF0000"}]` (blended between). Replaces `Color` for
   text, rects and bars, the fill for boxes/ellipses with a `Fill`.
+
+### Pages
+
+A dash can have pages the driver flips through while driving, like a SimHub widget whose screens are flipped with its
+screen commands (the Mustang flips its strip above the settings row between tyres / brakes and the delta bar):
+
+- `"Pages": ["Tyres", "Delta"]` names them, in order.
+- An element on a page has the condition `"page:N"` (0 = the first) in `Visible`, with any other conditions it has.
+  Elements without one show on every page.
+- The driver flips with a wheel button (Dashes tab, "Next page" / "Previous page"), or SimHub's actions
+  `FXProRpmSyncPlugin.UsbDashNextPage` / `UsbDashPreviousPage`; the dash comes back on the page it was left on. The
+  property `FXProRpmSyncPlugin.UsbDashPage` gives the page's name.
+- A flip is drawn like any condition: what leaves is put back, what comes is drawn, the rest stays. Keep a page to one
+  area (a strip, a panel) and a flip is a few KB. `fxdash verify` flips the pages during its lap and reports
+  `PageFlips` / `WorstPageFlipBytes`; checks never call elements on different pages overlapping.
+- Previews show page 0 (`fxdash render --page N`, `/api/render?page=N`, the designer's page buttons).
 
 ## Checks
 
@@ -123,6 +145,17 @@ will show it wrong, `warning` = costly or doubtful) and `cost` (`StaticSeconds`,
 backgrounds). Errors: text wider/taller than its box, missing glyphs, unknown types/fonts/images, text off the screen.
 Warnings: overlapping always-shown text, values without `Samples`, unknown data keys, busy value backgrounds, slow
 static layers.
+
+`fxdash verify DASH.json [--tiles] [--overlays] [--demo]` plays a demo lap on a simulated screen (traffic, flashes, drawing
+errors). `--demo` runs exactly what Demo on the wheel shows (the lap with the overlays taking turns, every other overlay held off
+during a turn) and lists updates where something came or went and other things were redrawn (`ChangeFlashes`) and the
+costliest ones (`SlowChanges`); `FXDASH_TRACE_AT=<seconds>` or `=FROM-TO` prints every command those updates send. `--overlays` then brings up every overlay in turn (each set of conditions elements share: flags, pit
+screens, warnings, ignition screens) on every page while the lap keeps running, the way the demo on the wheel does:
+what each sends when it comes and goes, and whether anything flashes while it shows. An overlay over most of the
+screen can't come or go for less than drawing the dash takes, so those are listed as `Notes`, not problems.
+`fxdash pictures DASH.json` lists what goes on the screen's RAM drive for shapes that come and go: each oval, frame,
+gradient or picture with a condition is kept there drawn over its own overlay (and over the overlays inside it), so
+it shows with one command.
 
 ## Sharing a dash
 

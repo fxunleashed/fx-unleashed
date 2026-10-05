@@ -17,7 +17,7 @@ namespace User.FXProRpmSync
     {
         object WheelStatus();
         /// <summary>Shows a dash on the wheel (live data while a game runs, else the demo lap) until Stop or ~60 s idle.</summary>
-        void ShowOnWheel(DashDefinition dash, int left, int top);
+        void ShowOnWheel(DashDefinition dash, int left, int top, int page, int overlay);
         void StopWheelPreview();
         /// <summary>Shows these LED colours (38, "#RRGGBB", null/"" = off) for `seconds`, over whatever the lights show.</summary>
         void TestLeds(string[] colours, int brightness, double seconds);
@@ -243,13 +243,16 @@ namespace User.FXProRpmSync
             ("PUT", "/api/dashes/{id}", "save the body as a dash (Id taken from the path)"),
             ("DELETE", "/api/dashes/{id}", "delete a saved dash"),
             ("POST", "/api/check[?left=L&top=T]", "body = dash: layout problems and draw cost"),
-            ("POST", "/api/render[?mode=preview|demo|live&seconds=N&left=L&top=T]", "body = dash: PNG as the wheel shows it"),
+            ("POST", "/api/render[?mode=preview|demo|live&seconds=N&left=L&top=T&page=N&overlay=K&tiles=1]", "body = dash: PNG as the wheel shows it (page N, overlay K shown, drawn from RAM pictures)"),
             ("GET", "/api/simhub", "installed SimHub dashes"),
             ("GET", "/api/simhub/screens?name=NAME", "screens of a SimHub dash"),
             ("POST", "/api/import", "body = {name|path, screen?, images?, colors?, maxSeconds?, fitWidth?, fitHeight?}: convert a SimHub dash -> {dash, report, check}"),
             ("GET", "/api/wheel", "wheel status (plugin only)"),
-            ("POST", "/api/wheel/show[?left=L&top=T]", "body = dash: show it on the wheel now (plugin only)"),
-            ("POST", "/api/verify[?seconds=N&left=L&top=T&tiles=1]", "body = dash: demo lap on a simulated wheel: traffic against the screen's 25 KB/s, flashes, drawing errors (tiles=1: as on a wheel with the RAM patch)"),
+            ("POST", "/api/wheel/show[?left=L&top=T&page=N&overlay=K]", "body = dash: show it on the wheel now, on page N, with overlay K shown (plugin only)"),
+            ("POST", "/api/overlays", "body = dash: its overlays (sets of conditions elements share): index, name, elements, conditions, parent"),
+            ("POST", "/api/pictures", "body = dash: what it keeps on the screen's RAM drive for shapes that come and go (bytes, variants)"),
+            ("POST", "/api/take-turns", "body = dash: values and bars half under an overlay hide while it shows; returns changes and the elements"),
+            ("POST", "/api/verify[?seconds=N&left=L&top=T&tiles=1&overlays=1]", "body = dash: demo lap on a simulated wheel: traffic against the screen's 25 KB/s, flashes, drawing errors (tiles=1: as on a wheel with the RAM patch; overlays=1: then each overlay shown in turn, on every page)"),
             ("POST", "/api/fit-bands", "body = dash: {changes, elements}: values whose text crosses a border line get a font that fits between the lines (elements is null when nothing changes)"),
             ("POST", "/api/wheel/stop", "back to the normal dash (plugin only)"),
             ("GET", "/api/props?names=A,B,...", "SimHub properties now, e.g. DataCorePlugin.GameData.NewData.Sector1Time (TimeSpans in seconds; plugin only)"),
@@ -336,7 +339,33 @@ namespace User.FXProRpmSync
                 // a few seconds of CPU: one run at a time, and no longer than two minutes of lap
                 lock (VerifyGate)
                     return Json(DashVerify.Run(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20),
-                        Math.Max(5, Math.Min(120, r.QD("seconds", 60))), tiles: r.QI("tiles", 0) == 1));
+                        Math.Max(5, Math.Min(120, r.QD("seconds", 60))), tiles: r.QI("tiles", 0) == 1, overlays: r.QI("overlays", 0) == 1));
+            }
+            if (path == "/api/overlays")
+            {
+                // the dash's overlays (sets of conditions elements share), for the overlay picker
+                var d = DashTools.Parse(r.Body);
+                return Json(new OverlayShowcase(d).Describe(d));
+            }
+            if (path == "/api/pictures")
+            {
+                // what the dash keeps on the screen's RAM drive for shapes that come and go
+                using (var ps = new PreviewScreen())
+                {
+                    var rd = new DashRenderer(ps, DashTools.Parse(r.Body), 0, 0);
+                    var list = rd.PictureList().ToList();
+                    var t = rd.Tiles;
+                    // the dash's own look (grid tiles, value bands) and the pictures, each file counted once
+                    int own = t.GridTiles.Concat(t.Bands.Values).Where(x => x.Jpeg != null).GroupBy(x => x.Name).Sum(g => g.First().Jpeg.Length);
+                    return Json(new { pictures = list, total = t.Bytes, own, shapes = t.Bytes - own, files = t.FileCount, budget = ScreenRam.Budget });
+                }
+            }
+            if (path == "/api/take-turns")
+            {
+                // values and bars half under an overlay hide while it shows (no redrawing the overlay at every change)
+                var d = DashTools.Parse(r.Body);
+                var changes = DashTune.TakeTurns(d);
+                return Json(new { changes, elements = changes.Count > 0 ? d.Elements : null });
             }
             if (path == "/api/fit-bands")
             {
@@ -350,7 +379,7 @@ namespace User.FXProRpmSync
                 var mode = r.Q("mode", "preview");
                 var live = mode == "live" ? host?.LiveValues() : null;
                 if (mode == "live" && live == null) mode = "demo";
-                var png = DashTools.Render(DashTools.Parse(r.Body), mode, r.QD("seconds", 20), r.QI("left", 0), r.QI("top", 0), live);
+                var png = DashTools.Render(DashTools.Parse(r.Body), mode, r.QD("seconds", 20), r.QI("left", 0), r.QI("top", 0), live, tiles: r.QI("tiles", 0) == 1, page: r.QI("page", 0), overlay: r.QI("overlay", -1));
                 return new Response { Type = "image/png", Body = png };
             }
             if (path == "/api/simhub") return Json(DashTools.SimHubDashes());
@@ -374,7 +403,7 @@ namespace User.FXProRpmSync
             if (path == "/api/wheel/show")
             {
                 if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);
-                host.ShowOnWheel(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20));
+                host.ShowOnWheel(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20), r.QI("page", 0), r.QI("overlay", -1));
                 return Json(new { shown = true, status = host.WheelStatus() });
             }
             if (path == "/api/wheel/stop") { host?.StopWheelPreview(); return Json(new { stopped = true }); }

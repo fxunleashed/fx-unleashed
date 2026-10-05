@@ -33,6 +33,7 @@ namespace User.FXProRpmSync
             ("gearText", "Gear as text (R, N, 1...)"), ("rpmPercent", "RPM as % of max"), ("gameRunning", "A game is running"),
             ("absActive", "ABS working now"), ("tcActive", "TC working now"), ("pitLimiter", "Pit limiter on"),
             ("spotterLeft", "A car on your left"), ("spotterRight", "A car on your right"), ("lapInvalid", "This lap is invalidated"),
+            ("page", "The dash's page shown now (0 = the first); \"page:N\" in Visible = only on page N"),
             ("clock", "Time of day, HH:mm (screensavers)"), ("date", "Date, e.g. SAT 27 SEP (screensavers)"),
         };
 
@@ -66,12 +67,17 @@ namespace User.FXProRpmSync
         /// </summary>
         public bool Preview;
 
+        /// <summary>The dash's page shown now (DashDefinition.Pages): "page" gives it, "page:N" is true on page N.</summary>
+        public int Page;
+
         public void Set(string key, object value) { if (value != null) v[key] = value; }
 
         /// <summary>The raw value of a binding: its own entry, else a built-in key it's an alias of (see Alias).</summary>
         public object Raw(string key)
         {
             if (key == null) return null;
+            if (key.StartsWith(DashPages.Prefix, StringComparison.OrdinalIgnoreCase)) { var p = DashPages.Parse(key); return p.HasValue ? (object)(p.Value == Page) : null; }
+            if (key.Equals("page", StringComparison.OrdinalIgnoreCase)) return (double)Page;
             if (v.TryGetValue(key, out var o)) return o;
             var alias = Alias(key);
             return alias != null && v.TryGetValue(alias, out o) ? o : null;
@@ -80,7 +86,7 @@ namespace User.FXProRpmSync
         private static readonly HashSet<string> keySet = new HashSet<string>(Keys.Select(k => k.Key), StringComparer.OrdinalIgnoreCase);
 
         /// <summary>A built-in key, or a SimHub binding that's an alias of one: it has a value without SimHub.</summary>
-        public static bool KnownKey(string bind) => !string.IsNullOrEmpty(bind) && (keySet.Contains(bind) || Alias(bind) != null || bind.StartsWith("saver.", StringComparison.OrdinalIgnoreCase));
+        public static bool KnownKey(string bind) => !string.IsNullOrEmpty(bind) && (keySet.Contains(bind) || Alias(bind) != null || bind.StartsWith("saver.", StringComparison.OrdinalIgnoreCase) || DashPages.Parse(bind).HasValue);
 
         /// <summary>The binding has a value here (or is an alias of a key that has one).</summary>
         public bool Has(string key) => Raw(key) != null;

@@ -1,4 +1,4 @@
-/* FX Pro Dash Studio: the FX Pro Unlocked look (black carbon, red neon, white lines), same as the plugin's settings. */
+/* FX Unleashed Dash Studio: the FX Unleashed look (black carbon, red neon, white lines), same as the plugin's settings. */
 :root {
   --page: #0a0b0d; --card: #121418; --raised: #1a1d23; --raised2: #22262e; --line: #262a31; --line2: #343944;
   --text: #eef0f3; --text2: #a1a8b3; --text3: #6a717c;
@@ -375,3 +375,26 @@ kbd { font-family: var(--display); font-size: 11px; background: var(--raised2); 
 .tr-prob .lv { display: flex; color: var(--amber); }
 .tr .note { color: var(--text3); font-size: 12px; margin-top: 10px; }
 .btn.small { height: 26px; padding: 0 10px; font-size: 12px; }
+.seg.pages button.on { background: var(--red); box-shadow: 0 0 12px rgba(255, 31, 45, .5); }
+
+/* pages editor */
+.pages-ed { display: grid; gap: 6px; margin-bottom: 8px; }
+.pg-row { display: grid; grid-template-columns: 28px 1fr 28px 28px 28px 28px; gap: 4px; align-items: center; padding: 3px; border-radius: 8px; }
+.pg-row.on { background: var(--raised); }
+.pg-num { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--text2); cursor: pointer; font-family: var(--display); }
+.pg-row.on .pg-num { background: var(--red); color: #fff; border-color: var(--red); }
+.pg-n { text-align: center; font-size: 11px; color: var(--text3); }
+/* overlay picker */
+#btnOverlay.on { border-color: var(--red); color: var(--text); box-shadow: 0 0 10px rgba(255, 31, 45, .35); }
+#btnOverlay #overlayText { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-menu { min-width: 300px; max-height: 60vh; overflow: auto; }
+.ov-menu .ov-head { padding: 8px 12px 6px; font-family: var(--display); font-size: 12.5px; }
+.ov-menu .ov-head small { display: block; color: var(--text3); font-family: var(--body); font-size: 11px; margin-top: 2px; }
+.ov-menu button span { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-menu button.on, .menu button.on { color: var(--text); background: var(--raised); }
+.tr-row.ov { grid-template-columns: 1fr 70px 70px 70px; cursor: pointer; }
+.tr-row.ov em { color: var(--text3); font-style: normal; font-size: 11px; margin-left: 6px; }
+.tr-row.ov.err span:first-child { color: var(--red); }
+.tr h4 .btn.small { margin-left: 8px; vertical-align: middle; }
+.ov-menu .ov-sec { padding: 8px 12px 4px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); }
+.ov-menu button span small { display: block; font-size: 10.5px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono, monospace); }

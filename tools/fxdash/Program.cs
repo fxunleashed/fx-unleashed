@@ -18,9 +18,9 @@ internal static class FxDash
   fxdash fonts [--sample TEXT]               screen fonts: id, height, characters, width of TEXT
   fxdash suggest-font W H TEXT [--height PX] best font for a W x H box showing TEXT
   fxdash check DASH.json [--pad L,T]         layout problems and draw cost (exit 1 if errors)
-  fxdash render DASH.json OUT.png [--mode preview|demo] [--seconds N] [--pad L,T]
+  fxdash render DASH.json OUT.png [--mode preview|demo] [--seconds N] [--pad L,T] [--page N]
                                              picture of the dash as the wheel shows it
-  fxdash verify DASH.json [--seconds N] [--pad L,T]
+  fxdash verify DASH.json [--seconds N] [--pad L,T] [--overlays] [--tiles] [--demo]
                                              the demo lap on a simulated wheel: USB traffic, flashes, drawing
                                              errors, top senders (exit 1 if not ok; default pad 10,20, 120 s)
   fxdash tune DASH.json [OUT.json]           automatic fixes for an import: samples from a demo lap, fonts, labels,
@@ -71,8 +71,26 @@ internal static class FxDash
                     Need(pos, 3);
                     var mode = opts.TryGetValue("mode", out var m) ? m : "preview";
                     double seconds = opts.TryGetValue("seconds", out var sec) ? double.Parse(sec) : 20;
-                    File.WriteAllBytes(pos[2], DashTools.Render(Load(pos[1]), mode, seconds, pad.L, pad.T, null, opts.ContainsKey("tiles")));
-                    return Out(new { written = Path.GetFullPath(pos[2]), mode });
+                    int page = opts.TryGetValue("page", out var pg) ? int.Parse(pg) : 0;
+                    File.WriteAllBytes(pos[2], DashTools.Render(Load(pos[1]), mode, seconds, pad.L, pad.T, null, opts.ContainsKey("tiles"), page));
+                    return Out(new { written = Path.GetFullPath(pos[2]), mode, page });
+                }
+                case "pictures":
+                {
+                    // the pictures a dash keeps on the screen's RAM drive for shapes that come and go
+                    Need(pos, 2);
+                    using (var ps = new PreviewScreen())
+                    {
+                        var pr = new DashRenderer(ps, Load(pos[1]), 0, 0);
+                        var list = pr.PictureList().ToList();
+                        // --files DIR: every file the dash puts on the drive, as it goes there
+                        if (opts.TryGetValue("files", out var dir))
+                        {
+                            Directory.CreateDirectory(dir);
+                            foreach (var f in pr.Tiles.Files) File.WriteAllBytes(Path.Combine(dir, f.Name), f.Jpeg);
+                        }
+                        return Out(list);
+                    }
                 }
                 case "verify":
                 {
@@ -80,7 +98,7 @@ internal static class FxDash
                     Need(pos, 2);
                     double vsec = opts.TryGetValue("seconds", out var vs) ? double.Parse(vs, System.Globalization.CultureInfo.InvariantCulture) : 120;
                     var vpad = opts.ContainsKey("pad") ? pad : (10, 20);
-                    var vr = DashVerify.Run(Load(pos[1]), vpad.Item1, vpad.Item2, vsec, tiles: opts.ContainsKey("tiles"));
+                    var vr = DashVerify.Run(Load(pos[1]), vpad.Item1, vpad.Item2, vsec, tiles: opts.ContainsKey("tiles"), overlays: opts.ContainsKey("overlays"), demoShowcase: opts.ContainsKey("demo"));
                     Out(vr);
                     return vr.Ok ? 0 : 1;
                 }
@@ -196,8 +214,9 @@ internal static class FxDash
             if (args[i].StartsWith("--"))
             {
                 var key = args[i].Substring(2);
-                bool flag = key == "no-images" || key == "tiles" || key == "maintained";
-                opts[key] = flag || i + 1 >= args.Length ? "" : args[++i];
+                bool flag = key == "no-images" || key == "tiles" || key == "maintained" || key == "overlays" || key == "demo";
+                // (an option is never another option's value)
+                opts[key] = flag || i + 1 >= args.Length || args[i + 1].StartsWith("--") ? "" : args[++i];
             }
             else positional.Add(args[i]);
         }

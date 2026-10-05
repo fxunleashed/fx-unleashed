@@ -42,6 +42,8 @@ namespace User.FXProRpmSync
                 ["Id"] = "unique id (file name when saved)", ["Name"] = "shown in the dash list", ["Author"] = "", ["Description"] = "",
                 ["Elements"] = "list, drawn in order (later on top)", ["Images"] = "name -> base64 PNG, for image elements",
                 ["Source"] = "where an import came from", ["ScriptsFolder"] = "JavaScript helpers for js: bindings",
+                ["Pages"] = "optional: names of the pages the driver flips through (Next / Previous page); an element is on page N with \"page:N\" (0 = the first) in Visible, on every page without one. Saved as format 3 only when used",
+                ["FormatVersion"] = "2, or 3 for a dash with pages (older plugins refuse format 3 rather than show every page at once)",
             },
             elementTypes = new Dictionary<string, string>
             {
@@ -55,12 +57,13 @@ namespace User.FXProRpmSync
                 ["bar"] = "gauge fill: Bind, Min, Max (may be below Min), Orientation horizontal|vertical, Reverse, Color (fill), Fill (empty part, optional)",
                 ["deltabar"] = "segments filling from the centre: Bind, Segments (per side), SegmentX or Pitch, SegmentWidth, Range, PositiveColor (left), NegativeColor (right), SegmentColor",
                 ["popup"] = "box shown for Duration s when a Watch value changes: Watch [{Bind, Label, Color, Format}], Font, ValueFont, Color (text), Radius",
+                ["dim"] = "while Visible holds, the whole screen darker by Opacity % (0-95) with the backlight; nothing redrawn (SimHub's see-through black layer over a dash). No box",
             },
             commonFields = new Dictionary<string, string>
             {
                 ["Type"] = "see elementTypes", ["Name"] = "for messages and the designer",
                 ["X,Y,W,H"] = "box in screen pixels (0,0 = top left of 800x480)",
-                ["Visible"] = "condition(s): a binding or list of bindings, all must be true (number != 0, true, non-empty text)",
+                ["Visible"] = "condition(s): a binding or list of bindings, all must be true (number != 0, true, non-empty text); \"page:N\" = only on page N",
                 ["ColorBind"] = "binding giving a colour (#RRGGBB, #AARRGGBB, name) or a number mapped through ColorStops",
                 ["ColorStops"] = "[{Value, Color}] blended between, for a numeric ColorBind",
                 ["Opacity"] = "0-100 for shapes",
@@ -79,6 +82,9 @@ namespace User.FXProRpmSync
                 "Text wider than its box wraps onto a line the screen doesn't show: give values Samples.",
                 "The static layer draws at 25 KB/s when the dash starts (check's cost.StaticSeconds).",
                 "A value on a busy background (image, gradient) redraws that area on every change; plain backgrounds are fastest.",
+                "A value or bar half under an overlay's box redraws the box at every change while it shows: it should hide while the overlay shows (\"ncalc:!(<the overlay's conditions>)\", fxdash's take-turns fix), or be fully under it.",
+                "Overlays: check them all with `fxdash verify --overlays` (each brought up in turn on every page; --tiles as on a wheel with the screen's RAM patch).",
+                "With the RAM patch, shapes that come and go (and a colour formula landing on its ColorStops) are kept as pictures on the screen: one command each.",
             },
         });
 
@@ -274,20 +280,24 @@ namespace User.FXProRpmSync
         /// A PNG of the dash as the wheel would show it. mode "preview": values show their PreviewText/samples and
         /// SimHub-only conditions count as met (like a designer); "demo": `seconds` of the simulated lap.
         /// </summary>
-        public static byte[] Render(DashDefinition d, string mode = "preview", double seconds = 20, int left = 0, int top = 0, DashValues values = null, bool tiles = false)
+        public static byte[] Render(DashDefinition d, string mode = "preview", double seconds = 20, int left = 0, int top = 0, DashValues values = null, bool tiles = false, int page = 0, int overlay = -1)
         {
+            page = Math.Max(0, Math.Min(d.PageCount - 1, page));
+            // an overlay shown (the designer's overlay picker): its conditions true, as OverlayShowcase brings it up
+            var force = new OverlayShowcase(d).ForceFor(overlay);
+            DashValues Shown(DashValues v) { if (force != null) foreach (var kv in force) v.Set(kv.Key, kv.Value); return v; }
             using (var p = new PreviewScreen())
             {
                 var r = new DashRenderer(p, d, left, top);
                 if (tiles) { r.EnableTiles(); r.UseTiles(true); } // as on a wheel with the RAM drive: full-colour pictures
                 r.DrawAll();
-                if (values != null) r.Update(values, 0);
+                if (values != null) { values.Page = page; r.Update(Shown(values), 0); }
                 else if (mode == "demo")
                 {
                     var demo = new UsbDemo(d) { BudgetMs = null };
-                    for (double t = 0.1; t <= seconds; t += 0.1) r.Update(demo.Step(0.1), t);
+                    for (double t = 0.1; t <= seconds; t += 0.1) { var v = demo.Step(0.1); v.Page = page; r.Update(Shown(v), t); }
                 }
-                else r.Update(new DashValues { Preview = true, Running = true }, 0);
+                else r.Update(Shown(new DashValues { Preview = true, Running = true, Page = page }), 0);
                 return p.Png();
             }
         }
@@ -306,7 +316,7 @@ namespace User.FXProRpmSync
             if (BuiltInDashes.All().Any(b => b.Id == d.Id)) throw new Exception($"\"{d.Id}\" is a built-in dash: save it under another Id");
             Directory.CreateDirectory(DashLibrary.Folder);
             var file = Path.Combine(DashLibrary.Folder, string.Concat(d.Id.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + ".json");
-            d.FormatVersion = DashDefinition.CurrentFormat;
+            d.FormatVersion = d.RequiredFormat;
             File.WriteAllText(file, Serialize(d));
             return file;
         }

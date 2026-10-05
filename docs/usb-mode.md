@@ -17,7 +17,7 @@ Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) 
 |---|---|---|
 | A game is running (SimHub has data) | The chosen custom dash (built in: LMGT3 Ford Mustang GT3) | The chosen preset, or ATSR-Hub |
 | No game | The plugin's logo with a rev-light sweep (option) | Ambient effects only (option; rev lights dark, no alerts) |
-| Demo / Test button | The dash, fed by a simulated lap (every value, SimHub formulas included) | As in a game |
+| Demo / Test button | The dash, fed by a simulated lap (every value, SimHub formulas included); Demo also brings up each of the dash's overlays in turn (3 s each, 2 s of plain dash between, the other overlays held off meanwhile) and flips pages with the buttons next to it | As in a game |
 | USB mode off, wheel unplugged, SimHub closed | The wheel's own dash (`page dp`) | SimPro's colours |
 
 ## Setup

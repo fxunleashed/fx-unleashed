@@ -20,13 +20,17 @@ namespace User.FXProRpmSync
     ///  - bar: a fill from Min to Max (horizontal or vertical).
     ///  - deltabar: two rows of segments filling from the centre (positive = left half, negative = right).
     ///  - popup: a box shown for a few seconds when one of its watched values changes (TC, ABS, map...).
+    ///  - dim: while shown (Visible), the whole screen is darker by its Opacity %, with the backlight (nothing redrawn):
+    ///    SimHub's see-through black layer over a dash (headlights on) without redrawing every value under it.
     /// Colours "#RRGGBB" or "#AARRGGBB" (alpha blends shapes over what's under them). Text uses the screen's fonts by id;
     /// their real sizes are in FontMetrics (text wider than its box wraps onto a line the screen doesn't show, so
     /// DashRenderer.Check measures it).
     /// </summary>
     public class DashDefinition
     {
-        public const int CurrentFormat = 2;
+        /// <summary>The newest format this plugin reads. 3 = pages (Pages / "page:N" conditions); a dash is saved with the
+        /// lowest format that holds what it uses (RequiredFormat), so dashes without pages still load in older plugins.</summary>
+        public const int CurrentFormat = 3;
 
         public int FormatVersion = CurrentFormat;
         public string Id;
@@ -40,6 +44,12 @@ namespace User.FXProRpmSync
         public string Source;
         /// <summary>Folder of JavaScript helpers its js: bindings call (an imported SimHub dash's JavascriptExtensions).</summary>
         public string ScriptsFolder;
+        /// <summary>
+        /// Pages the driver flips through (Next / Previous page actions, a wheel button): their names, in order. Elements
+        /// on one page carry the condition "page:N" (0 = the first) in Visible; elements without one show on every page.
+        /// Null = no pages. See DashPages.
+        /// </summary>
+        public List<string> Pages;
 
         [JsonIgnore] public bool BuiltIn;
         /// <summary>Comes inside the plugin (BundledDashes): read-only like a built-in, and replaced by a file with the same Id in the dashes folder.</summary>
@@ -54,11 +64,59 @@ namespace User.FXProRpmSync
                     .Where(b => !string.IsNullOrEmpty(b)).Distinct();
 
         public DashDefinition Clone() => JsonConvert.DeserializeObject<DashDefinition>(JsonConvert.SerializeObject(this));
+
+        /// <summary>How many pages it flips through: its Pages, or the highest "page:N" any element uses (1 = no pages).</summary>
+        [JsonIgnore]
+        public int PageCount => Math.Max(Math.Max(1, Pages?.Count ?? 0), Elements.Select(DashPages.PageOf).Where(p => p.HasValue).Select(p => p.Value + 1).DefaultIfEmpty(1).Max());
+
+        /// <summary>The lowest format that holds what this dash uses (what it's saved as): 3 with pages, else 2.</summary>
+        [JsonIgnore]
+        public int RequiredFormat => (Pages != null && Pages.Count > 0) || Elements.Any(e => DashPages.PageOf(e).HasValue) ? 3 : 2;
+
+        /// <summary>A page's name ("Page 2" when it has none).</summary>
+        public string PageName(int page) => Pages != null && page >= 0 && page < Pages.Count && !string.IsNullOrWhiteSpace(Pages[page]) ? Pages[page] : "Page " + (page + 1);
+    }
+
+    /// <summary>
+    /// Pages of a dash: an element is on page N when its Visible holds "page:N"; the values snapshot carries the page shown
+    /// now (DashValues.Page), so "page:N" is a condition like any other and the renderer shows/hides a page's elements with
+    /// the same repaint as any condition (only the page's area is drawn on a flip).
+    /// </summary>
+    public static class DashPages
+    {
+        public const string Prefix = "page:";
+
+        public static string Condition(int page) => Prefix + page.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        /// <summary>The page in a condition ("page:2" -> 2), or null.</summary>
+        public static int? Parse(string cond)
+        {
+            if (cond == null || !cond.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)) return null;
+            return int.TryParse(cond.Substring(Prefix.Length).Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n) && n >= 0 ? n : (int?)null;
+        }
+
+        /// <summary>The page an element is on, or null (every page).</summary>
+        public static int? PageOf(DashElement e)
+        {
+            if (e?.Visible == null) return null;
+            foreach (var c in e.Visible) { var p = Parse(c); if (p.HasValue) return p; }
+            return null;
+        }
+
+        /// <summary>Never shown together: on two different pages.</summary>
+        public static bool Apart(DashElement a, DashElement b)
+        {
+            var pa = PageOf(a); var pb = PageOf(b);
+            return pa.HasValue && pb.HasValue && pa.Value != pb.Value;
+        }
+
+        /// <summary>`page` moved by `step`, wrapping round `count`.</summary>
+        public static int Step(int page, int step, int count) => count <= 1 ? 0 : (((page + step) % count) + count) % count;
     }
 
     public class DashElement
     {
-        /// <summary>rect | ellipse | box | gradient | image | label | value | bar | deltabar | popup</summary>
+        /// <summary>rect | ellipse | box | gradient | image | label | value | bar | deltabar | popup | dim</summary>
         public string Type;
         public string Name;
         public int X, Y, W, H;
@@ -155,7 +213,7 @@ namespace User.FXProRpmSync
         [JsonIgnore]
         public bool IsDynamic =>
             (Visible != null && Visible.Count > 0) || !string.IsNullOrEmpty(ColorBind) ||
-            Type == "value" || Type == "bar" || Type == "deltabar" || Type == "popup";
+            Type == "value" || Type == "bar" || Type == "deltabar" || Type == "popup" || Type == "dim";
     }
 
     public class ColorStop
@@ -297,152 +355,31 @@ namespace User.FXProRpmSync
     {
         public const string MustangId = "lmgt3-mustang";
         /// <summary>The version the library's item for the Mustang (same id) carries; the plugin has it built in, so the library shows it as installed.</summary>
-        public const string MustangLibraryVersion = "1.0.0";
+        public const string MustangLibraryVersion = "1.1.0";
 
         public static IEnumerable<DashDefinition> All()
         {
             yield return MustangGt3();
         }
 
-        /// <summary>SimHub 1200x720 coordinates to the screen's 800x480 (2/3).</summary>
-        private static int S(double v) => (int)Math.Round(v * 2 / 3);
-
-        /// <summary>A rectangle from SimHub coordinates, scaled (edges rounded like FXProDashes tools/dash).</summary>
-        private static DashElement At(string type, double x, double y, double w, double h)
-        {
-            return new DashElement { Type = type, X = S(x), Y = S(y), W = S(x + w) - S(x), H = S(y + h) - S(y) };
-        }
-
-        private static DashElement E(string type, int x, int y, int w, int h) => new DashElement { Type = type, X = x, Y = y, W = w, H = h };
+        private static string mustangJson;
 
         /// <summary>
-        /// The MAIN screen of SimHub's "LMGT3 Ford Mustang GT3" dash, scaled 2/3 and fitted to the FX Pro (FXProDashes
-        /// docs/custom-dash.md; verified on the wheel 2026-09-27). Fonts chosen by their real widths: values in the
-        /// narrow "963" family (101 = 32 px, 98 = 40, 100 = 50), labels S 20 px (14) / 16 px (12), gear font 117.
-        /// Below the divider the layout is squeezed ~18 px so it fits with 20 px of top padding.
+        /// Redadeg's SimHub dash "LMGT3 Ford Mustang GT3" converted 1:1 (tools/dashes/make_mustang.py writes
+        /// Usb/BuiltIn/lmgt3-mustang.json, embedded in the plugin): MAIN with all its overlays, the tyres / delta strip as
+        /// two pages, the ignition screens, the headlights' dim. A fresh copy each call (callers may change it).
         /// </summary>
         public static DashDefinition MustangGt3()
         {
-            const string grey = "#D3D3D3", blue = "#428AED", navy = "#1B1F3C";
-            var d = new DashDefinition
-            {
-                Id = MustangId,
-                Name = "LMGT3 Ford Mustang GT3",
-                Author = "Redadeg (lmu-dashboards.com)",
-                Description = "Converted for the FX Pro by FX Unleashed from Redadeg's SimHub dash \"LMGT3 Ford Mustang GT3\" (https://lmu-dashboards.com).",
-                Source = "Redadeg's SimHub dash \"LMGT3 Ford Mustang GT3\", https://lmu-dashboards.com",
-                BuiltIn = true,
-            };
-            var el = d.Elements;
-
-            // Shapes
-            var oval = At("ellipse", 313, 54, 571, 230);
-            oval.Color = "#FFFFFF"; oval.Fill = navy; oval.Border = 4; oval.Name = "oval";
-            el.Add(oval);
-            foreach (var y in new[] { 91, 183, 280 }) el.Add(Rect(0, S(y), S(220), 2, blue));
-            foreach (var y in new[] { 108, 200, 297 }) el.Add(Rect(S(946), S(y), S(220), 2, blue));
-            var divider = At("rect", 45, 402, 1120, 4); divider.Color = blue; el.Add(divider);
-            foreach (var x in new[] { 496, 626, 764, 899, 1034 })
-            {
-                var mark = At("rect", x + 80, 416, 10, 30); mark.Color = "#FF0000"; el.Add(mark);
-            }
-
-            // Delta bar: 14 segments, 70 px tall (80 scaled, squeezed)
-            el.Add(new DashElement
-            {
-                Type = "deltabar", Name = "delta bar", Bind = "delta", X = S(574), Y = 303, H = 70,
-                Segments = 7, SegmentX = Enumerable.Range(0, 14).Select(k => S(574 + 40 * k)).ToArray(), SegmentWidth = S(604) - S(574),
-                Range = 1, PositiveColor = "#FF0000", NegativeColor = "#00FF00", SegmentColor = "#808080",
-            });
-
-            // Bottom row: 8 boxes, 62 px tall, right under the bar
-            string[] names = { "Map", "Throttle", "TC", "TC LON", "TC LAT", "ABS", "PAS", "Lap" };
-            string[] shortNames = { "Map", "Throt", "TC", "TCLon", "TCLat", "ABS", "PAS", "Lap" };
-            string[] colours = { "#3277AE", "#BA6234", "#28598B", "#0000FF", "#00AAF5", "#FFFF00", "#534A64", "#D3D3D3" };
-            string[] binds = { "engineMap", "throttleMap", "tcLevel", "tcCut", "tcSlip", "absLevel", "pas", "lap" };
-            int[] xs = { 40, 180, 320, 462, 608, 750, 890, 1030 };
-            var boxes = new List<DashElement>();
-            for (int i = 0; i < 8; i++)
-            {
-                int x = S(xs[i]), w = S(xs[i] + 130) - x, y = 379, h = 62;
-                el.Add(new DashElement { Type = "box", Name = names[i], X = x, Y = y, W = w, H = h, Color = colours[i], Border = 3, Radius = 10 });
-                boxes.Add(new DashElement { Type = "label", Text = shortNames[i], X = x + 3, Y = y + 3, W = w - 6, H = 16, Font = 12, Color = colours[i], Align = "center" });
-                boxes.Add(new DashElement
-                {
-                    Type = "value", Name = names[i], Bind = binds[i], Format = "int", X = x + 8, Y = y + 19, W = w - 16, H = 40,
-                    Font = 98, Color = grey, Align = "center", Samples = new[] { "88" },
-                });
-            }
-
-            // Labels
-            el.Add(Label("Fuel Last Lap", At("label", 0, 0, 346, 38), 14, grey, "left"));
-            el.Add(Label("Fuel +/-", At("label", 0, 93, 346, 38), 14, grey, "left"));
-            el.Add(Label("Fuel Lap", At("label", 0, 188, 346, 38), 14, grey, "left"));
-            el.Add(Label("Fuel Remain", At("label", 0, 290, 346, 38), 14, grey, "left"));
-            el.Add(Label("Last Lap", At("label", 896, 17, 270, 38), 14, grey, "right"));
-            el.Add(Label("Delta", At("label", 906, 110, 260, 38), 14, grey, "right"));
-            el.Add(Label("Predicted", At("label", 906, 205, 260, 38), 14, grey, "right"));
-            el.Add(Label("VE Remain", At("label", 906, 307, 260, 38), 14, grey, "right"));
-            el.Add(Label("Bias", E("label", 270, 231, 65, 33), 14, grey, "center"));
-            el.Add(Label("Laptime", E("label", 57, 292, 173, 25), 14, grey, "left"));
-            el.Add(Label("Pos.", E("label", 250, 273, 62, 26), 14, grey, "left"));
-            el.AddRange(boxes.Where(b => b.Type == "label"));
-
-            // Values
-            el.Add(Value("fuel last lap", "fuelLastLap", "0.00", E("value", 0, 25, 125, 32), 101, "left", "-.--", "88.88"));
-            el.Add(Value("fuel", "fuel", "0.0", At("value", 0, 131, 187, 50), 101, "left", "-", "88.8"));
-            el.Add(Value("fuel this lap", "fuelThisLap", "0.00", At("value", 0, 227, 187, 50), 101, "left", "-.--", "8.88"));
-            el.Add(Value("fuel remain laps", "fuelRemainingLaps", "0.0", At("value", 0, 332, 187, 50), 101, "left", "-.-", "888.8"));
-            el.Add(Value("last lap", "lastLapTime", "laptime", E("value", 577, 37, 200, 32), 101, "right", "-:--.---", "8:88.888"));
-            var delta = Value("delta", "delta", "delta", At("value", 906, 148, 260, 50), 101, "right", "-.--", "+8.88", "-8.88");
-            delta.PositiveColor = "#FF0000"; delta.NegativeColor = "#00FF00";
-            el.Add(delta);
-            el.Add(Value("predicted", "predictedLap", "laptime", E("value", 577, 163, 200, 34), 101, "right", "-:--.---", "8:88.888"));
-            el.Add(Value("ve", "virtualEnergy", "0.0", At("value", 906, 349, 260, 50), 101, "right", "-", "100.0"));
-            el.Add(Value("speed", "speed", "0", E("value", 347, 0, 107, 36), 101, "center", "0", "388"));
-            var gear = Value("gear", "gear", "gear", At("value", 520, 80, 160, 180), 117, "center", "N", "N", "R", "8");
-            gear.Background = navy;
-            el.Add(gear);
-            var session = Value("session", "sessionTypeName", "text", E("value", 219, 100, 127, 20), 12, "left", "", "PRACTICE", "QUALIFY");
-            session.Background = navy; session.Color = "#FFFFFF";
-            el.Add(session);
-            el.Add(Value("bias", "brakeBias", "0.00", E("value", 340, 229, 120, 37), 101, "center", "-", "88.88"));
-            el.Add(Value("lap time", "currentLapTime", "laptime", E("value", 57, 318, 309, 50), 100, "left", "-:--.---", "8:88.888"));
-            el.Add(Value("position", "position", "int", E("value", 314, 273, 59, 25), 14, "right", "-", "20"));
-            el.AddRange(boxes.Where(b => b.Type == "value"));
-
-            // Pop-up over the middle when a setting changes (SimHub shows it for 2 s)
-            el.Add(new DashElement
-            {
-                Type = "popup", Name = "setting change", X = 280, Y = 229, W = 237, H = 167, Radius = 10, Font = 101, ValueFont = 35, Duration = 2,
-                Color = "#000000",
-                Watch = new List<PopupWatch>
-                {
-                    new PopupWatch { Bind = "tcLevel", Label = "TC", Color = "#28598B" },
-                    new PopupWatch { Bind = "tcCut", Label = "TC LON", Color = "#0000FF" },
-                    new PopupWatch { Bind = "tcSlip", Label = "TC LAT", Color = "#00AAF5" },
-                    new PopupWatch { Bind = "absLevel", Label = "ABS", Color = "#FFFF00" },
-                    new PopupWatch { Bind = "engineMap", Label = "Map", Color = "#3277AE" },
-                    new PopupWatch { Bind = "brakeBias", Label = "Bias", Color = grey, Format = "0.0" },
-                },
-            });
+            if (mustangJson == null)
+                using (var st = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("User.FXProRpmSync.BuiltIn." + MustangId + ".json"))
+                    mustangJson = st == null ? "" : new StreamReader(st).ReadToEnd();
+            var d = mustangJson.Length > 0 ? JsonConvert.DeserializeObject<DashDefinition>(mustangJson) : null;
+            if (d?.Elements == null) d = new DashDefinition { Name = "LMGT3 Ford Mustang GT3", Description = "missing from this build of the plugin" };
+            d.Id = MustangId;
+            d.BuiltIn = true;
+            d.ScriptsFolder = null;
             return d;
-        }
-
-        private static DashElement Rect(int x, int y, int w, int h, string colour) =>
-            new DashElement { Type = "rect", X = x, Y = y, W = w, H = h, Color = colour };
-
-        private static DashElement Label(string text, DashElement at, int font, string colour, string align)
-        {
-            at.Type = "label"; at.Text = text; at.Name = text; at.Font = font; at.Color = colour; at.Align = align;
-            return at;
-        }
-
-        private static DashElement Value(string name, string bind, string format, DashElement at, int font, string align, string empty, params string[] samples)
-        {
-            at.Type = "value"; at.Name = name; at.Bind = bind; at.Format = format; at.Font = font; at.Align = align;
-            at.Color = "#D3D3D3"; at.Empty = empty; at.Samples = samples;
-            return at;
         }
     }
 }

@@ -380,6 +380,10 @@ namespace User.FXProRpmSync
             this.AddAction("UsbSleepNow", (a, b) => Usb?.SleepNow());
             this.AddAction("UsbWake", (a, b) => Usb?.Wake());
             this.AttachDelegate("UsbDash", () => Usb?.ActiveDashName ?? "");
+            // Unlocked mode: flip the shown dash's pages (dashes with pages, e.g. the Mustang's tyres / delta strip).
+            this.AddAction("UsbDashNextPage", (a, b) => Usb?.StepPage(+1));
+            this.AddAction("UsbDashPreviousPage", (a, b) => Usb?.StepPage(-1));
+            this.AttachDelegate("UsbDashPage", () => Usb?.DashPageName ?? "");
             RegisterQuickControls();
             RegisterFeedProblem();
             Usb = new UsbController(this);

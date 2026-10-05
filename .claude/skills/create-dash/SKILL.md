@@ -47,8 +47,21 @@ $FX tune out.json > tune.json               # the automatic fixes below (1-5); l
 - `--fit 790,460` scales it into the area the wheel shows: 800x480 minus the default 10 px left and 20 px top
   padding. Always use it.
 - Read `report.json`: `report.SkippedTypes` (what couldn't be converted), `report.Notes` (what the importer changed),
-  `check`. SimHub items with no FX Pro equivalent (maps, leaderboards, graphs) are skipped; say which ones in your
-  summary.
+  `check`. SimHub items with no FX Pro equivalent (maps, graphs) are skipped; say which ones in your summary.
+- What the importer carries over by itself (check it in the report, don't redo it):
+  - **pages**: widget screens the original flips with a pair of commands (Redadeg's `ueberLeiste`: Tyres / Delta) become
+    `Pages` with `"page:N"` conditions; only widgets flipped by the same command pair count (a "Low NRG" widget with its
+    own commands stays an overlay);
+  - **overlay screens** (flags, pit, ignition): imported with their trigger condition and a background rect;
+  - **blinking** (`BlinkEnabled`): `ncalc:blink('name-n', delay ?? 250, true)` (SimHub's default delay is 250 ms);
+  - **layer opacity** multiplies into the colours; a big black see-through rect becomes a `dim` element (the screen's
+    backlight goes down while it shows: `DimPercent`);
+  - **leaderboard items** (driver ahead/behind in class, names, best laps, gaps) as `ncalc:` formulas with SimHub's
+    leaderboard functions; speed text as `ncalc:[SpeedLocal]` (the user's unit).
+- **NCalc strings: a backslash escapes.** A .NET time format inside a formula needs it doubled
+  (`'mm\\:ss\\.fff'`), or SimHub fails live with "no viable alternative at character ':'" while the demo looks fine.
+  The importer doubles them; anything you write by hand, check with SimHub's parser (the UsbTest check "formulas
+  parse" in `tools/UsbTest/PagesTests.cs` runs every formula of a dash through it).
 - The importer hides pop-ups in previews (`PreviewVisible: false`), shrinks colliding labels and values, and turns
   `library:` images into rectangles. Look at `out.png`, and at the SimHub dash's own picture (`<name>.djson.png` in
   `C:\Program Files (x86)\SimHub\DashTemplates\<dash>\`).
@@ -192,7 +205,49 @@ $FX check dash.json --pad 10,20 > check.json      # errors: text that doesn't fi
 $FX fit-bands dash.json                           # nudges values or picks a slightly smaller font so text rows
                                                   # clear border lines; rewrites the file, lists changes
 $FX verify dash.json > verify.json                # 120 s demo lap on a simulated wheel (exit 1 if not ok)
+$FX verify dash.json --overlays --tiles > v2.json # then every overlay in turn on every page, as on a wheel with
+                                                  # the RAM patch; drop --tiles for a wheel without it
+$FX verify dash.json --tiles --demo --seconds 300 > v3.json   # exactly the wheel's demo: the lap with the overlays
+                                                  # taking turns, several at once as it happens there
 ```
+
+**`--demo`** is what the user sees when they press Demo, and what to run when they report flashes or redraws in it. The
+demo (`OverlayShowcase.Apply`) gives each overlay a 3 s turn with 2 s of plain dash between; during a turn every other
+overlay is held off (its conditions false, its take-turns negations true), so the lap's own setting pop-ups and lap
+summaries never stack on a flag or pit screen. Only the demo does that: on a real drive overlays come as the data says.
+`ChangeFlashes`: updates where something came or went and pixels *outside* what changed were wiped and drawn again (the
+elements there in `At`); `SlowChanges`: the costliest of those updates. `FXDASH_TRACE_AT=<seconds>` (or `FROM-TO`) prints
+every command those updates send and why (repaints, pictures used or not, what got marked). What it found in the Mustang
+(2026-10-04), all renderer fixes now: a blinking label put back four whole tiles each blink (its box's solid background
+wasn't seen because the repaint used the label's whole box, into the rounded corners, instead of its text); a pop-up
+going under the pit screen repainted everything because rounded boxes never counted as covering; boxes that can't have
+a picture (a bar under them) were drawn anti-aliased, three times the rectangles. After the fixes its 300 s demo has no
+flashing update and a busiest second of 7.5 KB (was 23.5 KB); what's left is an 8-pixel sliver over the TC labels when
+a pop-up's area comes back from tiles (fills there would take ~300 rectangles: slower, so tiles stay).
+
+What the renderer does for these now (so a dash doesn't need to work around them):
+- an element that hides puts back only its text's ink (a label) or its box (a shape);
+- a repaint looks first for a solid shape still shown under all of the area (an overlay's box): then only that box and
+  what's on it are drawn, never tiles or static labels;
+- a rounded box counts as covering all but its corners (`SolidParts`): what goes away under it is put back only where
+  it shows.
+
+**A dash with overlays** (flags, pit screens, warnings, start-up screens: most SimHub imports) needs `--overlays`: the demo
+lap never reaches most of them. It brings each one up over the running lap (its parent first, staged items on their
+timing) and reports, per overlay and page, `ShowBytes` / `HideBytes` (with `ShowBy` / `HideBy`: what sent them),
+flashes while it shows, and drawing errors. `Events` lists every condition change of the plain lap with its bytes.
+Diagnostics: `FXDASH_TRACE=<text in an overlay's name>` prints what its updates draw and why (`FXDASH_TRACE_ALL=1`:
+every update); `FXDASH_DUMP=<folder>` saves both screens when they stop matching; `fxdash pictures dash.json` lists
+the RAM-drive pictures of shapes that come and go. The rules it taught (all in tools/dashes/make_mustang.py):
+- a value or bar half under an overlay's box hides while it shows ("take turns": `ncalc:!(<the box's conditions>)`);
+  a value fully under it needs nothing;
+- a value on its own overlay's box gets the box's colour as `Background`;
+- a value box must not reach into the overlay's own lines or small labels (each change redraws them);
+- a frame drawn over a bar only shows with the bar (black on black otherwise: same look, no redraw over the value);
+- pictures on overlays: keep them to the colours they really have (`MaxColors`), for wheels without the RAM patch.
+
+**Pages** (`Pages` + `"page:N"` in `Visible`, docs/dash-format.md): verify flips them during the lap
+(`WorstPageFlipBytes`); `fxdash render --page N`; checks never call elements on different pages overlapping.
 
 `verify.json`:
 - `AvgBytesPerSecond`: aim under ~5000 (the Mustang uses ~1400, the Toyota GR010 ~3700). Over 12000 is a problem.
@@ -218,7 +273,47 @@ What typically comes back, and the fix:
 | flash at a pop-up | pop-up without `Fill`, or half over a value | opaque `Fill`; cover whole cells |
 | high traffic on one element | value over an image, overlapping another box, or an icon toggling | flat colour under it; separate the boxes; label instead of the icon |
 
-Repeat until `check` has 0 errors and 0 warnings, `fit-bands` returns `"changes": []` and `verify` has `"Ok": true`.
+Repeat until `check` has 0 errors and 0 warnings, `fit-bands` returns `"changes": []` and `verify` has `"Ok": true`
+(with `--overlays` too, when the dash has overlays; its `Notes` are overlays over most of the screen that come or go for
+no more than drawing the dash takes: expected, not a fault).
+
+**Don't run `fxdash tune` on a dash with many overlays or pages:** its overlap fixes don't know that overlays exclude each
+other, and shrink values to clear things never shown with them. Do the fixes in a script instead (make_mustang.py).
+
+### A 1:1 conversion: a build script and a parity script
+
+When the user wants a SimHub dash converted faithfully, write two scripts in `tools/dashes/` (worked example: the
+built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
+- `make_<dash>.py`: import -> numbered fixes, each with its reason (identity and pages, fallbacks for nulls, the delta
+  bar, grids, take turns, label clearance...) -> `fit-bands` twice -> the output file. Re-running it is the only way the
+  dash changes; never hand-edit the output.
+- `<dash>_parity.py`: goes through the original's items one by one and compares what each shows (binding / formula,
+  format, colours and colour formulas, visibility, blink, page) with the converted element; exits 1 on any difference
+  not on its list of explained ones (a font the screen lacks, a picture made a lamp). Keep inherited bugs of the
+  original (the Mustang's tyre-wear average formula) and list them as explained: parity means the same behaviour.
+- Run both, then all gates, before every hand-over. A built-in dash lives in `Usb/BuiltIn/<id>.json` (embedded in the
+  plugin, fxdash and UsbTest); its UsbTest checks are in `tools/UsbTest/PagesTests.cs`.
+
+### The RAM drive (wheels with the RAM patch)
+
+With the patch, the static layer is kept as JPEG tiles and every shape that comes and goes with a fixed look (an oval,
+a logo, a frame; one look per colour stop) as its own picture, so an overlay appears with a few commands instead of
+thousands of fills. The drive holds 350 KB **accounted: each file's bytes plus 512 B** (measured: holes in the dash at
+144 files / 333 KB), shared by every dash loaded. What fills it, and what doesn't help:
+- **Every distinct look is a file.** Inner overlays and colour stops multiply the looks of a picture (`MaxVariants` 12);
+  a shape that could have a picture but is drawn with 16 smooth rectangles or fewer (`SmoothShapeFills`) gets none:
+  ~0.5 KB, as fast. (60 was tried: the lap summary's boxes were seen drawing in.) A shape over a bar or delta bar gets
+  no picture at all and is drawn with plain (not anti-aliased) fills. The Mustang: 35 KB of tiles, 123 KB of pictures
+  for 33 shapes (155 KB); its 1.8 s ignition-on sweep alone is ~41 KB, the pit ring's six looks 25 KB.
+- `fxdash pictures dash.json [--files DIR]` lists them: `uniqueBytes`, `variants`, `with` (shapes baked in),
+  `inner` (overlays it has variants with), `fills` / `smoothFills` (the cost without it). `--files` writes the files
+  out to look at. The designer's Screen RAM tab shows the same.
+- **JPEG quality is a weak lever:** pictures at q75 -> q45 took the Mustang from 150 to 123 KB. Don't trade looks for it.
+- **Transparent pictures don't help** (tried 2026-10-04): the screen draws `hmipicxi` files with a 7-bit alpha mask
+  (FXProDashes docs/screen-images.md), but a large oval's mask alone is 1.5-2.7 KB and the files must be 4:2:2; per
+  shape they came to 126 KB against 115 KB baked.
+- What does help: fewer looks (an overlay's ring and oval of the same conditions are one picture already), small
+  frames as plain shapes, and no picture for things shown once a session if the user accepts them appearing slower.
 
 ## 4. Look at it
 
@@ -243,8 +338,13 @@ compare with the SimHub dash's own preview (`<dash>.djson.png` in its folder).
   and `POST /api/wheel/show?left=10&top=20` (body: the dash) puts it on the wheel for a minute.
   `POST /api/verify?seconds=60` runs `verify` (`&tiles=1` as on a wheel with the RAM patch) and `POST /api/fit-bands` runs `fit-bands`.
   The designer shows the same three gates live (the Checks and Wheel traffic pills), so a person can follow your work there.
+- The designer (`http://127.0.0.1:8899/` while SimHub runs) has all of it for a person: the pages editor (add, rename,
+  reorder, move elements, delete), the overlay picker (the dash with one overlay forced on, parents included), the
+  Screen RAM tab (pictures and budget), and in the Traffic drawer the page-flip card, the overlay check (`verify
+  --overlays`) and "Make them take turns" when an overlay flashes (`DashTune.TakeTurns`). `/api/overlays`, `/api/pictures`, `/api/take-turns`,
+  `/api/render?page=&overlay=&tiles=1` and `/api/wheel/show?page=&overlay=` are the same over HTTP.
 - Report back:
-  - the gates' results (errors 0, fit-bands unchanged, verify Ok, with average and worst traffic);
+  - the gates' results (errors 0, fit-bands unchanged, verify Ok, with average and worst traffic, and `--overlays`);
   - the renders;
   - what was skipped or changed (import notes, fit-bands changes);
   - which bindings only work with a given game or plugin.
@@ -261,6 +361,11 @@ compare with the SimHub dash's own preview (`<dash>.djson.png` in its folder).
   fonts, a 54 px wide gear, a 10 KB/s ABS icon and ARB boxes running into a label. `verify` found every traffic and
   flash problem. `docs/examples/lmgt3-mclaren-tune.py` has the fixes, with the reasons.
 - `verify` catches all of these, so run it every time.
+- The Mustang 1:1 conversion (pages, 60+ overlays): the importer's first try had values half under flag ovals
+  (redrawn through them), backgrounds the wrong colour on overlay boxes, labels touched by popup values, and a time
+  formula SimHub rejected live (NCalc backslashes). The pit oval's colour change cost 12 KB because text over it
+  blocked its picture (now: a costly shape's picture goes over the text, which is drawn again). `verify --overlays`
+  and the parity script found each one.
 
 References: `docs/dash-format.md` (format), `docs/dash-designer.md` (designer, API, import), `docs/usb-mode.md`
 (how it reaches the wheel), `tools/UsbTest` (`traffic DASH.json flash|diverge|blame` for deeper digging).

@@ -102,7 +102,7 @@ namespace User.FXProRpmSync
         private readonly int dx, dy;
         /// <summary>The static layer as drawn now: colour-reduced (fills) or full colour (tiles, see UseTiles).</summary>
         private int[] staticPx;
-        private int[] quantPx, richPx;
+        private int[] quantPx, richPx, shownPx;
         private Bitmap richBmp;
         private bool tilesOn;
         /// <summary>The static layer as pictures for the screen's RAM drive (EnableTiles), or null.</summary>
@@ -112,6 +112,7 @@ namespace User.FXProRpmSync
         private readonly List<Node> staticLabels = new List<Node>();
         private readonly List<Node> dynamic = new List<Node>();
         private readonly List<Node> popups = new List<Node>();
+        private readonly List<Node> dims = new List<Node>();
         private readonly Dictionary<string, Bitmap> images = new Dictionary<string, Bitmap>();
         private DashValues current;
 
@@ -137,6 +138,7 @@ namespace User.FXProRpmSync
             public int[] DrawnPx;           // the pixels it was last drawn with (Px may be refreshed before it's drawn again)
             public string PxKey;
             public bool? PxOpaque;          // Px has no transparent pixel
+            public List<Rectangle> SolidParts; // else its solid parts (a rounded box: all but its corners), screen coordinates
             public bool CrowdedKnown, IsCrowded;
             // bar
             public int FillEnd;
@@ -175,6 +177,7 @@ namespace User.FXProRpmSync
                         n.R = Rectangle.FromLTRB(xs.Min(), e.Y, xs.Max() + e.SegmentWidth, e.Y + e.H);
                         break;
                     case "popup": n.Kind = "popup"; popups.Add(n); continue;
+                    case "dim": n.Kind = "dim"; dims.Add(n); continue; // the backlight, not drawn (DimPercent)
                     default: continue; // unknown types are reported by Check
                 }
                 // a label over something that changes (a bar, a value, a shown/hidden shape) must be drawn again after it
@@ -215,6 +218,21 @@ namespace User.FXProRpmSync
             for (int y = 0; y < Height; y += ScreenTiles.Grid)
                 for (int x = 0; x < Width; x += ScreenTiles.Grid)
                     t.GridTiles.Add(ScreenTiles.Make(richBmp, richPx, new Rectangle(x, y, Math.Min(ScreenTiles.Grid, Width - x), Math.Min(ScreenTiles.Grid, Height - y))));
+            // what the screen shows from those tiles (their JPEGs decoded): a small area put back with fills uses these
+            // colours, so it matches the tile around it (the exact colours left a faint seam along anti-aliased lines)
+            shownPx = (int[])richPx.Clone();
+            foreach (var tile in t.GridTiles.Where(g => g.Jpeg != null))
+                try
+                {
+                    using (var ms = new MemoryStream(tile.Jpeg))
+                    using (var dec = new Bitmap(ms))
+                    {
+                        var dpx = Pixels(dec);
+                        for (int yy = 0; yy < Math.Min(dec.Height, tile.R.Height); yy++)
+                            Array.Copy(dpx, yy * dec.Width, shownPx, (tile.R.Y + yy) * Width + tile.R.X, Math.Min(dec.Width, tile.R.Width));
+                    }
+                }
+                catch { }
             foreach (var n in dynamic)
             {
                 if (n.Kind != "value" || n.E.Background != null) continue;
@@ -223,27 +241,98 @@ namespace User.FXProRpmSync
                 if (DynamicUnder(band, n.Index)) continue; // what's under it changes: no fixed picture of it
                 t.Bands[n.Index] = ScreenTiles.Make(richBmp, richPx, band);
             }
+            // Shapes that come and go with a fixed look (pictures, ovals, frames, gradients; a plain rectangle is one fill
+            // anyway; a colour formula landing on its stops counts, one look per colour), never over a bar: a picture of
+            // them over the static layer and the shapes that always show with them (their own overlay's: conditions all
+            // among theirs, drawn before), drawn with one command when exactly that is under them (PictureFits). An
+            // overlay's logo over its own oval is then a single command.
+            var cands = new List<(Node N, Rectangle R, List<Node> With, List<Node> Inner)>();
             foreach (var n in dynamic)
             {
-                // pictures that come and go, with a fixed look, over the static layer (never over a bar). Shapes and text
-                // under it are allowed; it's drawn from its file only when what shows under it is hidden by it (PictureFits).
-                if (n.E.Type != "image" || n.E.ColorBind != null) continue;
+                if (n.Kind != "shape" || n.E.Type == "rect" || !Steady(n) || n.E.Visible == null || n.E.Visible.Count == 0) continue;
                 var r = Clip(n.R);
                 if (r.Width <= 0 || r.Height <= 0 || r != n.R) continue;
-                if (dynamic.Any(m => m.Index < n.Index && m.R.IntersectsWith(r) && (m.Kind == "bar" || m.Kind == "deltabar"))) continue;
-                try
+                // its picture also holds the shapes under it that always show with it (the same conditions) and reach into
+                // its box, whole (an oval a few px bigger than the ring on it): they need no picture of their own
+                foreach (var m in dynamic.Where(m => m.Index < n.Index && m.Kind == "shape" && Steady(m) && m.R.IntersectsWith(n.R) && m.E.Visible != null
+                                                     && m.E.Visible.Count == n.E.Visible.Count && m.E.Visible.All(n.E.Visible.Contains) && DrawsIn(m, n.R)))
                 {
+                    var u = Rectangle.Union(r, m.R);
+                    if (Clip(u) == u && u.Width * u.Height <= 1.6 * n.R.Width * n.R.Height) r = u;
+                }
+                if (dynamic.Any(m => m.Index < n.Index && m.R.IntersectsWith(r) && (m.Kind == "bar" || m.Kind == "deltabar"))) continue;
+                // a shape a few smooth rectangles draw (a frame, a small box, a little arrow) needs no picture: it shows just
+                // as fast and exact, and takes no room on the drive (a file there is its bytes and an entry). (Only shapes
+                // that could have one: anti-aliased, a shape that can't takes more rectangles than drawn plain.)
+                if (SmoothFills(n) <= SmoothShapeFills) { smoothShapes.Add(n.Index); continue; }
+                // (only shapes whose pixels reach into its area: an icon whose box grazes a corner changes nothing in it)
+                var with = dynamic.Where(m => m.Index < n.Index && m.Kind == "shape" && m.R.IntersectsWith(r) && Steady(m)
+                                              && m.E.Visible != null && m.E.Visible.All(n.E.Visible.Contains) && DrawsIn(m, r)).ToList();
+                // overlays inside its own (shown only with it: their conditions take in all of its): a variant of the
+                // picture for each mix of them that can be under it (a few at most)
+                var inner = dynamic.Where(m => m.Index < n.Index && m.Kind == "shape" && m.R.IntersectsWith(r) && Steady(m)
+                                               && m.E.Visible != null && m.E.Visible.Count > n.E.Visible.Count && n.E.Visible.All(m.E.Visible.Contains) && DrawsIn(m, r)).ToList();
+                if (inner.Count > 3) inner.Clear();
+                cands.Add((n, r, with, inner));
+            }
+            // A shape under another one's picture that always shows with it (its ring, its frame) and holds all of its box:
+            // drawn by that picture (one command for both), so it needs none of its own (the pit oval's three colours
+            // and the white pit stop oval live in the ring's pictures).
+            foreach (var c in cands)
+            {
+                var top = cands.Where(t => t.N.Index > c.N.Index && t.R.Contains(c.R) && t.N.E.Visible.All(c.N.E.Visible.Contains)
+                                           && (t.With.Contains(c.N) || t.Inner.Contains(c.N))
+                                           && dynamic.All(m => m.Index <= c.N.Index || m.Index >= t.N.Index || m.Kind != "shape" || !DrawsIn(m, c.R) || t.With.Contains(m) || t.Inner.Contains(m)))
+                               .Select(t => t.N).FirstOrDefault();
+                if (top != null) coveredBy[c.N.Index] = top;
+            }
+            foreach (var (n, r, with, inner) in cands)
+            {
+                if (coveredBy.ContainsKey(n.Index)) continue;
+                picArea[n.Index] = r;
+                ScreenTile Picture(List<Node> under, Dictionary<int, Color> colours)
+                {
+                    Color C(Node x) => colours.TryGetValue(x.Index, out var c) ? c : DashColors.Parse(x.E.Color, Color.White);
                     using (var part = richBmp.Clone(r, PixelFormat.Format32bppArgb))
                     {
                         using (var g = Graphics.FromImage(part))
                         {
                             g.SmoothingMode = SmoothingMode.AntiAlias;
                             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                            DrawShape(g, n.E, Point.Empty, n.Colour);
+                            foreach (var m in under.OrderBy(x => x.Index)) DrawShape(g, m.E, new Point(m.R.X - r.X, m.R.Y - r.Y), C(m));
+                            DrawShape(g, n.E, new Point(n.R.X - r.X, n.R.Y - r.Y), C(n));
                         }
-                        var pic = ScreenTiles.MakeFrom(part, r);
-                        if (pic.Jpeg.Length <= ScreenTiles.MaxPicture) t.Pictures[n.Index] = pic;
+                        var tile = ScreenTiles.MakeFrom(part, r);
+                        return tile.Jpeg.Length <= ScreenTiles.MaxPicture ? tile : null;
                     }
+                }
+                // every mix of colours the coloured ones among it and the shapes under it can have (their colour stops)
+                List<Dictionary<int, Color>> Mixes(List<Node> under)
+                {
+                    var mixes = new List<Dictionary<int, Color>> { new Dictionary<int, Color>() };
+                    foreach (var m in under.Concat(new[] { n }).Where(x => !string.IsNullOrEmpty(x.E.ColorBind)))
+                        mixes = mixes.SelectMany(mx => StopColours(m).Select(c => new Dictionary<int, Color>(mx) { [m.Index] = c })).ToList();
+                    return mixes;
+                }
+                try
+                {
+                    var variants = new List<PictureVariant>();
+                    for (int mask = 0; mask < (1 << inner.Count) && variants.Count <= MaxVariants; mask++)
+                    {
+                        var under = with.Concat(inner.Where((m, i) => (mask >> i & 1) != 0)).ToList();
+                        foreach (var mix in Mixes(under))
+                        {
+                            if (variants.Count > MaxVariants) break;
+                            var v = Picture(under, mix);
+                            if (v != null) variants.Add(new PictureVariant { With = new HashSet<int>(under.Select(m => m.Index)), Colours = mix.ToDictionary(kv => kv.Key, kv => DashColors.To565(kv.Value)), Tile = v });
+                        }
+                    }
+                    if (variants.Count == 0 || variants.Count > MaxVariants) continue; // (too many: drawn with rectangles)
+                    t.Pictures[n.Index] = variants[0].Tile;
+                    foreach (var v in variants.Skip(1)) t.Variants.Add(v.Tile);
+                    pictureWith[n.Index] = new HashSet<int>(with.Select(m => m.Index));
+                    pictureInner[n.Index] = new HashSet<int>(inner.Select(m => m.Index));
+                    pictureVariants[n.Index] = variants;
                 }
                 catch { } // drawn with fills
             }
@@ -259,30 +348,248 @@ namespace User.FXProRpmSync
             if (on && Tiles == null) EnableTiles();
             tilesOn = on;
             staticPx = on ? richPx : quantPx;
-            foreach (var n in dynamic) { n.StaticBg = Uniform(staticPx, Width, Clip(n.R)); n.CrowdedKnown = false; }
+            foreach (var n in dynamic) { n.StaticBg = Uniform(staticPx, Width, Clip(n.R)); n.CrowdedKnown = false; n.Px = null; n.PxOpaque = null; }
         }
 
-        /// <summary>Something that changes (a shape with a condition or data colour, a bar) under `area`, before element `index`.</summary>
-        /// <summary>A picture's file (made over the static layer) shows what fills would: no shape under it shows, and
-        /// text under it shows only where the picture covers it (an opaque picture).</summary>
-        private bool PictureFits(Node n)
+        /// <summary>For each shape picture (Tiles.Pictures): the shapes of its own overlay drawn into it under it.</summary>
+        private readonly Dictionary<int, HashSet<int>> pictureWith = new Dictionary<int, HashSet<int>>();
+        /// <summary>Overlays inside a shape picture's own that have variants of it (with them under it).</summary>
+        private readonly Dictionary<int, HashSet<int>> pictureInner = new Dictionary<int, HashSet<int>>();
+        private readonly Dictionary<int, List<PictureVariant>> pictureVariants = new Dictionary<int, List<PictureVariant>>();
+
+        /// <summary>
+        /// A shape that comes and goes, drawn with at most this many smooth rectangles, gets no picture: it appears as fast
+        /// (~0.5 KB, 20 ms). 60 (~1.8 KB) was too many: the lap summary's boxes were seen drawing in on the wheel.
+        /// </summary>
+        public static int SmoothShapeFills = 16;
+
+        /// <summary>Shapes with a fixed look drawn with smooth rectangles rather than a picture (cheap enough: EnableTiles).</summary>
+        private readonly HashSet<int> smoothShapes = new HashSet<int>();
+
+        /// <summary>The rectangles drawing `n` smoothly (anti-aliased, over the static layer) takes.</summary>
+        private int SmoothFills(Node n)
         {
-            bool textUnder = false;
+            int w = Math.Max(1, n.E.W), h = Math.Max(1, n.E.H);
+            var px = new int[w * h];
+            using (var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.Clear(Color.Transparent);
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    DrawShape(g, n.E, Point.Empty, DashColors.Parse(n.E.Color, Color.White));
+                }
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        var c = bmp.GetPixel(x, y);
+                        int sx = n.R.X + x, sy = n.R.Y + y;
+                        if (c.A < 8) { px[y * w + x] = Transparent; continue; }
+                        var bg = sx >= 0 && sy >= 0 && sx < Width && sy < Height ? ToColor((richPx ?? staticPx)[sy * Width + sx]) : Color.Black;
+                        int a = c.A;
+                        px[y * w + x] = DashColors.To565(Color.FromArgb((c.R * a + bg.R * (255 - a)) / 255, (c.G * a + bg.G * (255 - a)) / 255, (c.B * a + bg.B * (255 - a)) / 255));
+                    }
+            }
+            return MergeRects(px, w, new Rectangle(0, 0, w, h)).Count(r => r[4] != Transparent);
+        }
+
+        /// <summary>Where a shape's picture goes (its box, grown by the shapes it holds that always show with it).</summary>
+        private readonly Dictionary<int, Rectangle> picArea = new Dictionary<int, Rectangle>();
+        private Rectangle PicArea(Node n) => picArea.TryGetValue(n.Index, out var a) ? a : n.R;
+
+        /// <summary>Shapes drawn by a later shape's picture that holds them (EnableTiles): element index -> that shape.</summary>
+        private readonly Dictionary<int, Node> coveredBy = new Dictionary<int, Node>();
+
+        /// <summary>`m` draws a pixel in `area` (its own look; the colour doesn't matter).</summary>
+        private bool DrawsIn(Node m, Rectangle area)
+        {
+            var a = Rectangle.Intersect(area, m.R);
+            if (a.Width <= 0 || a.Height <= 0) return false;
+            // drawn as it is (a picture's own transparency: the fills' colour reduction would make it solid)
+            using (var bmp = new Bitmap(Math.Max(1, m.E.W), Math.Max(1, m.E.H), PixelFormat.Format32bppArgb))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.Clear(Color.Transparent);
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    DrawShape(g, m.E, Point.Empty, DashColors.Parse(m.E.Color, Color.White));
+                }
+                for (int y = a.Top; y < a.Bottom; y++)
+                    for (int x = a.Left; x < a.Right; x++)
+                        if (bmp.GetPixel(x - m.R.X, y - m.R.Y).A >= 8) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// `n` comes with a later shape's picture that holds it, and that picture can be drawn now: `n` is left to it (the
+        /// later shape is marked to be drawn this pass), so both are one command.
+        /// </summary>
+        private bool LeftToPicture(Node n)
+        {
+            if (!tilesOn || !coveredBy.TryGetValue(n.Index, out var top) || !top.Visible || Covered(top.R)) return false;
+            var tile = ChosenPicture(top, out var with);
+            if (tile == null || with == null || !with.Contains(n.Index) || !PictureFits(top, with)) return false;
+            // (and nothing solid already on the screen over it: it would draw with rectangles, and `n` be missing under it)
+            var solid = SolidShapesAbove(top.Index);
+            var at = PicArea(top);
+            if (dynamic.Any(m => m.Index > top.Index && m.Kind == "shape" && m.Visible && m.Shown && m.Sent == m.Key && !Covered(m.R) && m.R.IntersectsWith(at) && solid.Contains(Clip(m.R))))
+                return false;
+            bool textOver = dynamic.Any(m => m.Index > top.Index && SolidText(m) && m.Sent == m.Key && !Covered(m.R) && m.TextAt.Value.IntersectsWith(at));
+            if (textOver && !(CostlyWithFills(n) || CostlyWithFills(top))) return false;
+            if (textOver) PictureOverTextEvents++;
+            Invalidate(top);
+            return true;
+        }
+
+        /// <summary>
+        /// Drawing `n` with rectangles takes more than TileRepaintFills fills (a big oval): its picture is worth drawing even
+        /// over text with its own background, which is then drawn again right after (gone for a moment, instead of the
+        /// shape being drawn row by row for half a second). Small shapes keep the flicker-free way (fills around the text).
+        /// </summary>
+        private bool CostlyWithFills(Node n)
+        {
+            EnsurePx(n);
+            return MergeRects(n.Px, Math.Max(1, n.E.W), new Rectangle(0, 0, Math.Max(1, n.E.W), Math.Max(1, n.E.H))).Count(r => r[4] != Transparent) > TileRepaintFills;
+        }
+
+        /// <summary>Diagnostics (verify): updates where a picture went over text that was then drawn again (on purpose).</summary>
+        internal int PictureOverTextEvents;
+
+        /// <summary>A picture of a shape: the shapes under it it holds, and the colours (RGB565) of the coloured ones.</summary>
+        private sealed class PictureVariant { public HashSet<int> With; public Dictionary<int, int> Colours; public ScreenTile Tile; }
+
+        /// <summary>Pictures a shape may have (every mix of what can be under it and the colours of the coloured ones).</summary>
+        public static int MaxVariants = 12;
+
+        /// <summary>A shape that always looks the same, or whose colour formula lands on its colour stops (a speed-coloured
+        /// oval: blue / green / red): one picture per look.</summary>
+        private static bool Steady(Node m) => string.IsNullOrEmpty(m.E.ColorBind) || (m.E.ColorStops != null && m.E.ColorStops.Count > 0 && m.E.ColorStops.Count <= 6);
+
+        private static List<Color> StopColours(Node m) =>
+            m.E.ColorStops.Select(c => DashColors.Parse(c.Color, Color.White)).GroupBy(c => DashColors.To565(c)).Select(g => g.First()).ToList();
+
+        /// <summary>The picture of `n` for what's under it now (its own overlay, and those inside it that show) in the
+        /// colours they have now, or null (a colour between two stops: drawn with rectangles).</summary>
+        private ScreenTile ChosenPicture(Node n, out HashSet<int> with)
+        {
+            with = null;
+            if (!pictureVariants.TryGetValue(n.Index, out var variants)) return null;
+            var want = new HashSet<int>(pictureWith[n.Index]);
+            foreach (var i in pictureInner[n.Index]) if (dynamic.First(x => x.Index == i).Visible) want.Add(i);
+            foreach (var v in variants)
+            {
+                if (!v.With.SetEquals(want)) continue;
+                bool same = true;
+                foreach (var kv in v.Colours)
+                {
+                    var node = kv.Key == n.Index ? n : dynamic.First(x => x.Index == kv.Key);
+                    if (DashColors.To565(node.Colour) != kv.Value) { same = false; break; }
+                }
+                if (same) { with = v.With; return v.Tile; }
+            }
+            return null;
+        }
+
+        /// <summary>Diagnostics (fxdash pictures): the shape pictures with their size and the overlay shapes in them.</summary>
+        internal IEnumerable<object> PictureList()
+        {
+            var t = Tiles ?? EnableTiles();
+            bool was = tilesOn; tilesOn = true;
+            var seen = new HashSet<string>();
+            var list = t.Pictures.Select(kv => (object)new
+            {
+                // bytes its files add (a file another picture already has counted once), and what drawing it smoothly with
+                // fills would take instead (rectangles)
+                uniqueBytes = (pictureVariants.TryGetValue(kv.Key, out var uv) ? uv.Select(v => v.Tile) : new[] { kv.Value }).Where(x => seen.Add(x.Name)).Sum(x => x.Jpeg.Length),
+                fills = FillCount(dynamic.First(x => x.Index == kv.Key)),
+                smoothFills = SmoothFills(dynamic.First(x => x.Index == kv.Key)),
+                element = $"#{kv.Key} {def.Elements[kv.Key].Type} {def.Elements[kv.Key].Name}", bytes = kv.Value.Jpeg.Length,
+                with = pictureWith.TryGetValue(kv.Key, out var w) ? w.Select(i => $"#{i} {def.Elements[i].Name}").ToList() : new List<string>(),
+                inner = pictureInner.TryGetValue(kv.Key, out var inn) ? inn.Select(i => $"#{i} {def.Elements[i].Name}").ToList() : new List<string>(),
+                area = picArea.TryGetValue(kv.Key, out var pa) ? $"{pa.X},{pa.Y} {pa.Width}x{pa.Height}" : null,
+                variants = pictureVariants.TryGetValue(kv.Key, out var vs) ? vs.Count : 1,
+                variantBytes = pictureVariants.TryGetValue(kv.Key, out var vb) ? vb.Sum(v => v.Tile.Jpeg.Length) : kv.Value.Jpeg.Length,
+            }).ToList();
+            tilesOn = was;
+            foreach (var n in dynamic) { n.Px = null; n.PxKey = null; }
+            return list;
+        }
+
+        private int FillCount(Node n)
+        {
+            EnsurePx(n);
+            return MergeRects(n.Px, Math.Max(1, n.E.W), new Rectangle(0, 0, Math.Max(1, n.E.W), Math.Max(1, n.E.H))).Count(r => r[4] != Transparent);
+        }
+
+        /// <summary>A picture's file (made over the static layer and the shapes of its overlay) shows what fills would:
+        /// exactly those shapes show under it, and text under it only where the picture covers it (its shape or those
+        /// shapes' solid pixels: the file puts back the static layer everywhere else in its box).</summary>
+        private bool PictureFits(Node n) => PictureFits(n, pictureWith.TryGetValue(n.Index, out var w) ? w : null);
+
+        private bool PictureFits(Node n, HashSet<int> with)
+        {
+            var fitArea = PicArea(n);
+            var cover = new List<Node> { n };
+            var texts = new List<Rectangle>();
             foreach (var m in dynamic)
             {
                 if (m.Index >= n.Index) break;
-                if (!m.Visible || !m.R.IntersectsWith(n.R)) continue;
+                if (!m.R.IntersectsWith(fitArea)) continue;
+                bool inside = with != null && with.Contains(m.Index);
+                if (!m.Visible) { if (inside) { whyNot = $"#{m.Index} isn't shown"; return false; } continue; } // a shape the file holds isn't there now
                 // another state of the same icon (soft / medium / hard / wet in one spot): normally only one shows; when
                 // several do (the demo can't tell, so all of them), the top one is what counts
                 if (m.R == n.R && m.E.Type == "image" && Tiles.Pictures.ContainsKey(m.Index)) continue;
-                if (m.Kind == "shape" || m.Kind == "bar" || m.Kind == "deltabar") return false;
-                if (m.TextAt.HasValue && !m.TextAt.Value.IntersectsWith(n.R)) continue; // its box does, its text doesn't
-                textUnder = true;
+                if (inside) { cover.Add(m); continue; }
+                if (m.Kind == "shape" || m.Kind == "bar" || m.Kind == "deltabar")
+                {
+                    // another overlay's shape under it is fine where the picture's own shapes drawn after it hide all of it
+                    // (a setting pop-up under the lap summary that a summary arrow sits on)
+                    if (m.Kind == "shape" && HiddenBy(m, Rectangle.Intersect(m.R, fitArea), cover.Where(c => c.Index > m.Index).Concat(with.Where(i => i > m.Index).Select(i => dynamic.First(x => x.Index == i))).Concat(new[] { n }).Distinct().ToList())) continue;
+                    whyNot = $"#{m.Index} {m.Kind} {m.E.Name} under it"; return false;
+                }
+                if (m.TextAt.HasValue && !m.TextAt.Value.IntersectsWith(fitArea)) continue; // its box does, its text doesn't
+                if (!m.Shown || (!m.TextAt.HasValue && m.Kind == "value")) continue; // not on the screen (covered): nothing to wipe
+                texts.Add(Rectangle.Intersect(m.TextAt ?? m.R, fitArea));
             }
-            if (!textUnder) return true;
-            EnsurePx(n);
-            if (n.PxOpaque == null) n.PxOpaque = !n.Px.Contains(Transparent);
-            return n.PxOpaque == true;
+            // text under it: only where the picture's solid pixels (its own or its overlay's) cover all of it
+            foreach (var area in texts)
+                for (int y = area.Top; y < area.Bottom; y++)
+                    for (int x = area.Left; x < area.Right; x++)
+                    {
+                        bool covered = false;
+                        foreach (var c in cover)
+                        {
+                            if (!c.R.Contains(x, y)) continue;
+                            EnsurePx(c);
+                            if (c.Px[(y - c.R.Y) * Math.Max(1, c.E.W) + (x - c.R.X)] != Transparent) { covered = true; break; }
+                        }
+                        if (!covered) { whyNot = $"text at {x},{y} not under it"; return false; }
+                    }
+            return true;
+        }
+
+        private string whyNot;
+
+        /// <summary>Every pixel `m` draws in `area` lies under a solid pixel of one of `over` (shapes drawn after it).</summary>
+        private bool HiddenBy(Node m, Rectangle area, List<Node> over)
+        {
+            EnsurePx(m);
+            for (int y = area.Top; y < area.Bottom; y++)
+                for (int x = area.Left; x < area.Right; x++)
+                {
+                    if (m.Px[(y - m.R.Y) * Math.Max(1, m.E.W) + (x - m.R.X)] == Transparent) continue;
+                    bool hidden = false;
+                    foreach (var c in over)
+                    {
+                        if (!c.R.Contains(x, y)) continue;
+                        EnsurePx(c);
+                        if (c.Px[(y - c.R.Y) * Math.Max(1, c.E.W) + (x - c.R.X)] != Transparent) { hidden = true; break; }
+                    }
+                    if (!hidden) return false;
+                }
+            return true;
         }
 
         private bool DynamicUnder(Rectangle area, int index) =>
@@ -530,16 +837,21 @@ namespace User.FXProRpmSync
         {
             var e = n.E;
             int w = Math.Max(1, e.W), h = Math.Max(1, e.H);
+            // with tiles, a shape that has pictures on the screen looks the same drawn with fills (part of it, or when no
+            // picture fits): anti-aliased, its edge blended over what's under it now (the static layer and the shapes shown
+            // there), exact colours inside so the rows merge into few fills
+            bool smooth = tilesOn && (HasPictures(n) || smoothShapes.Contains(n.Index));
+            int[] underPx = smooth ? Composite(n.R, n.Index) : null;
             using (var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb))
             using (var under = new Bitmap(w, h, PixelFormat.Format32bppArgb))
             {
                 using (var g = Graphics.FromImage(bmp))
                 {
-                    g.SmoothingMode = SmoothingMode.None;
+                    g.SmoothingMode = smooth ? SmoothingMode.AntiAlias : SmoothingMode.None;
                     g.Clear(Color.Transparent);
                     DrawShape(g, e, Point.Empty, colour);
                 }
-                if (e.Type == "image") Quantize(bmp, new Rectangle(0, 0, w, h), e.MaxColors);
+                if (e.Type == "image" && !smooth) Quantize(bmp, new Rectangle(0, 0, w, h), e.MaxColors);
                 var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
                 var argb = new int[w * h];
                 for (int y = 0; y < h; y++) System.Runtime.InteropServices.Marshal.Copy(data.Scan0 + y * data.Stride, argb, y * w, w);
@@ -550,6 +862,13 @@ namespace User.FXProRpmSync
                     {
                         int p = argb[y * w + x], a = (p >> 24) & 255;
                         if (a < 8) { px[y * w + x] = Transparent; continue; }
+                        if (underPx != null && a < 250 && x < n.R.Width && y < n.R.Height)
+                        {
+                            var bgc = ToColor(underPx[y * n.R.Width + x]);
+                            int rr = (((p >> 16) & 255) * a + bgc.R * (255 - a)) / 255, gg2 = (((p >> 8) & 255) * a + bgc.G * (255 - a)) / 255, bb = ((p & 255) * a + bgc.B * (255 - a)) / 255;
+                            px[y * w + x] = (rr >> 3 << 11) | (gg2 >> 2 << 5) | (bb >> 3);
+                            continue;
+                        }
                         int r = (p >> 16) & 255, gg = (p >> 8) & 255, b = p & 255;
                         if (a < 250)
                         {
@@ -690,8 +1009,25 @@ namespace User.FXProRpmSync
 
             // What each dynamic element wants to show now
             foreach (var n in dynamic) Evaluate(n, v);
+            int dim = 0;
+            foreach (var n in dims) { Evaluate(n, v); if (n.Visible) dim = Math.Max(dim, Math.Max(0, Math.Min(95, n.E.Opacity))); }
+            DimPercent = dim;
 
-            // Hidden since last time: repaint their areas (this also marks what's under/over them for a redraw)
+            // Something over (nearly) the whole screen went (an ignition-off or start-up screen): the dash drawn again from
+            // a cleared screen, as when it starts (cheaper than putting it back piece by piece: black isn't sent)
+            if (!PopupShowing && dynamic.Any(n => n.Shown && !n.Visible && n.Kind == "shape" && Clip(n.R).Width * Clip(n.R).Height >= 0.9 * Width * Height && !CoveredAbove(n.Index, n.R)))
+            {
+                Trace?.Invoke("full redraw: a screen-sized overlay went");
+                screen.Cmd("cls 0");
+                if (tilesOn) DrawTiles(new Rectangle(0, 0, Width, Height));
+                else SendFills(staticPx, Width, new Rectangle(0, 0, Width, Height), 0, 0, 0);
+                foreach (var l in staticLabels) DrawLabel(l, l.Colour);
+                foreach (var n in dynamic) { n.Shown = false; n.Sent = null; n.TextAt = null; n.BandAt = false; n.BarAt = null; if (n.SegSent != null) for (int k = 0; k < n.SegSent.Length; k++) n.SegSent[k] = null; }
+            }
+
+            // Hidden since last time: repaint their areas (this also marks what's under/over them for a redraw). An area
+            // already put back by this pass (an overlay's box and the shapes and texts on it go together) isn't again.
+            var repainted = new List<Rectangle>();
             foreach (var n in dynamic)
             {
                 if (!n.Shown || n.Visible) continue;
@@ -705,8 +1041,14 @@ namespace User.FXProRpmSync
                 if (under != null) { Invalidate(under); continue; }
                 // only what no solid shape above it covers (a pop-up going from under another one); a frame with
                 // nothing inside (an alert border round the screen) only where its border was
-                foreach (var area in Outline(n))
-                    foreach (var part in Subtract(Clip(area), SolidShapesAbove(n.Index))) Repaint(part);
+                // (text: only where its ink was, not its whole box)
+                foreach (var area in IsText(n) ? new List<Rectangle> { was } : Outline(n))
+                    foreach (var part in Subtract(Clip(area), SolidShapesAbove(n.Index)))
+                    {
+                        if (repainted.Any(r => r.Contains(part))) continue;
+                        var done = Repaint(part);
+                        if (!done.IsEmpty) repainted.Add(done);
+                    }
             }
             foreach (var p in popups)
                 if (p.Until >= 0 && now >= p.Until)
@@ -749,10 +1091,27 @@ namespace User.FXProRpmSync
                         var skip = SolidShapesAbove(n.Index);
                         skip.AddRange(keep.Select(m => m.TextAt.Value));
                         // a picture with its own file on the screen, nothing over it: one command
-                        if (tilesOn && Tiles.Pictures.TryGetValue(n.Index, out var picTile) && !skip.Any(k => k.IntersectsWith(n.R)) && PictureFits(n))
+                        // a picture is drawn whole: fine under solid shapes still to be drawn this update (they go on top
+                        // right after, nothing shows in between), not under ones already on the screen (they'd be wiped)
+                        var picAt = PicArea(n);
+                        var textBlocker = keep.FirstOrDefault(m => m.Sent == m.Key && m.TextAt.Value.IntersectsWith(picAt)) ??
+                                          dynamic.FirstOrDefault(m => m.Index > n.Index && SolidText(m) && m.Sent == m.Key && !Covered(m.R) && picAt != n.R && m.TextAt.Value.IntersectsWith(picAt) && !n.R.Contains(m.TextAt.Value));
+                        // (text over a shape that's costly with rectangles: the picture anyway, the text drawn again after it)
+                        bool overText = textBlocker != null && tilesOn && pictureVariants.ContainsKey(n.Index) && CostlyWithFills(n);
+                        var blocker = (overText ? null : textBlocker) ??
+                                      dynamic.FirstOrDefault(m => m.Index > n.Index && m.Kind == "shape" && m.Visible && m.Shown && m.Sent == m.Key && !Covered(m.R)
+                                                                  && m.R.IntersectsWith(picAt) && skip.Contains(Clip(m.R)));
+                        bool overDrawn = blocker != null;
+                        if (LeftToPicture(n)) { EnsurePx(n); n.Shown = true; n.Sent = n.Key; n.DrawnPx = n.Px; break; }
+                        HashSet<int> picWith = null;
+                        var picTile = tilesOn ? ChosenPicture(n, out picWith) : null;
+                        if (Trace != null && tilesOn && Tiles.Pictures.ContainsKey(n.Index))
+                            Trace($"  picture #{n.Index}: {(picTile == null ? "no picture for what's under it" : overDrawn ? $"#{blocker.Index} {blocker.E.Name} over it, on the screen" : PictureFits(n, picWith) ? "drawn from its file" : "what's under it differs: " + whyNot)}");
+                        if (picTile != null && !overDrawn && PictureFits(n, picWith))
                         {
                             screen.Cmd(ScreenTiles.Ramv(picTile, dx, dy));
-                            MarkAbove(n, n.R);
+                            MarkAbove(n, picAt);
+                            if (overText) { PictureOverTextEvents++; foreach (var m in keep) Invalidate(m); }
                             n.Shown = true; n.Sent = n.Key; n.DrawnPx = n.Px;
                             break;
                         }
@@ -827,6 +1186,10 @@ namespace User.FXProRpmSync
         }
 
         private bool Covered(Rectangle r) => popups.Any(p => p.Until >= 0 && p.R.IntersectsWith(r));
+
+        /// <summary>How much darker the screen should be now (0-95 %): the "dim" elements shown (their Opacity). The
+        /// controller lowers the backlight by it, so dimming the whole dash redraws nothing.</summary>
+        public int DimPercent { get; private set; }
 
         /// <summary>Diagnostics (verify): a pop-up shows now; counts pop-ups shown or taken down.</summary>
         internal bool PopupShowing => popups.Any(p => p.Until >= 0);
@@ -949,7 +1312,24 @@ namespace User.FXProRpmSync
 
         private void EnsurePx(Node m)
         {
-            if (m.Px == null || m.PxKey != m.Key) { m.Px = ShapePixels(m, m.Colour); m.PxKey = m.Key; m.PxOpaque = null; }
+            string key = m.Key + UnderSignature(m);
+            if (m.Px == null || m.PxKey != key) { m.Px = ShapePixels(m, m.Colour); m.PxKey = key; m.PxOpaque = null; m.SolidParts = null; }
+        }
+
+        private bool HasPictures(Node n) => pictureVariants.ContainsKey(n.Index) || coveredBy.ContainsKey(n.Index);
+
+        /// <summary>With tiles, a shape with pictures (or drawn smoothly in their place) blends its edge over what's under it:
+        /// which shapes show there, in which colours (empty otherwise).</summary>
+        private string UnderSignature(Node n)
+        {
+            if (!tilesOn || !(HasPictures(n) || smoothShapes.Contains(n.Index))) return "";
+            var sb = new System.Text.StringBuilder("|");
+            foreach (var m in dynamic)
+            {
+                if (m.Index >= n.Index) break;
+                if (m.Kind == "shape" && m.Shown && m.R.IntersectsWith(n.R)) sb.Append(m.Index).Append(':').Append(m.Key).Append(',');
+            }
+            return sb.ToString();
         }
 
         /// <summary>Shapes after element `index` that show now and have no transparent pixel: nothing under them is seen.</summary>
@@ -962,7 +1342,38 @@ namespace User.FXProRpmSync
                 EnsurePx(m);
                 if (m.PxOpaque == null) m.PxOpaque = !m.Px.Contains(Transparent);
                 if (m.PxOpaque == true) list.Add(Clip(m.R));
+                else list.AddRange(m.SolidParts ?? (m.SolidParts = SolidParts(m)));
             }
+            return list;
+        }
+
+        /// <summary>
+        /// The solid parts of a shape with see-through pixels: the longest run of rows it fills from side to side and the
+        /// longest run of columns it fills from top to bottom (a rounded box: everything but its corners; an outline or an
+        /// oval: nothing much). Used where it hides what's under it.
+        /// </summary>
+        private List<Rectangle> SolidParts(Node m)
+        {
+            var list = new List<Rectangle>();
+            int w = Math.Max(1, m.E.W), h = Math.Max(1, m.E.H);
+            if (m.Px.Length < w * h) return list;
+            Rectangle Longest(int count, Func<int, bool> full, Func<int, int, Rectangle> make)
+            {
+                int best = 0, bestAt = 0, run = 0;
+                for (int i = 0; i < count; i++)
+                {
+                    run = full(i) ? run + 1 : 0;
+                    if (run > best) { best = run; bestAt = i - run + 1; }
+                }
+                return best == 0 ? Rectangle.Empty : make(bestAt, best);
+            }
+            var rows = Longest(h, y => { for (int x = 0; x < w; x++) if (m.Px[y * w + x] == Transparent) return false; return true; },
+                               (at, n) => new Rectangle(m.R.X, m.R.Y + at, w, n));
+            var cols = Longest(w, x => { for (int y = 0; y < h; y++) if (m.Px[y * w + x] == Transparent) return false; return true; },
+                               (at, n) => new Rectangle(m.R.X + at, m.R.Y, n, h));
+            // only worth it when it holds most of the shape (a box's corners, not an oval's middle strip)
+            foreach (var r in new[] { rows, cols })
+                if (!r.IsEmpty && r.Width * r.Height >= 0.5 * w * h) list.Add(Clip(r));
             return list;
         }
 
@@ -997,25 +1408,29 @@ namespace User.FXProRpmSync
         /// (not marked, which would make them draw again and mark this one: two overlapping elements redrawing each
         /// other every frame). 0 = mark everything (an element hidden, a pop-up gone).
         /// </param>
-        private void Repaint(Rectangle area, int layer = 0)
+        private Rectangle Repaint(Rectangle area, int layer = 0)
         {
             area = Clip(area);
-            if (area.Width <= 0 || area.Height <= 0) return;
+            if (area.Width <= 0 || area.Height <= 0) return Rectangle.Empty;
             Trace?.Invoke($"repaint {area} layer {layer}");
             // Tiles: only where the area is detailed (a picture under it). A tile is drawn whole, so it puts back what
             // else it covers too, which then has to be drawn again (a bar's emptied sliver would redraw every value in
             // its tile at every update); an area of a few colours is put back exactly, with fills, as without tiles.
-            bool fromTiles = tilesOn && MergeRects(staticPx, Width, area).Count > TileRepaintFills;
+            // A solid shape shown under all of it (a warning's box under its blinking label): nothing of the dash under that
+            // can be seen, so neither tiles nor the static labels are put back, only the box and what's on it.
+            var floor0 = FloorUnder(area, layer);
+            bool fromTiles = floor0 == null && tilesOn && MergeRects(shownPx ?? staticPx, Width, area).Count > TileRepaintFills;
             // Text drawn back over the area must have all of it under the repaint: drawn again over its own old pixels
             // (no background), its anti-aliased edges would thicken. So the area grows to take in the text it touches.
             for (int pass = 0; pass < 64; pass++) // until nothing more joins (a row of labels can chain)
             {
                 var grown = area;
-                foreach (var l in staticLabels) { var ink = LabelInk(l); if (ink.IntersectsWith(area)) grown = Rectangle.Union(grown, ink); }
+                if (floor0 == null)
+                    foreach (var l in staticLabels) { var ink = LabelInk(l); if (ink.IntersectsWith(area)) grown = Rectangle.Union(grown, ink); }
                 if (layer > 0)
                     foreach (var n in dynamic)
                     {
-                        if (n.Index >= layer || !n.Shown || !n.Visible || n.Sent != n.Key) continue;
+                        if (n.Index >= layer || !n.Shown || !n.Visible || n.Sent != n.Key || (floor0 != null && n.Index < floor0.Index)) continue;
                         var ink = IsText(n) && n.TextAt.HasValue ? Ink(n) : n.Kind == "label" ? LabelInk(n) : Rectangle.Empty;
                         if (!ink.IsEmpty && ink.IntersectsWith(area)) grown = Rectangle.Union(grown, ink);
                     }
@@ -1026,19 +1441,11 @@ namespace User.FXProRpmSync
             }
             // The topmost solid shape shown under all of the area (a pop-up box): the repaint starts from it, as nothing
             // under it can be seen (drawing that first would flash).
-            Node floor = null;
-            foreach (var m in dynamic)
-            {
-                if (layer > 0 && m.Index >= layer) break;
-                if (m.Kind != "shape" || !m.Shown || !m.Visible || Covered(m.R) || !m.R.Contains(area)) continue;
-                EnsurePx(m);
-                var local = area; local.Offset(-m.R.X, -m.R.Y);
-                if (Opaque(m.Px, Math.Max(1, m.E.W), local)) floor = m;
-            }
+            var floor = FloorUnder(area, layer);
             if (floor == null)
             {
                 if (fromTiles) DrawTiles(area);
-                else SendFills(staticPx, Width, area, -2, 0, 0);
+                else SendFills(tilesOn && shownPx != null ? shownPx : staticPx, Width, area, -2, 0, 0);
                 foreach (var l in staticLabels) if (LabelInk(l).IntersectsWith(area)) DrawLabel(l, l.Colour);
             }
             foreach (var n in dynamic)
@@ -1049,7 +1456,21 @@ namespace User.FXProRpmSync
                 if (n.Index == layer && n.Kind == "bar" && n.Shown && n.Visible) { BarPixelsIn(n, area); continue; }
                 // a value only needs drawing again where its text is (its box may reach well past it)
                 if (!(IsText(n) && n.TextAt.HasValue ? Ink(n) : n.R).IntersectsWith(area)) continue;
-                if (n.Kind == "shape" && n.Shown && n.Visible) { DrawShapeNode(n, area); continue; }
+                if (n.Kind == "shape" && n.Shown && n.Visible)
+                {
+                    // with its picture on the screen: drawn whole from it (one command, the very pixels it showed), what's
+                    // over it drawn again after; else its pixels in the area, with fills
+                    if (coveredBy.TryGetValue(n.Index, out var over) && over.Shown && over.Visible && LeftToPicture(n)) continue;
+                    HashSet<int> picWith = null;
+                    var pic = tilesOn ? ChosenPicture(n, out picWith) : null;
+                    if (pic != null && PictureFits(n, picWith))
+                    {
+                        screen.Cmd(ScreenTiles.Ramv(pic, dx, dy));
+                        MarkAbove(n, PicArea(n));
+                    }
+                    else DrawShapeNode(n, area);
+                    continue;
+                }
                 bool below = n.Index < layer && n.Shown && n.Visible && n.Sent == n.Key && !Covered(n.R);
                 if (Trace != null) Trace($"  {(n.Kind == "shape" && n.Shown && n.Visible ? "shape back" : below ? "back" : "marked")} #{n.Index} {n.Kind} {n.E.Name}");
                 if (below && n.Kind == "bar") DrawBar(n, area);
@@ -1057,6 +1478,22 @@ namespace User.FXProRpmSync
                 else if (below && IsText(n) && n.TextAt.HasValue) RedrawText(n); // exactly as it was drawn
                 else { Invalidate(n); if (n.Kind == "bar") n.BarAt = null; } // (a bar about to move: drawn whole, the repainted part included)
             }
+            return area;
+        }
+
+        /// <summary>The topmost solid shape shown under all of `area` (below `layer` when it's given), or null.</summary>
+        private Node FloorUnder(Rectangle area, int layer)
+        {
+            Node floor = null;
+            foreach (var m in dynamic)
+            {
+                if (layer > 0 && m.Index >= layer) break;
+                if (m.Kind != "shape" || !m.Shown || !m.Visible || Covered(m.R) || !m.R.Contains(area)) continue;
+                EnsurePx(m);
+                var local = area; local.Offset(-m.R.X, -m.R.Y);
+                if (Opaque(m.Px, Math.Max(1, m.E.W), local)) floor = m;
+            }
+            return floor;
         }
 
         /// <summary>
@@ -1094,7 +1531,7 @@ namespace User.FXProRpmSync
 
         /// <summary>
         /// The one colour under `area` whenever element `e` shows (static layer, the shapes always shown, and the shapes
-        /// shown under the same conditions as `e`, before it), or null.
+        /// shown whenever `e` is: their conditions all among its own, before it), or null.
         /// </summary>
         internal int? ColourUnder(DashElement e, Rectangle area)
         {
@@ -1108,7 +1545,8 @@ namespace User.FXProRpmSync
                 if (m.Index >= index) break;
                 if (m.Kind != "shape" || !m.R.IntersectsWith(area)) continue;
                 bool always = m.E.Visible == null || m.E.Visible.Count == 0;
-                bool together = e.Visible != null && m.E.Visible != null && m.E.Visible.SequenceEqual(e.Visible);
+                // shown whenever `e` is: its conditions all among e's (e may have more: a page, a "take turns" condition)
+                bool together = e.Visible != null && m.E.Visible != null && m.E.Visible.All(e.Visible.Contains);
                 if (!always && !together) continue;
                 var spx = ShapePixels(m, DashColors.Parse(m.E.Color, Color.White));
                 var r = Rectangle.Intersect(area, m.R);
@@ -1501,6 +1939,18 @@ namespace User.FXProRpmSync
             int n = e.Segments;
             // Halves measured from the centre, in px: left half ends at segment n-1's right edge, right starts at segment n.
             double leftCentre = b.X1[n - 1], rightCentre = b.X0[n], half = leftCentre - b.X0[0];
+            // opaque shapes drawn after it (an overlay's box over the bar): what they cover isn't drawn (it would land on
+            // them); a segment all under them waits, and is drawn whole once they go (their repaint invalidates it)
+            var solid = SolidShapesAbove(b.Index).Where(r => r.IntersectsWith(b.R)).ToList();
+            void Seg(int x, int w, int c)
+            {
+                var r = new Rectangle(x, e.Y, w, e.H);
+                foreach (var part in solid.Count == 0 ? new List<Rectangle> { r } : Subtract(r, solid))
+                {
+                    screen.Cmd(Fill(part.X, part.Y, part.Width, part.Height, c));
+                    MarkAbove(b, part); // text or shapes drawn over the bar (not solid) go back on top
+                }
+            }
             for (int k = 0; k < b.X0.Length; k++)
             {
                 int x0 = b.X0[k], x1 = b.X1[k], f0, f1, colour;
@@ -1516,10 +1966,12 @@ namespace User.FXProRpmSync
                 }
                 string state = f0 + "," + f1 + "," + colour;
                 if (state == b.SegSent[k]) continue;
-                if (Covered(new Rectangle(x0, e.Y, x1 - x0, e.H))) continue;
-                if (f0 > x0) screen.Cmd(Fill(x0, e.Y, f0 - x0, e.H, b.SegEmpty));
-                if (f1 > f0) screen.Cmd(Fill(f0, e.Y, f1 - f0, e.H, colour));
-                if (f1 < x1) screen.Cmd(Fill(Math.Max(x0, f1), e.Y, x1 - Math.Max(x0, f1), e.H, b.SegEmpty));
+                var segR = new Rectangle(x0, e.Y, x1 - x0, e.H);
+                if (Covered(segR)) continue;
+                if (solid.Count > 0 && Subtract(segR, solid).Count == 0) continue;
+                if (f0 > x0) Seg(x0, f0 - x0, b.SegEmpty);
+                if (f1 > f0) Seg(f0, f1 - f0, colour);
+                if (f1 < x1) Seg(Math.Max(x0, f1), x1 - Math.Max(x0, f1), b.SegEmpty);
                 b.SegSent[k] = state;
             }
         }
@@ -1634,17 +2086,21 @@ namespace User.FXProRpmSync
             var issues = new List<DashIssue>();
             void Add(string level, DashElement e, string msg) => issues.Add(new DashIssue { Level = level, Element = e == null ? null : Name(e), Message = msg });
 
-            var known = new HashSet<string> { "rect", "ellipse", "box", "gradient", "image", "label", "value", "bar", "deltabar", "popup" };
+            var known = new HashSet<string> { "rect", "ellipse", "box", "gradient", "image", "label", "value", "bar", "deltabar", "popup", "dim" };
             foreach (var e in def.Elements)
             {
                 if (!known.Contains(e.Type ?? "")) { Add("error", e, $"unknown type \"{e.Type}\""); continue; }
                 var r = new Rectangle(e.X, e.Y, e.W, e.H);
-                if (e.Type != "deltabar" && e.Type != "popup" && (r.Left < 0 || r.Top < 0 || r.Right + dx > Width || r.Bottom + dy > Height))
+                if (e.Type != "deltabar" && e.Type != "popup" && e.Type != "dim" && (r.Left < 0 || r.Top < 0 || r.Right + dx > Width || r.Bottom + dy > Height))
                     Add(e.Type == "label" || e.Type == "value" ? "error" : "warning", e, "outside the screen" + (dx > 0 || dy > 0 ? " with the padding" : ""));
                 if (e.Type == "image" && (e.Image == null || !images.ContainsKey(e.Image))) Add("error", e, $"image \"{e.Image}\" isn't in the dash's Images");
                 foreach (var b in new[] { e.Bind, e.ColorBind }.Concat(e.Visible ?? new List<string>()))
                     if (!string.IsNullOrEmpty(b) && !DashValues.KnownKey(b) && !b.Contains(":"))
                         Add("warning", e, $"unknown data key \"{b}\" (see the bindings list; SimHub properties need \"prop:\")");
+                var page = DashPages.PageOf(e);
+                if (page.HasValue && def.Pages != null && def.Pages.Count > 0 && page.Value >= def.Pages.Count)
+                    Add("warning", e, $"on page {page.Value + 1}, but the dash has {def.Pages.Count} pages (Pages)");
+                if (e.Type == "popup" && page.HasValue) Add("warning", e, "a pop-up can't be on a page (it shows over every page)");
             }
 
             var texts = staticLabels.Concat(dynamic.Where(n => n.Kind == "label" || n.Kind == "value")).ToList();
@@ -1663,7 +2119,9 @@ namespace User.FXProRpmSync
                     else if (w > t.R.Width) Add("error", e, $"\"{sample}\" is {w} px wide, box {t.R.Width}");
                 }
                 if (t.Kind == "value" && (e.Samples == null || e.Samples.Length == 0)) Add("warning", e, "no Samples: can't check the widest text fits");
-                if (e.Background != null && t.StaticBg.HasValue && t.StaticBg.Value != Rgb565(e.Background))
+                // (what's under it whenever it shows: the static layer and the shapes that show with it, its overlay's box)
+                var underIt = e.Background != null ? ColourUnder(e, BandArea(t, -1)) : null;
+                if (e.Background != null && underIt.HasValue && underIt.Value != Rgb565(e.Background))
                     Add("warning", e, "its Background differs from what's drawn under it");
             }
             // Overlaps between text shown together: a label only covers its text (no background), a value its whole box
@@ -1681,6 +2139,7 @@ namespace User.FXProRpmSync
                 for (int j = i + 1; j < always.Count; j++)
                 {
                     if (always[i].Kind == "label" && always[j].Kind == "label") continue; // both transparent: harmless
+                    if (DashPages.Apart(always[i].E, always[j].E)) continue; // on different pages: never shown together
                     var o = Rectangle.Intersect(Covers(always[i]), Covers(always[j]));
                     if (o.Width > 2 && o.Height > 2)
                         Add("warning", always[i].E, $"overlaps {Name(always[j].E)}");

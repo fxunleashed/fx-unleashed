@@ -7,7 +7,7 @@ using User.FXProRpmSync;
 
 static class UsbTestMain
 {
-    sealed class Counter : IScreenSink
+    internal sealed class Counter : IScreenSink
     {
         public PreviewScreen P = new PreviewScreen(); public long Bytes; public int Reports; int pending;
         public System.Collections.Generic.List<string> Log;
@@ -388,7 +388,10 @@ static class UsbTestMain
             {
                 // first update after which the incremental screen differs from a full redraw; then, for the spot that
                 // differs, every command each side drew there and for which element (why)
+                // (... diverge tiles: as on a wheel with the RAM drive; pages flip every 15 s as in verify)
+                bool dt = args.Length > 4 && args[4] == "tiles";
                 var ds = new Counter(); var dr = new DashRenderer(ds, d, 10, 20);
+                if (dt) { dr.EnableTiles(); dr.UseTiles(true); }
                 var hist = new System.Collections.Generic.List<(double T, string Why, string Cmd)>();
                 string why = "(DrawAll)"; double tnow = 0;
                 dr.Trace = t0 => why = t0.Trim();
@@ -401,6 +404,7 @@ static class UsbTestMain
                     var dv = ddm.Step(1 / 30.0);
                     if (k % 3 != 0) continue;
                     tnow = k / 30.0;
+                    dv.Page = d.PageCount > 1 ? (int)(tnow / 15) % d.PageCount : 0;
                     var log = new System.Collections.Generic.List<string>();
                     ds.Log = log; why = "(hide/popups)";
                     var cmdWhy = new System.Collections.Generic.List<string>();
@@ -410,6 +414,7 @@ static class UsbTestMain
                     for (int i = 0; i < log.Count; i++) hist.Add((tnow, i < cmdWhy.Count ? cmdWhy[i] : "?", log[i]));
                     var fs = new Counter(); var fwhy = new System.Collections.Generic.List<(string, string)>(); string fw = "(DrawAll)";
                     var frr = new DashRenderer(fs, d, 10, 20); frr.Trace = t0 => fw = t0.Trim();
+                    if (dt) { frr.EnableTiles(); frr.UseTiles(true); }
                     fs.OnCmd = c => fwhy.Add((fw, c));
                     frr.DrawAll(); frr.Update(dv, tnow);
                     int[] A2 = Pixels(ds.P.Bitmap), B2 = Pixels(fs.P.Bitmap); int nd = 0;
@@ -421,6 +426,8 @@ static class UsbTestMain
                         Console.WriteLine($"first difference after update at {tnow:0.00}s: {nd} px in {box} (screen)");
                         bool Hits(string c)
                         {
+                            var rv = ScreenTiles.ParseRamv(c);
+                            if (rv != null) { var tile = ScreenTiles.Registry.TryGetValue(rv.Item3, out var jp) ? jp : null; return tile != null && new Rectangle(rv.Item1, rv.Item2, 120, 120).IntersectsWith(box); }
                             if (!(c.StartsWith("fill ") || c.StartsWith("xstr "))) return false;
                             var a = c.Substring(5).Split(',');
                             return new Rectangle(int.Parse(a[0]), int.Parse(a[1]), int.Parse(a[2]), int.Parse(a[3])).IntersectsWith(box);

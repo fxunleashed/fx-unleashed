@@ -207,6 +207,8 @@ namespace User.FXProRpmSync
             private double s, ox, oy;
             private readonly Dictionary<string, ZipArchive> zips = new Dictionary<string, ZipArchive>(StringComparer.OrdinalIgnoreCase);
             private int counter;
+            /// <summary>The SimHub screen commands (next, previous) of the widget whose screens became the dash's pages.</summary>
+            private (int, int) pagerCommands;
 
             public Context(string path, ImportOptions opt) { this.path = path; this.opt = opt; folder = Path.GetDirectoryName(path); }
 
@@ -241,13 +243,54 @@ namespace User.FXProRpmSync
                     foreach (var layer in screens.Where(x => (bool?)x["IsBackgroundLayer"] == true && x != main)) Screen(layer, frame, true);
                     Screen(main, frame, false);
                     foreach (var layer in screens.Where(x => (bool?)x["IsForegroundLayer"] == true && (bool?)x["IsOverlayLayer"] != true && x != main)) Screen(layer, frame, true);
+                    // overlay screens: SimHub shows them over the dash while their trigger holds (ignition off, a start-up
+                    // splash): drawn last, each shown while its trigger is true, hidden in previews
+                    int overlays = 0, skippedOverlays = 0;
+                    foreach (var layer in screens.Where(x => (bool?)x["IsOverlayLayer"] == true && x != main))
+                    {
+                        var trigger = ((string)layer["OverlayTriggerExpression"]?["Expression"] ?? "").Trim();
+                        if (trigger.Length == 0) { skippedOverlays++; continue; }
+                        var cond = "ncalc:" + trigger;
+                        int from = def.Elements.Count;
+                        Screen(layer, frame.With(0, 0, 1, new[] { cond }), true);
+                        // a full-screen overlay hides what's under it: give it the screen's background so values under it
+                        // stop drawing (they're covered) and come back in one repaint when it goes
+                        var lbg = Color((string)layer["BackgroundColor"]) ?? Color((string)d["BackgroundColor"]) ?? System.Drawing.Color.Black;
+                        if (lbg.A > 0 && def.Elements.Count > from)
+                        {
+                            var back = new DashElement { Type = "rect", Name = ((string)layer["Name"] ?? "overlay") + " background", X = 0, Y = 0, W = DashRenderer.Width, H = DashRenderer.Height, Color = Hex(System.Drawing.Color.FromArgb(255, lbg)), Visible = new List<string> { cond }, PreviewVisible = false };
+                            def.Elements.Insert(from, back);
+                        }
+                        for (int k = from; k < def.Elements.Count; k++) def.Elements[k].PreviewVisible = false;
+                        overlays++;
+                    }
+                    Dims();
                     MarkOverlays();
                     Declutter();
-                    int overlays = screens.Count(x => (bool?)x["IsOverlayLayer"] == true);
-                    if (overlays > 0) Report.Note($"{overlays} overlay screen(s) not imported (pop-ups shown over the dash in SimHub)");
+                    if (overlays > 0) Report.Note($"{overlays} overlay screen(s) imported, each shown while its SimHub trigger holds (hidden in previews)");
+                    if (skippedOverlays > 0) Report.Note($"{skippedOverlays} overlay screen(s) without a trigger not imported");
                 }
                 finally { foreach (var z in zips.Values) z.Dispose(); }
                 return def;
+            }
+
+            /// <summary>
+            /// A see-through black layer over (nearly) the whole dash, shown on a condition (SimHub dashes darken themselves
+            /// with headlights on this way): a "dim" element instead, which lowers the screen's backlight. Drawn as a shape,
+            /// every value under it would have to draw it again at each change (flashing, and many times the traffic).
+            /// </summary>
+            private void Dims()
+            {
+                for (int i = 0; i < def.Elements.Count; i++)
+                {
+                    var e = def.Elements[i];
+                    if (e.Type != "rect" || e.Visible == null || e.Visible.Count == 0 || e.Opacity <= 0 || e.Opacity >= 100 || !string.IsNullOrEmpty(e.ColorBind)) continue;
+                    var c = DashColors.Parse(e.Color, System.Drawing.Color.White);
+                    if (c.R > 16 || c.G > 16 || c.B > 16) continue;
+                    if (e.W * e.H < 0.85 * opt.FitWidth * opt.FitHeight) continue;
+                    def.Elements[i] = new DashElement { Type = "dim", Name = e.Name, Opacity = e.Opacity, Visible = e.Visible, PreviewVisible = false };
+                    Report.Note($"\"{e.Name}\" (a see-through black layer over the dash, {e.Opacity}%) imported as a dim of the screen's backlight while it shows");
+                }
             }
 
             /// <summary>
@@ -383,8 +426,10 @@ namespace User.FXProRpmSync
                 public double OX, OY, Scale = 1;
                 public List<string> Visible = new List<string>();
                 public string Folder;
-                public Frame With(double ox, double oy, double scale, IEnumerable<string> cond, string folder = null) =>
-                    new Frame { OX = ox, OY = oy, Scale = scale, Visible = Visible.Concat(cond).ToList(), Folder = folder ?? Folder };
+                /// <summary>The layers' opacity above (0-1): SimHub draws a layer's children through it.</summary>
+                public double Opacity = 1;
+                public Frame With(double ox, double oy, double scale, IEnumerable<string> cond, string folder = null, double opacity = 1) =>
+                    new Frame { OX = ox, OY = oy, Scale = scale, Visible = Visible.Concat(cond).ToList(), Folder = folder ?? Folder, Opacity = Opacity * opacity };
             }
 
             private void Items(JArray items, Frame f)
@@ -401,13 +446,20 @@ namespace User.FXProRpmSync
                 bool visible = (bool?)it["Visible"] ?? true;
                 if (!visible && visBind == null) return; // hidden in the dash, no condition to show it
                 var cond = visBind == null ? new List<string>() : new List<string> { visBind };
+                // SimHub's blinking (an item shown and hidden every BlinkDelay ms while it shows): the same, as a condition
+                if ((bool?)it["BlinkEnabled"] == true)
+                {
+                    double ms = (double?)it["BlinkDelay"] ?? 250; // SimHub's default (it saves the delay only when it differs)
+                    string blink = $"blink('{Slug((string)it["Name"] ?? type)}-{++counter}', {ms.ToString("0", CultureInfo.InvariantCulture)}, true)";
+                    cond.Add("ncalc:" + ((bool?)it["BlinkPhasisInverted"] == true ? "!" + blink : blink));
+                }
 
                 switch (type)
                 {
                     case "Layer":
                     case "GroupItem":
                         Background(it, f, cond);
-                        Items((it["Childrens"] ?? it["Items"]) as JArray, f.With(f.OX, f.OY, f.Scale, cond));
+                        Items((it["Childrens"] ?? it["Items"]) as JArray, f.With(f.OX, f.OY, f.Scale, cond, null, Math.Max(0, Math.Min(100, (double?)it["Opacity"] ?? 100)) / 100));
                         return;
                     case "WidgetItem":
                         Widget(it, f, cond, binds);
@@ -427,6 +479,11 @@ namespace User.FXProRpmSync
                     case "LinearGaugeItem":
                         Gauge(it, f, cond, binds);
                         return;
+                }
+                if (type.StartsWith("LeaderboardOpponent") && Leaderboard(it, type) is var lb && lb != null)
+                {
+                    Text(it, type, f, cond, binds, lb);
+                    return;
                 }
                 if ((bool?)it["IsTextItem"] == true || type.EndsWith("Text") || type.EndsWith("LapTime"))
                 {
@@ -451,7 +508,7 @@ namespace User.FXProRpmSync
             private static Color? Color(string hex) => DashColors.TryParse(hex, out var c) ? c : (Color?)null;
             private static string Hex(Color c) => DashColors.Hex(c);
 
-            private static int Opacity(JObject it) => (int)Math.Round((double?)it["Opacity"] ?? 100);
+            private static int Opacity(JObject it, Frame f) => (int)Math.Round(((double?)it["Opacity"] ?? 100) * (f?.Opacity ?? 1));
 
             /// <summary>
             /// Conditional elements that look like overlays (big, or flashing on a change) start hidden in previews, where
@@ -479,7 +536,7 @@ namespace User.FXProRpmSync
                 if (c == null || c.Value.A == 0) return;
                 var r = Box(it, f);
                 if (r.Width <= 0 || r.Height <= 0) return;
-                Add(new DashElement { Type = "rect", Name = (string)it["Name"], X = r.X, Y = r.Y, W = r.Width, H = r.Height, Color = Hex(c.Value), Opacity = Opacity(it), Visible = Cond(f.Visible, cond) });
+                Add(new DashElement { Type = "rect", Name = (string)it["Name"], X = r.X, Y = r.Y, W = r.Width, H = r.Height, Color = Hex(c.Value), Opacity = Opacity(it, f), Visible = Cond(f.Visible, cond) });
                 Report.Converted++;
             }
 
@@ -499,7 +556,7 @@ namespace User.FXProRpmSync
                 if (!hasFill && !hasBorder) { Report.Skip("RectangleItem (transparent)"); return; }
                 var e = new DashElement
                 {
-                    Name = (string)it["Name"], X = r.X, Y = r.Y, W = r.Width, H = r.Height, Opacity = Opacity(it),
+                    Name = (string)it["Name"], X = r.X, Y = r.Y, W = r.Width, H = r.Height, Opacity = Opacity(it, f),
                     Visible = Cond(f.Visible, cond), ColorBind = colourBind, ColorStops = stops, Radius = radius,
                 };
                 if (hasBorder || radius > 0)
@@ -525,7 +582,7 @@ namespace User.FXProRpmSync
                 if (!hasRim && !hasFill && colourBind == null) { Report.Skip("EllipseItem (transparent)"); return; }
                 Add(new DashElement
                 {
-                    Type = "ellipse", Name = (string)it["Name"], X = r.X, Y = r.Y, W = r.Width, H = r.Height, Opacity = Opacity(it),
+                    Type = "ellipse", Name = (string)it["Name"], X = r.X, Y = r.Y, W = r.Width, H = r.Height, Opacity = Opacity(it, f),
                     Color = hasRim ? Hex(rim.Value) : Hex(fill ?? System.Drawing.Color.White), Border = hasRim ? Math.Max(1, thickness) : 0,
                     Fill = hasRim && hasFill ? Hex(fill.Value) : null, Visible = Cond(f.Visible, cond),
                     ColorBind = colourBind, ColorStops = Stops(binds, Formula(binds, "FillColor") != null ? "FillColor" : "EllipseColor"),
@@ -553,7 +610,7 @@ namespace User.FXProRpmSync
                 Add(new DashElement
                 {
                     Type = "gradient", Name = (string)it["Name"], X = r.X, Y = r.Y, W = r.Width, H = r.Height, Colors = colours, Angle = angle,
-                    Opacity = Opacity(it), Visible = Cond(f.Visible, cond),
+                    Opacity = Opacity(it, f), Visible = Cond(f.Visible, cond),
                     Border = bs == null ? 0 : (int)Math.Round(Px((double?)bs["BorderTop"] ?? 0, f)),
                     Radius = bs == null ? 0 : (int)Math.Round(Px((double?)bs["RadiusTopLeft"] ?? 0, f)),
                     Color = bs == null ? "#808080" : Hex(Color((string)bs["BorderColor"]) ?? System.Drawing.Color.Gray),
@@ -604,7 +661,7 @@ namespace User.FXProRpmSync
                 Add(new DashElement
                 {
                     Type = "image", Name = (string)it["Name"] ?? name, X = r.X, Y = r.Y, W = r.Width, H = r.Height, Image = key,
-                    MaxColors = opt.ImageColors, Opacity = Opacity(it), Visible = Cond(f.Visible, cond),
+                    MaxColors = opt.ImageColors, Opacity = Opacity(it, f), Visible = Cond(f.Visible, cond),
                 });
                 Report.Approximated++;
             }
@@ -648,7 +705,7 @@ namespace User.FXProRpmSync
                     Orientation = orientation == 1 ? "vertical" : "horizontal", Reverse = alignment == 2,
                     Color = Hex(colour), Fill = back.HasValue && back.Value.A > 0 ? Hex(back.Value) : null,
                     ColorBind = Formula(binds, "GaugeColor"), ColorStops = Stops(binds, "GaugeColor"),
-                    Opacity = Opacity(it), Visible = Cond(f.Visible, cond),
+                    Opacity = Opacity(it, f), Visible = Cond(f.Visible, cond),
                 });
                 if (!string.IsNullOrEmpty((string)it["GaugeImage"]) && (string)it["GaugeImage"] != "None" || !string.IsNullOrEmpty((string)it["BackgroundImage"]) && (string)it["BackgroundImage"] != "None")
                     Report.Approximated++;
@@ -670,6 +727,9 @@ namespace User.FXProRpmSync
                 if (screens.Count == 0) return;
                 int initial = (int?)it["InitialScreenIndex"] ?? 0;
                 var screenBind = Formula(binds, "InitialScreenIndex");
+                // flipped by the driver (SimHub's next / previous screen commands on the widget): the dash's pages
+                int next = (int?)it["NextScreenCommand"] ?? 0, prev = (int?)it["PreviousScreenCommand"] ?? 0;
+                bool flipped = next != 0 || prev != 0;
                 if (screenBind != null && screens.Count > 1)
                 {
                     // screen chosen by a formula: every screen, each shown while the formula gives its index
@@ -677,8 +737,42 @@ namespace User.FXProRpmSync
                         Items(screens[i]["Items"] as JArray, inner.With(inner.OX, inner.OY, inner.Scale, new[] { Equals(screenBind, i) }));
                     Report.Note($"widget \"{file}\": {screens.Count} screens, switched by its formula");
                 }
-                else Items(screens[Math.Max(0, Math.Min(screens.Count - 1, initial))]["Items"] as JArray, inner);
+                else if (flipped && screens.Count > 1 && (def.Pages == null || (pagerCommands == (next, prev) && def.Pages.Count == screens.Count)))
+                {
+                    // the dash flips one set of pages (one page number), on one pair of SimHub screen commands: another widget
+                    // on the same commands with as many screens follows the same number, as SimHub would flip both
+                    bool first = def.Pages == null;
+                    if (first) { def.Pages = new List<string>(); pagerCommands = (next, prev); }
+                    for (int k = 0; k < screens.Count; k++)
+                    {
+                        // SimHub's widget screens start at InitialScreenIndex: page 0 is that one, the rest follow in order
+                        int i = (initial + k) % screens.Count;
+                        if (first) def.Pages.Add(ScreenTitle(screens[i], i));
+                        Items(screens[i]["Items"] as JArray, inner.With(inner.OX, inner.OY, inner.Scale, new[] { DashPages.Condition(k) }));
+                    }
+                    Report.Note($"widget \"{file}\": {screens.Count} screens flipped by the driver, imported as pages ({string.Join(", ", def.Pages)}): bind Next / Previous page to a wheel button");
+                }
+                else
+                {
+                    if (flipped && screens.Count > 1) Report.Note($"widget \"{file}\": {screens.Count} screens on other screen commands than the dash's pages: only its first screen imported");
+                    Items(screens[Math.Max(0, Math.Min(screens.Count - 1, initial))]["Items"] as JArray, inner);
+                }
                 Report.Converted++;
+            }
+
+            /// <summary>
+            /// A page's name: the widget screen's own name, or (SimHub's default "Screen") what it shows: its top-level
+            /// layers' names ("TyreTemp / TyrePres / Braketemps"), shortened.
+            /// </summary>
+            private static string ScreenTitle(JObject screen, int index)
+            {
+                var name = ((string)screen["Name"] ?? "").Trim();
+                if (name.Length > 0 && !Regex.IsMatch(name, @"^screen\s*\d*$", RegexOptions.IgnoreCase)) return name;
+                var layers = (screen["Items"] as JArray ?? new JArray()).OfType<JObject>()
+                    .Where(x => TypeName(x) == "Layer" || TypeName(x) == "GroupItem").Select(x => ((string)x["Name"] ?? "").Trim()).Where(x => x.Length > 0).ToList();
+                var title = string.Join(" / ", layers);
+                if (title.Length == 0) return "Page " + (index + 1);
+                return title.Length <= 32 ? title : title.Substring(0, 31) + "…";
             }
 
             /// <summary>A condition "formula == index" in the formula's own language.</summary>
@@ -689,7 +783,74 @@ namespace User.FXProRpmSync
                 return formula;
             }
 
-            private void Text(JObject it, string type, Frame f, List<string> cond, JObject binds)
+            /// <summary>What a SimHub leaderboard item shows, as a formula picking the same driver (SimHub's
+            /// OpponentAtPosition: on track = the ahead/behind functions, relative to the player, or an absolute position;
+            /// player class only when the item says so).</summary>
+            private sealed class LeaderboardText { public string Bind, Format = "text", Empty = "", ColorBind, Sample; }
+
+            private LeaderboardText Leaderboard(JObject it, string type)
+            {
+                int p = (int?)it["LeaderboardPosition"] ?? 1;
+                bool onTrack = (bool?)it["LeaderboardPositionRelativeToPlayerOnTrack"] == true;
+                bool relative = (bool?)it["LeaderboardPositionRelativeToPlayer"] == true;
+                // LeaderBoardMode: 0 = the user's SimHub setting (overall by default), 1 = full, 2 = player class only
+                bool cls = ((int?)it["LeaderboardMode"] ?? 0) == 2;
+                string pos = onTrack ? $"getopponentleaderboardposition_aheadbehind{(cls ? "_playerclassonly" : "")}({p - 1})"
+                           : relative ? (cls ? $"getopponentleaderboardposition_playerclassonly(driverclassposition(getplayerleaderboardposition()) + {p - 1})" : $"(getplayerleaderboardposition() + {p - 1})")
+                           : cls ? $"getopponentleaderboardposition_playerclassonly({p})" : p.ToString(CultureInfo.InvariantCulture);
+                var r = new LeaderboardText();
+                switch (type)
+                {
+                    case "LeaderboardOpponentNameText":
+                        int style = (int?)it["NameStyle"] ?? 0; // NameMode: Full, Initials, ShortName
+                        r.Bind = $"ncalc:{(style == 1 ? "driverinitials" : style == 2 ? "drivershortname" : "drivername")}({pos})";
+                        r.Sample = style == 1 ? "ABC" : style == 2 ? "J. Doeson" : "Jonathan Doeson";
+                        break;
+                    case "LeaderboardOpponentBestLap":
+                    case "LeaderboardOpponentLastLap":
+                    {
+                        string fn = type.EndsWith("BestLap") ? "driverbestlap" : "driverlastlap";
+                        string fmt = ((string)it["TimeFormat"] ?? @"m\:ss\.fff").Replace("'", "");
+                        r.Empty = (string)it["EmptyTimeText"] ?? "-:---";
+                        // (a time of 0, no lap yet: the item's empty text)
+                        // (in an NCalc text a backslash escapes the next character: the format's own backslashes doubled)
+                        string fmtText = fmt.Replace("\\", "\\\\");
+                        r.Bind = $"ncalc:if(timespantoseconds({fn}({pos})) > 0, format({fn}({pos}), '{fmtText}'), '{r.Empty.Replace("'", "")}')";
+                        r.Sample = "88:88.888";
+                        break;
+                    }
+                    case "LeaderboardOpponentGap":
+                    {
+                        int mode = (int?)it["GapMode"] ?? 0; // GapMode: the user's setting (from the leader by default), from leader, from player
+                        string fn = onTrack ? "driverrelativegaptoplayer" : mode == 2 ? "drivergaptoplayer" : cls ? "drivergaptoclassleader" : "drivergaptoleader";
+                        string num = (string)it["Format"] ?? "0.00";
+                        r.Format = (bool?)it["AlwaysAppendSign"] != false ? $"+{num};-{num};{num}" : num; // SimHub signs a gap always
+                        r.Empty = (string)it["EmptyValueText"] ?? "-";
+                        // (the player's own row has no gap: the item's empty text)
+                        r.Bind = $"ncalc:if(driverisplayer({pos}), '{r.Empty.Replace("'", "")}', {fn}({pos}))";
+                        r.Sample = "+888.88";
+                        break;
+                    }
+                    case "LeaderboardOpponentPositionText": r.Bind = $"ncalc:driverposition({pos})"; r.Sample = "88"; break;
+                    case "LeaderboardOpponentCarNumberText": r.Bind = $"ncalc:drivercarnumber({pos})"; r.Sample = "888"; break;
+                    case "LeaderboardOpponentCarClassText": r.Bind = $"ncalc:drivercarclass({pos})"; r.Sample = "HYPERCAR"; break;
+                    case "LeaderboardOpponentCarModelText": r.Bind = $"ncalc:drivercarname({pos})"; r.Sample = "Ford Mustang"; break;
+                    case "LeaderboardOpponentCurrentLapText": r.Bind = $"ncalc:drivercurrentlap({pos})"; r.Sample = "88"; break;
+                    default: return null;
+                }
+                // the player shown in another colour (PlayerStyle), when the item does
+                if ((bool?)it["PlayerStyleEnabled"] == true)
+                {
+                    var pc = Color((string)it["PlayerTextColor"] ?? (string)it["PlayerStyle"]?["TextColor"]);
+                    var oc = Color((string)it["OpponentTextColor"] ?? (string)it["OpponentStyle"]?["TextColor"] ?? (string)it["TextColor"]);
+                    if (pc.HasValue && oc.HasValue && pc.Value != oc.Value)
+                        r.ColorBind = $"ncalc:if(driverisplayer({pos}), '{Hex(pc.Value)}', '{Hex(oc.Value)}')";
+                }
+                Report.Note("leaderboard items imported as SimHub formulas picking the same drivers");
+                return r;
+            }
+
+            private void Text(JObject it, string type, Frame f, List<string> cond, JObject binds, LeaderboardText lb = null)
             {
                 var r = Box(it, f);
                 if (r.Width <= 0 || r.Height <= 0) { Report.Skip(type + " (empty box)"); return; }
@@ -700,6 +861,9 @@ namespace User.FXProRpmSync
                 if (!bound && Math.Abs(rot - 90) < 20 || !bound && Math.Abs(rot - 270) < 20) { Report.Skip(type + " (turned text)", "fixed text drawn on its side left out"); return; }
                 double size = (double?)it["FontSize"] ?? 20;
                 var colour = Color((string)(it["TextColor"] ?? it["GearTextColor"])) ?? System.Drawing.Color.White;
+                // text in a see-through layer: the screen draws text solid, so its colour is blended toward the black under it
+                int textOpacity = Opacity(it, f);
+                if (textOpacity < 100) colour = System.Drawing.Color.FromArgb(colour.A, colour.R * textOpacity / 100, colour.G * textOpacity / 100, colour.B * textOpacity / 100);
                 var back = Color((string)it["BackgroundColor"]);
                 var bs = it["BorderStyle"] as JObject;
                 int border = bs == null ? 0 : (int)Math.Round(Px(new[] { "BorderTop", "BorderBottom", "BorderLeft", "BorderRight" }.Average(k => (double?)bs[k] ?? 0), f));
@@ -713,15 +877,15 @@ namespace User.FXProRpmSync
                         Type = framed || radius > 0 ? "box" : "rect", Name = ((string)it["Name"] ?? type) + (framed ? " frame" : " background"),
                         X = r.X, Y = r.Y, W = r.Width, H = r.Height, Radius = radius, Border = framed ? Math.Max(1, border) : 0,
                         Color = framed ? Hex(borderColour.Value) : Hex(back.Value), Fill = back.HasValue && back.Value.A > 0 ? Hex(back.Value) : null,
-                        Opacity = Opacity(it), Visible = Cond(f.Visible, cond),
+                        Opacity = Opacity(it, f), Visible = Cond(f.Visible, cond),
                     });
                     Report.Converted++;
                 }
                 int align = (int?)it["HorizontalAlignment"] ?? 0;
-                string sample = (string)it["Text"] ?? (string)it["DesignerText"] ?? (string)it["NoDataText"] ?? "";
-                string textBind = Formula(binds, "Text");
-                string format = "text";
-                var fs = (string)binds?["Text"]?["FormatString"];
+                string sample = lb?.Sample ?? (string)it["Text"] ?? (string)it["DesignerText"] ?? (string)it["NoDataText"] ?? "";
+                string textBind = lb?.Bind ?? Formula(binds, "Text");
+                string format = lb?.Format ?? "text";
+                var fs = lb != null ? null : (string)binds?["Text"]?["FormatString"];
                 if (textBind == null) BuiltIn(type, ref textBind, ref format, ref sample);
                 else if (!string.IsNullOrEmpty(fs)) format = TimeSpanFormat(fs) ? "time:" + fs : fs;
                 else if (Regex.IsMatch(textBind, @"^ncalc:\[[^\]]*(LapTime|BestLap|LastLap|Laptime)[^\]]*\]$", RegexOptions.IgnoreCase)) format = "laptime"; // a bare lap time, shown m:ss.fff
@@ -748,7 +912,8 @@ namespace User.FXProRpmSync
                 }
                 else
                 {
-                    e.Type = "value"; e.Bind = textBind; e.Format = format; e.Empty = "";
+                    e.Type = "value"; e.Bind = textBind; e.Format = format; e.Empty = lb?.Empty ?? "";
+                    if (lb?.ColorBind != null) e.ColorBind = lb.ColorBind;
                     e.PreviewText = Clean(sample);
                     e.Samples = string.IsNullOrEmpty(e.PreviewText) ? null : new[] { e.PreviewText };
                 }
@@ -762,7 +927,7 @@ namespace User.FXProRpmSync
                 switch (type)
                 {
                     case "GearText": bind = "gearText"; format = "text"; if (sample == "") sample = "N"; break;
-                    case "SpeedText": bind = "speed"; format = "0"; if (sample == "") sample = "288"; break;
+                    case "SpeedText": bind = "ncalc:[SpeedLocal]"; format = "0"; if (sample == "") sample = "288"; break; // the user's unit, as SimHub shows it
                     case "RPMText": bind = "rpm"; format = "0"; if (sample == "") sample = "8888"; break;
                     case "CurrentLapTime": bind = "currentLapTime"; format = "laptime"; if (sample == "") sample = "1:23.456"; break;
                     case "LastLapTime": bind = "lastLapTime"; format = "laptime"; if (sample == "") sample = "1:23.456"; break;

@@ -84,9 +84,13 @@ namespace User.FXProRpmSync
             bindings.Children.Add(Theme.Eyebrow("Switch while driving"));
             bindings.Children.Add(new WheelButtonBinding(plugin, "next", "Next dash"));
             bindings.Children.Add(new WheelButtonBinding(plugin, "prev", "Previous dash"));
+            bindings.Children.Add(new WheelButtonBinding(plugin, "pagenext", "Next page"));
+            bindings.Children.Add(new WheelButtonBinding(plugin, "pageprev", "Previous page"));
             var other = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
             other.Children.Add(Theme.Binding("Next dash", "UsbNextDash"));
             other.Children.Add(Theme.Binding("Previous dash", "UsbPreviousDash"));
+            other.Children.Add(Theme.Binding("Next page", "UsbDashNextPage"));
+            other.Children.Add(Theme.Binding("Previous page", "UsbDashPreviousPage"));
             bindings.Children.Add(new Expander { Header = "A keyboard key or another controller instead (through SimHub)", Content = other, Margin = new Thickness(0, 6, 0, 0) });
             list.Children.Add(bindings);
             Children.Add(Theme.CardBox(list));
@@ -304,6 +308,18 @@ namespace User.FXProRpmSync
                     bool demoing = Usb.DemoOn && Usb.DemoDashId == null;
                     row.Children.Add(Theme.Btn(demoing ? "Stop the demo" : "Demo on the wheel", () => { Usb?.SetDemo(!demoing); Refresh(true); },
                         icon: demoing ? "" : ""));
+                    // the dash showing now flips its pages (a dash with pages, e.g. the Mustang's tyres / delta strip)
+                    var shownRef = refs.Count > 0 ? refs[Math.Max(0, Math.Min(refs.Count - 1, current))] : null;
+                    var shown = shownRef != null && !DashRef.IsWheel(shownRef) ? DashCache.Find(DashRef.Id(shownRef)) : null;
+                    bool paged = shown != null && shown.PageCount > 1;
+                    foreach (var (text, step, icon) in new[] { ("Previous page", -1, ""), ("Next page", +1, "") })
+                    {
+                        var b = Theme.Btn(text, () => Usb?.StepPage(step), icon: icon);
+                        b.IsEnabled = demoing && paged;
+                        b.ToolTip = !paged ? "This dash has no pages" : demoing ? "Flips the dash on the wheel (in a session: the wheel buttons bound below)" : "Start the demo to flip its pages here";
+                        ToolTipService.SetShowOnDisabled(b, true);
+                        row.Children.Add(b);
+                    }
                 }
                 if (target != null) row.Children.Add(Theme.Btn("Back to the default", () => { plugin.DeleteUsbCarDash(target); if (target != plugin.DashCarKey) target = null; Refresh(true); }, icon: ""));
                 listPanel.Children.Add(row);
@@ -537,6 +553,16 @@ namespace User.FXProRpmSync
                 }, icon: demoing ? "" : "");
                 demo.IsEnabled = Usb?.FirmwarePatched == true;
                 focusButtons.Children.Add(demo);
+                // its pages, while its demo runs
+                if (!wheel && d != null && d.PageCount > 1)
+                    foreach (var (text, step, icon) in new[] { ("Previous page", -1, ""), ("Next page", +1, "") })
+                    {
+                        var b = Theme.Btn(text, () => Usb?.StepPage(step), icon: icon);
+                        b.IsEnabled = demoing;
+                        b.ToolTip = demoing ? "Flips the dash on the wheel" : "Start the demo to flip its pages here";
+                        ToolTipService.SetShowOnDisabled(b, true);
+                        focusButtons.Children.Add(b);
+                    }
             }
             if (!wheel && d != null)
             {
