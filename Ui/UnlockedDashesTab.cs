@@ -94,7 +94,7 @@ namespace User.FXProRpmSync
                 Text = "Some dashes have parts that flip on their own (fuel, lap times, tyres). Next page flips them all; these flip one set each, for every dash that has them.",
                 Foreground = Theme.Text3, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
             });
-            for (int set = 2; set <= DashPages.MaxSets; set++)
+            for (int set = 1; set <= DashPages.MaxSets; set++)
             {
                 sets.Children.Add(new WheelButtonBinding(plugin, "pagenext" + set, "Next page " + set));
                 sets.Children.Add(new WheelButtonBinding(plugin, "pageprev" + set, "Previous page " + set));
@@ -105,7 +105,7 @@ namespace User.FXProRpmSync
             other.Children.Add(Theme.Binding("Previous dash", "UsbPreviousDash"));
             other.Children.Add(Theme.Binding("Next page", "UsbDashNextPage"));
             other.Children.Add(Theme.Binding("Previous page", "UsbDashPreviousPage"));
-            for (int set = 2; set <= DashPages.MaxSets; set++)
+            for (int set = 1; set <= DashPages.MaxSets; set++)
             {
                 other.Children.Add(Theme.Binding("Next page " + set, "UsbDashNextPage" + set));
                 other.Children.Add(Theme.Binding("Previous page " + set, "UsbDashPreviousPage" + set));
@@ -663,7 +663,7 @@ namespace User.FXProRpmSync
 
         // ---------- Files ----------
 
-        /// <summary>A dash with more than one set of pages: a button per set flipping that set alone (Next page 2...).</summary>
+        /// <summary>A dash with more than one set of pages: a button per set flipping that set alone (Next page 1, 2...).</summary>
         private void AddSetButtons(UIElementCollection to, DashDefinition d, bool demoing)
         {
             if (d.SetCount < 2) return;
@@ -674,7 +674,7 @@ namespace User.FXProRpmSync
                 var b = Theme.Btn("Next " + d.SetName(set), () => Usb?.StepPage(k, +1));
                 b.IsEnabled = demoing;
                 b.ToolTip = (demoing ? "Flips this part of the dash on the wheel" : "Start the demo to flip it here")
-                            + (set == 0 ? "" : $" (in a session: Next page {set + 1})");
+                            + $" (in a session: Next page {set + 1})";
                 ToolTipService.SetShowOnDisabled(b, true);
                 to.Add(b);
             }

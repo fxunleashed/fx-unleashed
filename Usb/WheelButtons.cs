@@ -34,7 +34,7 @@ namespace User.FXProRpmSync
         public static readonly (string Id, string Name)[] Actions =
         {
             ("next", "Next dash"), ("prev", "Previous dash"), ("pagenext", "Next page"), ("pageprev", "Previous page"),
-            ("pagenext2", "Next page 2"), ("pageprev2", "Previous page 2"), ("pagenext3", "Next page 3"), ("pageprev3", "Previous page 3"),
+            ("pagenext1", "Next page 1"), ("pageprev1", "Previous page 1"), ("pagenext2", "Next page 2"), ("pageprev2", "Previous page 2"), ("pagenext3", "Next page 3"), ("pageprev3", "Previous page 3"),
             ("pagenext4", "Next page 4"), ("pageprev4", "Previous page 4"), ("sleep", "Sleep / wake"),
             ("screen", "Screen on / off"), ("wheeldash", "Custom / wheel's own dash"),
             ("ledup", "Lights brighter"), ("leddown", "Lights dimmer"),
@@ -151,9 +151,9 @@ namespace User.FXProRpmSync
                 case "prev": plugin.CycleUsbDash(-1); break;
                 case "pagenext": plugin.Usb?.StepPage(+1); break;
                 case "pageprev": plugin.Usb?.StepPage(-1); break;
-                // one set of pages: "pagenext2" = set 2 (PageSets[0])
-                case "pagenext2": case "pagenext3": case "pagenext4": plugin.Usb?.StepPage(action[8] - '1', +1); break;
-                case "pageprev2": case "pageprev3": case "pageprev4": plugin.Usb?.StepPage(action[8] - '1', -1); break;
+                // one set of pages: "pagenext1" = set 1 (Pages), "pagenext2" = set 2 (PageSets[0])...
+                case "pagenext1": case "pagenext2": case "pagenext3": case "pagenext4": plugin.Usb?.StepPage(action[8] - '1', +1); break;
+                case "pageprev1": case "pageprev2": case "pageprev3": case "pageprev4": plugin.Usb?.StepPage(action[8] - '1', -1); break;
                 case "sleep": if (plugin.Usb?.Sleeping == true) plugin.Usb.Wake(); else plugin.Usb?.SleepNow(); break;
                 case "screen": plugin.ToggleScreen(); break;
                 case "wheeldash": plugin.ToggleWheelDash(); break;

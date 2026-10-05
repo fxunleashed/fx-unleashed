@@ -400,7 +400,7 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
   text, in the tight fonts only (`convert_kit.tight`). A character no screen font has (the AMR's page dots "•"): a
   picture too (the import leaves such texts empty: check every empty label).
 - **Sets of pages** (format 4): widgets the driver flips on their own SimHub commands import as sets (`Pages` = set 1,
-  `PageSets` = sets 2-4, conditions `page:N` / `page2:N`..); "Next page" flips them all, `UsbDashNextPage2..4` one each.
+  `PageSets` = sets 2-4, conditions `page:N` / `page2:N`..); "Next page" flips them all, `UsbDashNextPage1..4` one each.
   Name the sets and pages in the script.
 - **A zero time**: SimHub formats it ("0.00.000"); the wheel shows `Empty` for a time of 0. Set `Empty` to the format's
   zero, and add it to `Samples` (it must fit too).

@@ -311,7 +311,7 @@ function renderPages() {
   // with more sets of pages: a button per flip, its title the page of each set it shows
   const flipTitle = i => [pageName(i % pageCount()), ...[2, 3, 4].filter(k => setCount(k) > 1).map(k => ((dash.PageSets || [])[k - 2]?.Pages || [])[i % setCount(k)] || `Page ${i % setCount(k) + 1}`)].join(' + ');
   seg.innerHTML = Array.from({ length: n }, (_, i) => hasSets()
-    ? `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Shows ${esc(flipTitle(i))} (Next page flips every set; Next page 2-4 one set each)">${i + 1}</button>`
+    ? `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Shows ${esc(flipTitle(i))} (Next page flips every set; Next page 1-4 one set each)">${i + 1}</button>`
     : `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Show ${esc(pageName(i))} (the driver flips pages with a wheel button)">${esc(pageName(i))}</button>`).join('');
   seg.querySelectorAll('[data-page]').forEach(b => b.onclick = () => setPage(Number(b.dataset.page)));
 }

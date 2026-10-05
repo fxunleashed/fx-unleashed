@@ -252,8 +252,8 @@ static class WorkstreamTests
     {
         var errors = new System.Collections.Generic.List<string>();
         var all = BundledDashes.All(errors);
-        var expected = new[] { "lib-slipstream", "lib-apex", "lib-halo", "lib-nocturne", "lib-nocturne-blue", "lib-nocturne-red", "lmgt3-mclaren-720s", "toyota-gr010-hybrid", "lmp3-ginetta-g61" };
-        Check("B: all eight dashes come with the plugin", errors.Count == 0 && all.Count == expected.Length && expected.All(id => all.Any(d => d.Id == id)), string.Join("; ", errors));
+        var expected = new[] { "lib-slipstream", "lib-apex", "lib-halo", "lib-nocturne", "lib-nocturne-blue", "lib-nocturne-red", "lmgt3-mclaren-720s", "toyota-gr010-hybrid", "lmp3-ginetta-g61", "lmgt3-aston-martin" };
+        Check("B: all ten dashes come with the plugin", errors.Count == 0 && all.Count == expected.Length && expected.All(id => all.Any(d => d.Id == id)), string.Join("; ", errors));
         Check("B: each is read-only (built in and bundled) and names its author", all.All(d => d.BuiltIn && d.Bundled && !string.IsNullOrWhiteSpace(d.Author)));
         var lmu = all.Where(d => d.Id == "lmgt3-mclaren-720s" || d.Id == "toyota-gr010-hybrid").ToList();
         Check("B: the two LMU conversions credit Redadeg and say they were converted", lmu.Count == 2 && lmu.All(d => d.Author.Contains("Redadeg") && d.Description.Contains("Converted") && d.Description.Contains("lmu-dashboards.com")));
@@ -270,7 +270,7 @@ static class WorkstreamTests
         {
             DashLibrary.Root = root;
             var list = DashLibrary.Load(null);
-            Check("B: the dash list holds the Mustang and all nine bundled dashes", list.Any(d => d.Id == BuiltInDashes.MustangId) && expected.All(id => list.Any(d => d.Id == id && d.Bundled)));
+            Check("B: the dash list holds the Mustang and all ten bundled dashes", list.Any(d => d.Id == BuiltInDashes.MustangId) && expected.All(id => list.Any(d => d.Id == id && d.Bundled)));
             var mine = BuiltInDashes.MustangGt3(); mine.Id = "lib-halo"; mine.Name = "Halo, updated from the library"; mine.BuiltIn = false;
             DashTools.Save(mine);
             list = DashLibrary.Load(null);

@@ -150,9 +150,9 @@ times and tyres with three buttons):
 - `"PageSets": [ { "Name": "Laptimes", "Pages": ["Last", "Current", "Predicted", "Best"] }, ... ]`: up to three more
   sets. The first is set 2, and its elements carry `"page2:N"`; then `"page3:N"`, `"page4:N"`. `Pages` / `"page:N"`
   stay set 1. An element can be on a page of more than one set.
-- "Next page" / "Previous page" flip every set (each wraps on its own pages); "Next page 2" / "Previous page 2" (wheel
-  buttons, or SimHub's `UsbDashNextPage2` / `UsbDashPreviousPage2`, up to 4) flip one set. They're generic: bound
-  once, they flip set 2 of any dash that has one. Each set comes back on the page it was left on.
+- "Next page" / "Previous page" flip every set (each wraps on its own pages); "Next page 1" / "Previous page 1" to
+  "Next page 4" (wheel buttons, or SimHub's `UsbDashNextPage1` / `UsbDashPreviousPage1` to `...4`) flip one set. They're
+  generic: bound once, "Next page 2" flips set 2 of any dash that has one. Each set comes back on the page it was left on.
 - `page2` (to `page4`) gives that set's page now, as `page` does for set 1.
 - Format 4 (plugin 0.7.0). The importer makes each widget on its own screen commands a set, numbered by the commands
   (the lowest first), so set 1 is the widget on SimHub's first commands.

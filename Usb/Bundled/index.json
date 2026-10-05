@@ -24,6 +24,18 @@
   "Sha256": "9a5685cfce5276a4eb162a2347361e92fdc00475effefe4afbca6319bcc5a273"
  },
  {
+  "Id": "lmgt3-aston-martin",
+  "Library": false,
+  "InLibrary": true,
+  "Name": "LMGT3 Aston Martin Vantage AMR",
+  "Author": "Redadeg (lmu-dashboards.com)",
+  "Description": "Converted for the FX Pro by FX Unleashed from Redadeg's SimHub dash \"LMGT3 Aston Martin Vantage AMR GT3 Evo\" (https://lmu-dashboards.com). Three parts flip on their own, as in the original: energy / fuel (Next page 1), the lap times (Next page 2) and the tyres (Next page 3); Next page flips all three.",
+  "Version": "1.0.0",
+  "Source": "Redadeg's SimHub dash \"LMGT3 Aston Martin Vantage AMR GT3 Evo\", https://lmu-dashboards.com",
+  "License": "Converted work, rights with the original author",
+  "Sha256": "56fd4de4cd72ac66a0c78e416d5f97a675c993ee8e5a99e10ad99378a44064bc"
+ },
+ {
   "Id": "lmgt3-mclaren-720s",
   "Library": false,
   "InLibrary": true,

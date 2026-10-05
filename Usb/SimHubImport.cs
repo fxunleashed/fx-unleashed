@@ -780,7 +780,7 @@ namespace User.FXProRpmSync
 
             /// <summary>
             /// The flipped widgets as the dash's sets of pages, numbered by their SimHub screen commands (the lowest first:
-            /// set 1 = Next / Previous page, then Next / Previous page 2...): the placeholder conditions become "page:N",
+            /// set 1 = Next / Previous page 1, then Next / Previous page 2...): the placeholder conditions become "page:N",
             /// "page2:N"...; Pages and PageSets get the screens' names.
             /// </summary>
             private void NumberPageSets()
@@ -805,7 +805,7 @@ namespace User.FXProRpmSync
                     Report.Note($"widget \"{order[0].Name}\": {order[0].Count} screens flipped by the driver, imported as pages ({string.Join(", ", def.Pages)}): bind Next / Previous page to a wheel button");
                 else
                     Report.Note($"{order.Count} widgets flipped by the driver on their own, imported as sets of pages: " +
-                                string.Join("; ", order.Select((x, i) => $"{x.Name} ({string.Join(", ", x.Names)}): Next / Previous page{(i == 0 ? "" : " " + (i + 1))}")) +
+                                string.Join("; ", order.Select((x, i) => $"{x.Name} ({string.Join(", ", x.Names)}): Next / Previous page {i + 1}")) +
                                 ". Next / Previous page flip them all");
             }
 

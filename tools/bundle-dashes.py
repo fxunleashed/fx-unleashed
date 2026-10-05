@@ -19,7 +19,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "Usb", "Bundled")
 
-KEEP_OWN_ID = {"lmgt3-mclaren-720s", "toyota-gr010-hybrid", "lmp3-ginetta-g61"}
+KEEP_OWN_ID = {"lmgt3-mclaren-720s", "toyota-gr010-hybrid", "lmp3-ginetta-g61", "lmgt3-aston-martin"}
 # Library items whose dash is built into the plugin's code (BuiltInDashes), so there is nothing to bundle
 IN_CODE = {"lmgt3-mustang"}
 

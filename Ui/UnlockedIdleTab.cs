@@ -55,12 +55,23 @@ namespace User.FXProRpmSync
             var add = new WrapPanel { Margin = new Thickness(0, 4, 0, -8) };
             add.Children.Add(Theme.Btn("Add a picture…", AddPicture, icon: ""));
             var dashBox = new ComboBox { Width = 260, Margin = new Thickness(0, 0, 8, 8), VerticalAlignment = VerticalAlignment.Top };
-            dashBox.Items.Add(new ComboBoxItem { Content = "Add a dash as a screensaver…", Tag = null, IsEnabled = false });
-            foreach (var d in DashCache.All()) dashBox.Items.Add(new ComboBoxItem { Content = d.Name, Tag = d.Id });
-            dashBox.SelectedIndex = 0;
+            bool filling = false;
+            // the dashes as they are on disk now (one saved in the designer or installed from the library while SimHub
+            // runs shows up without a restart): read again whenever the list opens, and with the Refresh button
+            void FillDashes(bool force)
+            {
+                filling = true;
+                dashBox.Items.Clear();
+                dashBox.Items.Add(new ComboBoxItem { Content = "Add a dash as a screensaver…", Tag = null, IsEnabled = false });
+                foreach (var d in DashCache.All(force)) dashBox.Items.Add(new ComboBoxItem { Content = d.Name, Tag = d.Id });
+                dashBox.SelectedIndex = 0;
+                filling = false;
+            }
+            FillDashes(false);
+            dashBox.DropDownOpened += (s, e) => FillDashes(true);
             dashBox.SelectionChanged += (s, e) =>
             {
-                if (!(dashBox.SelectedItem is ComboBoxItem i) || i.Tag == null) return;
+                if (filling || !(dashBox.SelectedItem is ComboBoxItem i) || i.Tag == null) return;
                 var id = (string)i.Tag;
                 var item = S.Savers.FirstOrDefault(x => x.Kind == SaverKind.Dash && x.DashId == id);
                 if (item == null) S.Savers.Add(item = new SaverItem { Id = "dash-" + Guid.NewGuid().ToString("N").Substring(0, 8), Name = DashCache.NameOf(id), Kind = SaverKind.Dash, DashId = id });
@@ -70,6 +81,10 @@ namespace User.FXProRpmSync
                 BuildGallery();
             };
             add.Children.Add(dashBox);
+            var refresh = Theme.Btn("Refresh", () => FillDashes(true), icon: "");
+            refresh.ToolTip = "Read the dashes again (one you just saved or installed)";
+            refresh.VerticalAlignment = VerticalAlignment.Top;
+            add.Children.Add(refresh);
             saver.Children.Add(add);
             var saverCard = Theme.CardBox(saver);
             Children.Add(saverCard);

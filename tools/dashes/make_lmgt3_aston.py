@@ -52,7 +52,7 @@ d['Name'] = 'LMGT3 Aston Martin Vantage AMR'
 d['Author'] = 'Redadeg (lmu-dashboards.com)'
 d['Description'] = ('Converted for the FX Pro by FX Unleashed from Redadeg\'s SimHub dash "LMGT3 Aston Martin Vantage AMR GT3 Evo" '
                     '(https://lmu-dashboards.com). Three parts flip on their own, as in the original: energy / fuel '
-                    '(Next page), the lap times (Next page 2) and the tyres (Next page 3).')
+                    '(Next page 1), the lap times (Next page 2) and the tyres (Next page 3); Next page flips all three.')
 d['Source'] = 'Redadeg\'s SimHub dash "LMGT3 Aston Martin Vantage AMR GT3 Evo", https://lmu-dashboards.com'
 d['ScriptsFolder'] = None   # its JavascriptExtensions aren't used by any formula
 assert len(d['Pages']) == 2 and [p['Name'] for p in d['PageSets']] == ['Laptimes', 'Tyre Widget'], (d['Pages'], d['PageSets'])

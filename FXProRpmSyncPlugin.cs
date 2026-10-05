@@ -381,11 +381,11 @@ namespace User.FXProRpmSync
             this.AddAction("UsbWake", (a, b) => Usb?.Wake());
             this.AttachDelegate("UsbDash", () => Usb?.ActiveDashName ?? "");
             // Unlocked mode: flip the shown dash's pages (dashes with pages, e.g. the Mustang's tyres / delta strip).
-            // Next / Previous page flip every set of pages; "page 2" to "page 4" one set each (dashes whose widgets flip on
+            // Next / Previous page flip every set of pages; "page 1" to "page 4" one set each (dashes whose widgets flip on
             // their own, e.g. the AMR's fuel, lap times and tyres): generic, so one binding serves every such dash.
             this.AddAction("UsbDashNextPage", (a, b) => Usb?.StepPage(+1));
             this.AddAction("UsbDashPreviousPage", (a, b) => Usb?.StepPage(-1));
-            for (int set = 2; set <= DashPages.MaxSets; set++)
+            for (int set = 1; set <= DashPages.MaxSets; set++)
             {
                 int k = set - 1;
                 this.AddAction("UsbDashNextPage" + set, (a, b) => Usb?.StepPage(k, +1));
