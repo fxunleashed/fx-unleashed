@@ -26,7 +26,7 @@ It has two modes:
 
 - **Your own dashes:** design them in the browser with the built-in designer (it shows them on the wheel while you
   edit and checks they can't flicker or lag), convert SimHub dashes, or install them from the
-  [library](https://fxunleashed.com/library/) in a click. Nine dashes (the Mustang, McLaren and Toyota LMU dashes, APEX, HALO, SLIPSTREAM and three
+  [library](https://fxunleashed.com/library/) in a click. Ten dashes (the Mustang, McLaren, Toyota and Ginetta LMU dashes, APEX, HALO, SLIPSTREAM and three
   NOCTURNEs) come with the plugin. Pick one or more per car; the dash button steps through them.
 - **Every light:** presets and an editor per group (rev lights, side lights, buttons, encoders), each car's real shift
   lights, alerts (flags, spotter, pit limiter, ABS/TC, low fuel, invalid lap, custom alerts from any SimHub value) in

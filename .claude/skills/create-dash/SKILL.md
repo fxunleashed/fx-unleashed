@@ -149,7 +149,12 @@ dash that flashes and lags from one that doesn't. They were all measured on the 
   box. If a box border, a divider or another element's edge runs through that band, every update has to wipe the
   line and draw it again, and the wheel shows that as a flash. Make value boxes smaller than the frame around them,
   with at least 2 px between the font band and the frame's border on every side. `fit-bands` fixes what you miss.
-- **One screen command is at most 58 characters**, so text over ~20 characters is cut. Keep texts short.
+- **One screen command is at most 58 characters**, and the box, font and colours take ~40 of them: a label of 15-20
+  characters can already be cut, even in a box wide enough ("PRESS IGNITION TO START" showed "PRESS IGNITION"; SLIPSTREAM's
+  "THIS LAP WON'T COUNT" on its red panel "THIS LAP WON'T "). `check` reports it ("is cut to its first N characters").
+  Keep texts short, or split one into two labels with the same `Visible` (they blink together), both left-aligned:
+  the first at the line's start, the second at start + width(whole) - width(tail). The screen's widths add up (parts +
+  the space = the whole, `fxdash fonts --sample`), so the line reads as one, still centred.
 
 ### Keep changing text on flat colour
 
@@ -207,6 +212,14 @@ RAM and no colour reduction (docs/screen-ram.md, "Ovals and rounded boxes"):
 - **A pop-up must fully cover the values it overlaps, or not touch them.** A value half under a pop-up has to redraw
   the pop-up after every update, so it flashes. Size pop-ups to whole panels or cells.
 - Stacked pop-ups in one spot (TC, ABS, bias...) are fine; the same size each is best.
+- **A plain banner with a border** (SimHub's text box with a background and a border: PIT LIMITER): two `rect`s, the
+  border colour, then the fill inset by the border. A `box` without `Radius` that comes and goes becomes a picture on
+  the RAM drive (the Ginetta's banner: 7 KB); `rect`s are fills and take none.
+- **An overlay that covers SimHub's whole width covers the wheel's** (0..790; whole screens 0,0 790x460), not just the
+  dash's scaled width (12..778 for 1200 x 720). Values in the side margins are otherwise half under it and flash (the
+  Ginetta's oil and water numbers under the pit banner: 15 flashes in the demo).
+- **A shape the original draws under a cell's frame** (a red "TC working" box under the cell's purple frame): a frame
+  that's always shown is not drawn again over a shape that comes and goes, so inset the shape inside the frame's border.
 - Conditions: `"ncalc:changed(2000, [BrakeBias])"` shows for 2 s after a change. Flags: `ncalc:[Flag_Yellow]` etc.
   Built-in keys work too (`"pitLimiter"`).
 
@@ -220,6 +233,12 @@ RAM and no colour reduction (docs/screen-ram.md, "Ovals and rounded boxes"):
   reads: every visible change of a digit is a redraw. Temperatures `0`, pressures `0.0`, times `laptime`.
 - Colour: 16-bit (RGB565). Colours by value: `ColorBind` + `ColorStops`. Delta colours: `PositiveColor` /
   `NegativeColor`.
+- **SimHub's format string applies to numbers only**: a formula that returns text (`format([x], '0.0')`) is shown as it
+  is. The wheel formats numeric text too ("26.9" under `0.00` becomes "26.90"). When an item's formula returns text for
+  some cases (tyre pressures per unit), format every case in the formula and use `"Format": "text"`.
+- **A zero lap time:** SimHub formats it ("0.00.000" before the first lap); the wheel shows the value's `Empty` for a
+  time of 0, and imports leave `Empty` blank. Set `Empty` to the zero time in the original's format. The gates don't
+  see this; a parity script should (ginetta_g61_parity.py does).
 
 ### Static cost
 
@@ -312,7 +331,15 @@ Repeat until `check` has 0 errors and 0 warnings, `fit-bands` returns `"changes"
 no more than drawing the dash takes: expected, not a fault).
 
 **Don't run `fxdash tune` on a dash with many overlays or pages:** its overlap fixes don't know that overlays exclude each
-other, and shrink values to clear things never shown with them. Do the fixes in a script instead (make_mustang.py).
+other, and shrink values to clear things never shown with them (the Ginetta's lap times and speed, shrunk to clear an
+ignition logo they never show with). Do the fixes in a script instead (make_mustang.py, make_ginetta_g61.py). And check
+what `tune` trimmed on any dash: a number SimHub draws bottom-aligned over its whole cell, label at the top, overlaps
+the label's box; `tune` cut the number's box from the right to clear it, and the digit sat at the cell's left edge (the
+Ginetta's TC and FPS). The fix is the original's place: the number under the label, across the cell.
+
+`verify --demo` without `--tiles` reports busy seconds and page flips the size of a full redraw (30-60 KB) when a
+full-screen overlay goes away: expected on a wheel without the RAM drive (the Mustang too). The demo gate is
+`--tiles --demo`; `--overlays` without `--tiles` is the gate for wheels without the patch.
 
 ### A 1:1 conversion: a build script and a parity script
 
@@ -327,6 +354,25 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
   original (the Mustang's tyre-wear average formula) and list them as explained: parity means the same behaviour.
 - Run both, then all gates, before every hand-over. A built-in dash lives in `Usb/BuiltIn/<id>.json` (embedded in the
   plugin, fxdash and UsbTest); its UsbTest checks are in `tools/UsbTest/PagesTests.cs`.
+- **Prove the parity script works:** run it on a copy with a wrong colour stop, a wrong format and a dropped condition;
+  it must exit 1 and name all three.
+- **Sizes and places, measured from the original** (worked example: `make_ginetta_g61.py`, `measure` / `choose` /
+  `place` / `place_group`). Render each original text with its own font (Windows' `LSANS.TTF` for Lucida Sans,
+  `arial.ttf`; size = FontSize x 766/1200) in its box with its alignments (PIL `getbbox(text, anchor='la')`), and take
+  its ink box on the wheel. Pick the screen font closest in height (~ the em) and width (`sampleWidth` against the
+  original's advance) that fits the area the item may use: inside its frame's lines with 2 px to spare, clear of its
+  label. Centre the font's band on the ink, 0.06 x its height lower (capitals sit above a band's middle). **Items the
+  original draws in one size get one font** (score summed over the group): a per-item choice gave fuel-per-lap and fuel
+  level, and the three tyre pages, different sizes. The screen's small fonts are wide (16 px a letter): a label can need
+  more room than the original's (the wheel shows 790 px, the scaled original 766 of them).
+- **SimHub's overlay screens are opaque** (their background colour), whatever is see-through on them. Mix their
+  see-through rectangles into one opaque background (black + 40 % light grey = #545454), and pre-mix a see-through logo
+  over that colour into its own picture, keeping its fully transparent pixels transparent: the wheel draws pictures
+  opaque (a 30 % logo came out at full strength on a black square), and a see-through rectangle mixes with the dash
+  under it (the dash showed through). Give such a logo `MaxColors` 2 for wheels without the RAM patch (107 KB of
+  rectangles in 6 colours, 38 KB in 2; with the patch it's a full-colour picture either way).
+- **A tyre widget's frame that's the same on every page**: one frame, always shown. A page flip then redraws only the
+  numbers.
 
 ### The RAM drive (wheels with the RAM patch)
 
@@ -355,6 +401,14 @@ What fills it, and what doesn't help:
   a large oval's mask alone is 1.5-2.7 KB and the files must be 4:2:2; per shape they came to 126 KB against 115 KB baked.
 - What does help: shapes instead of pictures of them, fewer looks, and no picture for things shown once a session if
   the user accepts them appearing slower.
+- **What the numbers mean:** `check`'s `cost.RamBytes`, the designer and the settings page show the files' data; the
+  drive counts 512 B more per file (the Ginetta: 46 KB shown, 18 files, 55 KB counted). Say both when the user gives a
+  budget.
+- **The static layer is 160 px grid tiles, and every cell that isn't one colour is a file** (1.3-4 KB each, mostly JPEG
+  tables): a dash of frames and lines takes all 15, ~30-40 KB with the overhead. On top: band tiles (a value whose text
+  band crosses a line or picture: gone once its text clears them) and area tiles (the static picture under a box that
+  comes and goes, 1.5-2 KB each). The Ginetta import went from 69 to 46 KB with no loss of look: text off the lines,
+  the bordered banner as `rect`s, the two logos pre-mixed.
 
 ## 4. Look at it
 
@@ -362,6 +416,12 @@ What fills it, and what doesn't help:
 $FX render dash.json preview.png                        # designer view: preview texts, pop-ups hidden
 $FX render dash.json demo.png --mode demo --seconds 97  # after a simulated lap (lap times, delta set)
 ```
+
+`fxdash render` draws every text after all shapes, so a copy with an overlay forced on shows the dash's texts over it.
+To see an overlay as the wheel draws it (and the ignition screens, pop-ups...): `fxdash serve --port 8897` in the
+background, `POST /api/overlays` (body: the dash) for the overlay numbers, then `POST
+/api/render?mode=demo&seconds=97&overlay=K&tiles=1` (drop `tiles` for a wheel without the RAM patch: pictures drawn
+with rectangles in `MaxColors`). Stop the server before rebuilding fxdash (it locks the exe).
 
 Open both PNGs. The renders draw text with a Windows font scaled to each screen font. Boxes, positions and colours
 are exact; glyph shapes are approximate, and digits look a little smaller than on the wheel. Judge them like a
@@ -411,6 +471,13 @@ compare with the SimHub dash's own preview (`<dash>.djson.png` in its folder).
   mix of what's inside them. The screen turned out to smooth its own `draw_h` polygons and `cirs` circles; drawn with
   those, the ovals and frames left the drive (56 KB). A first try smoothed whole ovals and overflowed the screen at
   10 KB/s (smoothing costs per pixel), so only the edge is smoothed now; that keeps up at the full 25 KB/s on the wheel.
+
+- The Ginetta G61 batch conversion (2026-10-05) passed every gate and still wasn't the original: `tune` had pushed TC
+  and FPS to their cells' left edges, sizes differed inside groups the original draws alike, psi pressures read "26.90",
+  the tyre widget's other two pages and both ignition screens were missing, and "PRESS IGNITION TO START" was cut by
+  the screen command's length (`check` didn't know; it does now). The 1:1 rebuild with measured sizes and a parity
+  script found each one. The no-RAM ignition screens also showed a renderer bug: colour reduction ignored transparency
+  (black squares around logos), fixed in `Quantize`.
 
 References: `docs/dash-format.md` (format), `docs/dash-designer.md` (designer, API, import), `docs/usb-mode.md`
 (how it reaches the wheel), `tools/UsbTest` (`traffic DASH.json flash|diverge|blame` for deeper digging).

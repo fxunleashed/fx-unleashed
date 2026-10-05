@@ -6,8 +6,8 @@ Every dash of the library (dashes/<id>/dash.json + meta.json) is copied as Usb/B
 description, source and version of its meta.json (the credit the plugin shows).
 - Their plugin id is "lib-<id>", the one a library install gives it, so the library shows them as installed and a newer
   version installed from the library takes their place.
-- KEEP_OWN_ID: the two LMU conversions were on the maintainer's PC (and in saved settings) before the library had them, so
-  they keep their own id; the library still shows them as installed (InLibrary).
+- KEEP_OWN_ID: the LMU conversions that were on the maintainer's PC (and in saved settings) before the library had them
+  keep their own id; the library still shows them as installed (InLibrary).
 - Usb/Bundled/index.json lists them all (name, author, version, source, sha256 of the file). Nothing else is generated.
 """
 import hashlib
@@ -19,7 +19,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "Usb", "Bundled")
 
-KEEP_OWN_ID = {"lmgt3-mclaren-720s", "toyota-gr010-hybrid"}
+KEEP_OWN_ID = {"lmgt3-mclaren-720s", "toyota-gr010-hybrid", "lmp3-ginetta-g61"}
 # Library items whose dash is built into the plugin's code (BuiltInDashes), so there is nothing to bundle
 IN_CODE = {"lmgt3-mustang"}
 

@@ -261,7 +261,12 @@ for i in range(3):
 inv = 'lapInvalid'
 add(Type='box', Name='invalid', X=RX, Y=0, W=RW, H=150, Color=REDC, Fill='#3A0A0E', Border=2, Radius=6, Visible=inv, PreviewVisible=False)
 label('invalid text', RX + 10, 34, RW - 20, 'LAP INVALID', color=REDC, align='center', font=99, h=68, Visible=inv, PreviewVisible=False)
-label('invalid sub', RX + 10, 108, RW - 20, 'THIS LAP WON\'T COUNT', color='#FF9A9A', align='center', Visible=inv, PreviewVisible=False)
+# one screen command holds 58 characters, and this label's box and colours (on the panel's red) leave 15 of them: the
+# wheel showed "THIS LAP WON'T ". Two labels, set so the line reads as one text centred in the panel (font 10: the
+# whole line 299 px = "THIS LAP" 114 + a space 9 + "WON'T COUNT" 176).
+_x = RX + 10 + (RW - 20) // 2 - 299 // 2
+label('invalid sub', _x - 2, 108, 114 + 4, 'THIS LAP', color='#FF9A9A', Visible=inv, PreviewVisible=False)
+label('invalid sub 2', _x + 299 - 176 - 2, 108, 176 + 4, 'WON\'T COUNT', color='#FF9A9A', Visible=inv, PreviewVisible=False)
 
 pb = 'ncalc:changed(5000, [BestLapTime])'
 add(Type='box', Name='new best', X=RX, Y=PLATE_Y0 - 2, W=RW, H=PLATE_Y1 - PLATE_Y0 + 4, Color=PURPLE, Fill='#3A0C3E', Border=2,

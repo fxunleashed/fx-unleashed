@@ -1108,13 +1108,23 @@ namespace User.FXProRpmSync
                 var px = new int[data.Width * data.Height];
                 for (int y = 0; y < data.Height; y++)
                     System.Runtime.InteropServices.Marshal.Copy(data.Scan0 + y * data.Stride, px, y * data.Width, data.Width);
-                // popularity on a 4-bit-per-channel grid, then each pixel to the nearest chosen colour
+                // popularity on a 4-bit-per-channel grid, then each pixel to the nearest chosen colour. Hard edges, as the
+                // rest of the rectangle drawing: a pixel under half covered stays transparent, the others are opaque in a
+                // chosen colour (a transparent background, black underneath, used to be picked as a colour and written back
+                // opaque: a black square around a logo; partly covered edge pixels kept see-through blend into one-off
+                // colours, many more rectangles).
                 var counts = new Dictionary<int, int>();
-                foreach (var p in px) { int k = ((p >> 20) & 0xF) << 8 | ((p >> 12) & 0xF) << 4 | ((p >> 4) & 0xF); counts[k] = counts.TryGetValue(k, out var c) ? c + 1 : 1; }
+                foreach (var p in px)
+                {
+                    if (((p >> 24) & 255) < 128) continue;
+                    int k = ((p >> 20) & 0xF) << 8 | ((p >> 12) & 0xF) << 4 | ((p >> 4) & 0xF); counts[k] = counts.TryGetValue(k, out var c) ? c + 1 : 1;
+                }
+                if (counts.Count == 0) return;
                 var palette = counts.OrderByDescending(kv => kv.Value).Take(max)
                     .Select(kv => (R: ((kv.Key >> 8) & 0xF) * 17, G: ((kv.Key >> 4) & 0xF) * 17, B: (kv.Key & 0xF) * 17)).ToArray();
                 for (int i = 0; i < px.Length; i++)
                 {
+                    if (((px[i] >> 24) & 255) < 128) { px[i] = 0; continue; }
                     int r = (px[i] >> 16) & 255, g = (px[i] >> 8) & 255, b = px[i] & 255, best = 0, bestD = int.MaxValue;
                     for (int k = 0; k < palette.Length; k++)
                     {
@@ -1278,7 +1288,7 @@ namespace User.FXProRpmSync
         {
             string head = string.Format(CultureInfo.InvariantCulture, "xstr {0},{1},{2},{3},{4},{5},{6},{7},1,{8},",
                 r.X + dx, r.Y + dy, r.Width, r.Height, font, colour, bg, xcen, sta);
-            // a screen command is at most 58 characters: longer text is cut (it wouldn't fit a box anyway)
+            // a screen command is at most 58 characters: longer text is cut (`check` reports texts that would be)
             string t = Clean(text);
             int room = MaxCommand - head.Length - 2;
             if (t.Length > room) t = t.Substring(0, Math.Max(0, room));
@@ -2493,11 +2503,23 @@ namespace User.FXProRpmSync
                 if (fh > t.R.Height) Add("error", e, $"font {e.Font} is {fh} px tall, box {t.R.Height}");
                 var samples = t.Kind == "label" ? new[] { e.Text ?? "" }
                     : (e.Samples ?? new string[0]).Concat(new[] { e.Empty, e.PreviewText }).Where(s => !string.IsNullOrEmpty(s));
+                // the text a screen command has room for after its head (the box, font, its colour and the one under it): a
+                // long text in a wide box fits the box but not the command, and the wheel shows its start. Its colour: the
+                // widest of its colour and colour stops; under it: its Background, else the plain colour under its text
+                // (static labels are sent with 0 there), else the widest a colour gets.
+                int fg = new[] { e.Color }.Concat((e.ColorStops ?? new List<ColorStop>()).Select(s => s.Color))
+                    .Where(c => c != null).Select(Rgb565).DefaultIfEmpty(65535).OrderByDescending(c => c.ToString(CultureInfo.InvariantCulture).Length).First();
+                int bgc = e.Background != null ? Rgb565(e.Background)
+                    : t.Kind == "label" && staticLabels.Contains(t) ? 0
+                    : ColourUnder(e, BandArea(t, -1)) ?? 65535;
+                int room = MaxCommand - Xstr(t.R, e.Font, fg, bgc, 1, 1, "").Length;
                 foreach (var sample in samples)
                 {
                     int w = TextWidth(e.Font, Clean(sample));
                     if (w < 0) Add("error", e, $"font {e.Font} has no glyph for part of \"{sample}\"");
                     else if (w > t.R.Width) Add("error", e, $"\"{sample}\" is {w} px wide, box {t.R.Width}");
+                    if (Clean(sample).Length > room)
+                        Add("error", e, $"\"{sample}\" is cut to its first {room} characters on the wheel (a screen command holds {MaxCommand}, its box and colours take the rest): split it into two labels or shorten it");
                 }
                 if (t.Kind == "value" && (e.Samples == null || e.Samples.Length == 0)) Add("warning", e, "no Samples: can't check the widest text fits");
                 // (what's under it whenever it shows: the static layer and the shapes that show with it, its overlay's box)
