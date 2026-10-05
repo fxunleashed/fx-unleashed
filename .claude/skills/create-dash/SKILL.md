@@ -278,6 +278,14 @@ What the renderer does for these now (so a dash doesn't need to work around them
   what's on it are drawn, never tiles or static labels;
 - a rounded box counts as covering all but its corners (`SolidParts`): what goes away under it is put back only where
   it shows.
+- an oval going from over an oval the screen draws that holds all of it (a pop-up over the dash's own disc): that one is
+  drawn again over it, wiped first in the one colour around it, not its box put back; once per update;
+- an oval the screen draws that can't be wiped clean (nothing of one colour round it) is never drawn again over itself
+  (its edge would darken): only its drawn-over part, with fills, or its whole area put back first;
+- a shape with no pixels where something was drawn (an oval's box corner under a blinking arrow) isn't marked;
+- a step of RGB565 off a text band's colour (where smoothed shapes meet) is taken as that colour, not patched;
+- in `verify`, the first update (every value drawn for the first time) is loading, not the busiest second, and a page
+  flip in the same update as an overlay's coming or going isn't counted as the flip's cost.
 
 **A dash with overlays** (flags, pit screens, warnings, start-up screens: most SimHub imports) needs `--overlays`: the demo
 lap never reaches most of them. It brings each one up over the running lap (its parent first, staged items on their
@@ -373,6 +381,41 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
   rectangles in 6 colours, 38 KB in 2; with the patch it's a full-colour picture either way).
 - **A tyre widget's frame that's the same on every page**: one frame, always shown. A page flip then redraws only the
   numbers.
+
+- **Shared helpers: `tools/dashes/convert_kit.py`** (worked example: `make_lmgt3_aston.py` + `lmgt3_aston_parity.py`, the AMR). `Original` walks the
+  SimHub dash (screens, layers, widgets as pages) with each text item's box, font, size and weight on the wheel;
+  `match` finds the item an element came from; `place` / `place_group` / `choose` pick and place fonts; `text_picture`
+  draws a text as the original does. Fixes every 1:1 conversion needs: `take_turns` (an element under an overlay's box
+  hides while it shows; opaque pictures and ovals count as covering), `backgrounds_from_overlays`, `snap_into_panels`,
+  `keep_inside_boxes`, `fit_in_ellipse` (a gear inside its oval, clear of the lettering on it), `clear_of_shapes_after`
+  (a value's band off the shapes of its own overlay drawn after it: the AMR's start-screen speed over its start lights),
+  `flatten_picture` (art noise: 67 greens within 1 of each other made a dial number redraw 686 rectangles),
+  `box_as_rects`, `split_label`, `crop_to_screen`. Write new ones there, not in a dash's script.
+- **`tools/dashes/simhub_ref.py` draws the original screen** at wheel size (`--true "formula"` for an overlay, `--page
+  Widget=N`): compare it side by side with `fxdash render` for every overlay and page, not just the main screen.
+- **Fixed text in the original's font, as a picture** (the user: "the text looks so weird, a lot of spacing between the
+  letters"): under 32 px the screen has only its S fonts, spaced like a typewriter. A caption always shown or smaller
+  than 25 px becomes a picture of its text in the original's font (`text_picture`): in the static layer (the RAM drive's
+  tiles: free; without it rectangles in `MaxColors` 2, its colour and black, 3 over faint art). Values stay screen
+  text, in the tight fonts only (`convert_kit.tight`). A character no screen font has (the AMR's page dots "•"): a
+  picture too (the import leaves such texts empty: check every empty label).
+- **Sets of pages** (format 4): widgets the driver flips on their own SimHub commands import as sets (`Pages` = set 1,
+  `PageSets` = sets 2-4, conditions `page:N` / `page2:N`..); "Next page" flips them all, `UsbDashNextPage2..4` one each.
+  Name the sets and pages in the script.
+- **A zero time**: SimHub formats it ("0.00.000"); the wheel shows `Empty` for a time of 0. Set `Empty` to the format's
+  zero, and add it to `Samples` (it must fit too).
+- **Without the RAM patch, art behind overlays is the cost.** The AMR's centre pop-ups sit on a disc with thin rim
+  lines in its ring picture; putting it back took 1,900 rectangles (41 KB, 1.6 s) at every pop-up's end. Rebuilt as two
+  ovals the screen draws (`Visible: ["ncalc:true"]`: the screen draws only shapes with a condition itself) with the
+  picture dark under them: 24 KB, and with the renderer's "oval going from over a screen-drawn oval that holds it"
+  rule (wiped and drawn again, not its box put back) ~9 KB. Stack such ovals so each lies on one colour (the AMR: the
+  light line's oval filled green, then the light blue one on the green): one that can't be wiped clean is put back with
+  fills, or its whole area. Look for this whenever an overlay's hide is costly in plain `verify`: measure the art in the
+  picture, rebuild it as shapes, blank it in the picture (the RAM drive went from 213 to 175 KB too).
+- **Overlays that can't really show together still meet in the sweep** (`--overlays` forces each one on over the lap).
+  Decide which gives way the way a race would go, and write it down (the AMR's race summary waits for the start screen).
+- **Captions in pictures without the RAM patch:** 2 colours unless over faint art that would take their grey; a third
+  colour where they only touch a line doubled their rectangles.
 
 ### The RAM drive (wheels with the RAM patch)
 

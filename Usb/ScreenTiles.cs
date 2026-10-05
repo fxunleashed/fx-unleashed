@@ -77,7 +77,7 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>A tile of `bmp` (full-colour static layer, 32 bpp) over `r`, `px` being its RGB565 pixels.</summary>
-        public static ScreenTile Make(Bitmap bmp, int[] px, Rectangle r)
+        public static ScreenTile Make(Bitmap bmp, int[] px, Rectangle r, long quality = 0)
         {
             var t = new ScreenTile { R = r };
             int c0 = px[r.Y * DashRenderer.Width + r.X];
@@ -87,7 +87,7 @@ namespace User.FXProRpmSync
                     if (px[y * DashRenderer.Width + x] != c0) { one = false; break; }
             if (one) { t.Colour = c0; return t; }
             using (var part = bmp.Clone(r, PixelFormat.Format24bppRgb))
-                t.Jpeg = Jpeg(part, Quality);
+                t.Jpeg = Jpeg(part, quality > 0 ? quality : Quality);
             t.Name = NameFor(t.Jpeg);
             Registry[t.Name] = t.Jpeg;
             return t;
@@ -98,11 +98,11 @@ namespace User.FXProRpmSync
         /// the same as 88 on them on the wheel's screen and takes a third less of the RAM drive. The dash itself uses Quality.</summary>
         public static long PictureQuality = 75;
 
-        public static ScreenTile MakeFrom(Bitmap part, Rectangle r)
+        public static ScreenTile MakeFrom(Bitmap part, Rectangle r, long quality = 0)
         {
             var t = new ScreenTile { R = r };
             using (var rgb = part.Clone(new Rectangle(0, 0, part.Width, part.Height), PixelFormat.Format24bppRgb))
-                t.Jpeg = Jpeg(rgb, PictureQuality);
+                t.Jpeg = Jpeg(rgb, quality > 0 ? quality : PictureQuality);
             t.Name = NameFor(t.Jpeg);
             Registry[t.Name] = t.Jpeg;
             return t;

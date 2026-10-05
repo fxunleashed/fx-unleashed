@@ -68,6 +68,11 @@ namespace User.FXProRpmSync
         /// </summary>
         public bool Preview;
 
+        /// <summary>The demo: conditions it can't evaluate (another plugin's properties, a formula failing without SimHub).
+        /// Each element showing one follows its own PreviewVisible, as in a preview (a condition shared by elements that
+        /// show and elements that don't, a take-turns negation on both, can't have one value for all).</summary>
+        public HashSet<string> Unresolved;
+
         /// <summary>The dash's page shown now (DashDefinition.Pages): "page" gives it, "page:N" is true on page N.</summary>
         public int Page;
         /// <summary>The page shown now in sets 2-4 (DashDefinition.PageSets; index 0 = set 2): "page2" gives set 2's,
@@ -525,15 +530,11 @@ namespace User.FXProRpmSync
             }
             foreach (var kv in results) r.Set(kv.Key, kv.Value);
             if (unresolved.Count == 0) return;
+            // a condition the demo can't evaluate shows each element as its designer does (DashValues.Unresolved)
+            r.Unresolved = new HashSet<string>(unresolved);
             foreach (var e in dash.Elements)
-            {
                 if (e.Bind != null && unresolved.Contains(e.Bind) && (e.Type == "value" || e.Type == "bar") && !r.Has(e.Bind))
                     r.Set(e.Bind, Sample(e, t));
-                // a condition the demo can't evaluate shows the element as its designer does
-                if (e.Visible != null)
-                    foreach (var c in e.Visible)
-                        if (unresolved.Contains(c) && !r.Has(c)) r.Set(c, e.PreviewVisible ?? true);
-            }
         }
 
         private static readonly Regex NumberToken = new Regex(@"[-+]?\d+(\.\d+)?");

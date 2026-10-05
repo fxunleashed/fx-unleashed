@@ -149,7 +149,11 @@ namespace User.FXProRpmSync
                     if (tracing) { r.Trace = keepTrace; screen.Echo = false; }
                     popup |= r.PopupEvents != events; // a pop-up element came up or went: drawn on purpose
                     popup |= r.PictureOverTextEvents != overText; // a big shape's picture over text, the text drawn again after it
-                    if (flip) res.WorstPageFlipBytes = Math.Max(res.WorstPageFlipBytes, (int)(screen.Bytes - before));
+                    // what the flip sends: not counted when an overlay came or went in the same update (a pop-up's end at the
+                    // moment of a flip is that pop-up's cost, in the busiest second, not the page's)
+                    bool alsoOverlay = wasPrev != null && Enumerable.Range(0, vis.Length).Any(i => vis[i] != wasPrev[i] && OverlayShowcase.Own(d.Elements[i]).Count > 0
+                                                                                              && !(d.Elements[i].Visible ?? new List<string>()).Any(DashPages.IsPage));
+                    if (flip && !alsoOverlay) res.WorstPageFlipBytes = Math.Max(res.WorstPageFlipBytes, (int)(screen.Bytes - before));
                     if (ev != null) ev.Bytes = (int)(screen.Bytes - before);
                     var flash = screen.End();
                     if (showcase != null && popup && wasPrev != null)
@@ -180,6 +184,8 @@ namespace User.FXProRpmSync
                             res.Flashes.Add(new VerifyFlash { Time = Math.Round(now, 2), Pixels = flash.Pixels, Box = Rect(flash.Box, left, top), Elements = names });
                         }
                     }
+                    // the first update draws every value for the first time: loading the dash (FullDrawBytes), not driving
+                    if (k == 3) { secStart = screen.Bytes; secBy = new Dictionary<string, long>(bytesBy); }
                     if (k % 30 == 0)
                     {
                         int sec = (int)(screen.Bytes - secStart);
@@ -201,16 +207,23 @@ namespace User.FXProRpmSync
                     {
                         using (var full = new PreviewScreen())
                         {
-                            var fr = new DashRenderer(full, d, left, top);
+                            var fr = new DashRenderer(full, d, left, top) { TileQuality = tiles ? 100 : 0 };
+                            // diagnostics: FXDASH_TRACE_FULL=1 prints what the reference redraws do (at a drawing error: why)
+                            if (Environment.GetEnvironmentVariable("FXDASH_TRACE_FULL") == "1") fr.Trace = s => Console.Error.WriteLine("[full " + now.ToString("0.0", CultureInfo.InvariantCulture) + "] " + s);
                             if (tiles) { fr.EnableTiles(); fr.UseTiles(true); }
                             fr.DrawAll(); fr.Update(v, now);
                             var diff = Diff(screen.P.Bitmap, full.Bitmap, tiles);
                             if (diff.Width > 0) res.RedrawMismatch = $"at {now:0.0}s, in {Rect(diff, left, top)} (dash coordinates): the screen no longer shows what a full redraw would";
                             var dumpTo = Environment.GetEnvironmentVariable("FXDASH_DUMP");
+                            if (!string.IsNullOrEmpty(dumpTo)) System.IO.Directory.CreateDirectory(dumpTo);
                             if (diff.Width > 0 && !string.IsNullOrEmpty(dumpTo))
                             {
                                 screen.P.Bitmap.Save(System.IO.Path.Combine(dumpTo, "incremental.png"), ImageFormat.Png);
                                 full.Bitmap.Save(System.IO.Path.Combine(dumpTo, "full.png"), ImageFormat.Png);
+                                // what was shown then (to rebuild the moment: every element's conditions as they were)
+                                System.IO.File.WriteAllLines(System.IO.Path.Combine(dumpTo, "shown.txt"),
+                                    d.Elements.Select((e, i) => (e, i)).Where(x => x.e.Visible == null || x.e.Visible.All(c => v.Truthy(c) ?? (x.e.PreviewVisible ?? true)))
+                                     .Select(x => $"#{x.i} {x.e.Type} {x.e.Name}"));
                             }
                         }
                     }
@@ -319,11 +332,12 @@ namespace User.FXProRpmSync
                         if ((k == 14 || k == 22) && res.RedrawMismatch == null && !r.PopupShowing)
                             using (var full = new PreviewScreen())
                             {
-                                var fr = new DashRenderer(full, d, left, top);
+                                var fr = new DashRenderer(full, d, left, top) { TileQuality = tiles ? 100 : 0 };
                                 if (tiles) { fr.EnableTiles(); fr.UseTiles(true); }
                                 fr.DrawAll(); fr.Update(v, now);
                                 var diff = Diff(screen.P.Bitmap, full.Bitmap, tiles);
                                 var dumpTo = Environment.GetEnvironmentVariable("FXDASH_DUMP");
+                                if (!string.IsNullOrEmpty(dumpTo)) System.IO.Directory.CreateDirectory(dumpTo);
                                 if (diff.Width > 0 && !string.IsNullOrEmpty(dumpTo))
                                 {
                                     screen.P.Bitmap.Save(System.IO.Path.Combine(dumpTo, "incremental.png"), ImageFormat.Png);
@@ -371,6 +385,9 @@ namespace User.FXProRpmSync
 
         /// <summary>Per colour channel: what JPEG at the tiles' quality can move a pixel by (edges included).</summary>
         public const int JpegTolerance = 56;
+        /// <summary>The most one colour channel may be off with tiles while the brightness is right (JPEG's colour at half
+        /// resolution, at sharp colour edges).</summary>
+        public const int JpegChromaTolerance = 96;
 
         /// <summary>Per colour channel, without tiles: one RGB565 step. A smoothed shape's edge (drawn by the screen itself,
         /// ScreenShapes) wiped and drawn again rounds a level differently from one drawn once.</summary>
@@ -388,7 +405,9 @@ namespace User.FXProRpmSync
         /// <summary>
         /// Where two screens differ. With tiles the same thing can be drawn two right ways, from a JPEG on the screen or
         /// with exact fills, a few levels apart: differences within JPEG's error (ScreenTiles.Quality) don't count, as
-        /// drawing errors (a stale or missing element) are whole colours apart. Without, one RGB565 step doesn't either.
+        /// drawing errors (a stale or missing element) are whole colours apart. The reference redraw's tiles are near exact
+        /// (TileQuality 100): two q88 JPEGs of a thin sharp line cut at other block boundaries were up to 74 apart, each
+        /// within JPEG's error of the truth. Without tiles, one RGB565 step doesn't count either.
         /// </summary>
         private static Rectangle Diff(Bitmap a, Bitmap b, bool tiles = false)
         {
@@ -398,7 +417,12 @@ namespace User.FXProRpmSync
             {
                 if (p == q) return false;
                 int dr = Math.Abs(((p >> 16) & 255) - ((q >> 16) & 255)), dg = Math.Abs(((p >> 8) & 255) - ((q >> 8) & 255)), db = Math.Abs((p & 255) - (q & 255));
-                return Math.Max(dr, Math.Max(dg, db)) > (tiles ? JpegTolerance : SmoothTolerance);
+                if (!tiles) return Math.Max(dr, Math.Max(dg, db)) > SmoothTolerance;
+                // JPEG keeps colour at half resolution: at a sharp edge between two colours (a thin green line on dark) one
+                // channel can be 66 off while the brightness is right. A drawing error (a stale or missing element) is far
+                // off in brightness, or in colour altogether.
+                int dy = Math.Abs((299 * (((p >> 16) & 255) - ((q >> 16) & 255)) + 587 * (((p >> 8) & 255) - ((q >> 8) & 255)) + 114 * ((p & 255) - (q & 255))) / 1000);
+                return dy > JpegTolerance || Math.Max(dr, Math.Max(dg, db)) > JpegChromaTolerance;
             }
             for (int i = 0; i < pa.Length; i++)
                 if (Apart(pa[i], pb[i])) { int x = i % DashRenderer.Width, y = i / DashRenderer.Width; x0 = Math.Min(x0, x); y0 = Math.Min(y0, y); x1 = Math.Max(x1, x); y1 = Math.Max(y1, y); }

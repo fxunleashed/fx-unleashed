@@ -19,7 +19,11 @@ namespace User.FXProRpmSync
 
         /// <summary>An element's own conditions: not its page, not the "take turns" ones.</summary>
         public static List<string> Own(DashElement e) =>
-            (e.Visible ?? new List<string>()).Where(c => !DashPages.IsPage(c) && !IsTurn(c)).Distinct().ToList();
+            (e.Visible ?? new List<string>()).Where(c => !DashPages.IsPage(c) && !IsTurn(c) && !IsAlways(c)).Distinct().ToList();
+
+        /// <summary>A condition that always holds ("ncalc:true"): what a shape the screen should draw itself, though always
+        /// shown, carries (DashRenderer.NativeCapable). Not an overlay, never held off.</summary>
+        public static bool IsAlways(string c) => c != null && System.Text.RegularExpressions.Regex.IsMatch(c, @"^\s*ncalc:\s*(true|1\s*=\s*1)\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         /// <summary>A "take turns" condition: !(an overlay's conditions), or an overlay's script returning the opposite.</summary>
         public static bool IsTurn(string c) => c.StartsWith("ncalc:!(") || (c.StartsWith("js:") && ScriptReturn(c, out var r) && r.StartsWith("!("));
@@ -49,7 +53,7 @@ namespace User.FXProRpmSync
                 var own = Own(e);
                 if (own.Count > 0 && !Groups.Any(g => g.SequenceEqual(own))) Groups.Add(own);
             }
-            allConditions = d.Elements.Where(e => e.Visible != null).SelectMany(e => e.Visible).Distinct().ToList();
+            allConditions = d.Elements.Where(e => e.Visible != null).SelectMany(e => e.Visible).Where(c => !IsAlways(c)).Distinct().ToList();
         }
 
         /// <summary>

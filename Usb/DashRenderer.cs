@@ -214,6 +214,11 @@ namespace User.FXProRpmSync
         /// grid, and a band per value whose text sits on a background of more than one colour with nothing dynamic under
         /// it. Returns them; the caller puts their files on the screen, then UseTiles(true) + DrawAll draws from them.
         /// </summary>
+        /// <summary>JPEG quality of this renderer's tiles and pictures (0: the wheel's, ScreenTiles.Quality / PictureQuality).
+        /// verify's reference redraw uses 100: as near the exact picture as JPEG gets, so the screen's tiles (each within
+        /// JPEG's error of it) are compared with the truth, not with another JPEG cut at other block boundaries.</summary>
+        public long TileQuality;
+
         public ScreenTiles EnableTiles()
         {
             if (Tiles != null) return Tiles;
@@ -222,7 +227,7 @@ namespace User.FXProRpmSync
             var t = new ScreenTiles();
             for (int y = 0; y < Height; y += ScreenTiles.Grid)
                 for (int x = 0; x < Width; x += ScreenTiles.Grid)
-                    t.GridTiles.Add(ScreenTiles.Make(richBmp, richPx, new Rectangle(x, y, Math.Min(ScreenTiles.Grid, Width - x), Math.Min(ScreenTiles.Grid, Height - y))));
+                    t.GridTiles.Add(ScreenTiles.Make(richBmp, richPx, new Rectangle(x, y, Math.Min(ScreenTiles.Grid, Width - x), Math.Min(ScreenTiles.Grid, Height - y)), TileQuality));
             // what the screen shows from those tiles (their JPEGs decoded): a small area put back with fills uses these
             // colours, so it matches the tile around it (the exact colours left a faint seam along anti-aliased lines)
             shownPx = (int[])richPx.Clone();
@@ -244,7 +249,7 @@ namespace User.FXProRpmSync
                 var band = Clip(BandArea(n, -1));
                 if (band.Width <= 0 || band.Height <= 0 || Uniform(richPx, Width, band) != null) continue;
                 if (DynamicUnder(band, n.Index)) continue; // what's under it changes: no fixed picture of it
-                t.Bands[n.Index] = ScreenTiles.Make(richBmp, richPx, band);
+                t.Bands[n.Index] = ScreenTiles.Make(richBmp, richPx, band, TileQuality);
             }
             // Shapes that come and go with a fixed look (pictures, ovals, frames, gradients; a plain rectangle is one fill
             // anyway; a colour formula landing on its stops counts, one look per colour), never over a bar: a picture of
@@ -308,8 +313,10 @@ namespace User.FXProRpmSync
                             foreach (var m in under.OrderBy(x => x.Index)) DrawShape(g, m.E, new Point(m.R.X - r.X, m.R.Y - r.Y), C(m));
                             DrawShape(g, n.E, new Point(n.R.X - r.X, n.R.Y - r.Y), C(n));
                         }
-                        var tile = ScreenTiles.MakeFrom(part, r);
-                        return tile.Jpeg.Length <= ScreenTiles.MaxPicture ? tile : null;
+                        var tile = ScreenTiles.MakeFrom(part, r, TileQuality);
+                        // (a reference renderer, TileQuality set: the wheel's pictures at a better quality, so the same
+                        // pictures: its bigger JPEGs aren't held to the wheel's size limit)
+                        return TileQuality > 0 || tile.Jpeg.Length <= ScreenTiles.MaxPicture ? tile : null;
                     }
                 }
                 // every mix of colours the coloured ones among it and the shapes under it can have (their colour stops)
@@ -345,13 +352,28 @@ namespace User.FXProRpmSync
             // What's under each box that comes and goes, exactly its area (grown by the static labels it touches, as a repaint
             // grows), as one picture: its going puts back that, not the whole 160 px grid tiles it touches and every element in
             // them (a setting pop-up in the Mustang redrew 25 elements, a hiccup). Boxes in one spot share it.
+            // The same for a label that comes and goes (a blinking warning) over something detailed (a caption picture
+            // under it): its ink, not the grid tiles around it, which reached into the smoothed edge of an oval nearby and
+            // left it redrawn in part (the AMR's blinking yellow flag letters next to the centre ovals).
             var areas = new HashSet<Rectangle>();
             foreach (var n in dynamic)
             {
-                if (n.Kind != "shape" || n.E.Visible == null || n.E.Visible.Count == 0) continue;
-                var outline = Outline(n);
-                if (outline.Count != 1) continue; // (a frame with nothing inside: put back along its border only)
-                var a = Clip(outline[0]);
+                if ((n.Kind != "shape" && n.Kind != "label") || n.E.Visible == null || n.E.Visible.Count == 0) continue;
+                Rectangle a;
+                if (n.Kind == "label")
+                {
+                    // (a label of an overlay drawn on its own box or oval goes with it: that one's area is put back)
+                    var ink = Clip(LabelInk(n));
+                    if (dynamic.Any(m => m.Index < n.Index && m.Kind == "shape" && m.E.Visible != null && m.E.Visible.Count > 0
+                                         && m.E.Visible.All(n.E.Visible.Contains) && m.R.Contains(ink))) continue;
+                    a = ink;
+                }
+                else
+                {
+                    var outline = Outline(n);
+                    if (outline.Count != 1) continue; // (a frame with nothing inside: put back along its border only)
+                    a = Clip(outline[0]);
+                }
                 for (int pass = 0; pass < 64; pass++)
                 {
                     var grown = a;
@@ -368,7 +390,7 @@ namespace User.FXProRpmSync
                 if (MergeRects(shownPx, Width, a).Count <= TileRepaintFills) continue; // put back with fills anyway
                 areas.Add(a);
             }
-            foreach (var a in areas) t.AreaTiles.Add(ScreenTiles.Make(richBmp, richPx, a));
+            foreach (var a in areas) t.AreaTiles.Add(ScreenTiles.Make(richBmp, richPx, a, TileQuality));
             return Tiles = t;
         }
 
@@ -671,12 +693,31 @@ namespace User.FXProRpmSync
         /// whole over pixels of it still there, its smoothed edge would blend over itself and darken.</summary>
         private static bool NativeRepaintWorthIt(Node n, Rectangle area) => area.Contains(n.R);
 
+        /// <summary>`n` can be drawn by the screen, but not over itself: nothing of one colour around it to wipe its old smoothed
+        /// edge with first (an oval on ring art). Drawn again over its old pixels, that edge would blend over itself and darken
+        /// (the AMR race summary's blue oval went pure blue along its top): its area is put back first instead.</summary>
+        private bool CantDrawClean(Node n) => NativeCapable(n) && NativeCommands(n, dx, dy, true, out _) == null && NativeCommands(n, dx, dy, false, out _) != null;
+
+        /// <summary>The oval in box `inner` lies inside the oval in box `outer` (its edge, by 64 points of it, within half a pixel).</summary>
+        private static bool EllipseInside(Rectangle inner, Rectangle outer)
+        {
+            if (!outer.Contains(inner)) return false;
+            double cx = outer.X + outer.Width / 2.0, cy = outer.Y + outer.Height / 2.0, rx = outer.Width / 2.0 + 0.5, ry = outer.Height / 2.0 + 0.5;
+            double ix = inner.X + inner.Width / 2.0, iy = inner.Y + inner.Height / 2.0;
+            for (int k = 0; k < 64; k++)
+            {
+                double a = k * Math.PI / 32, x = ix + inner.Width / 2.0 * Math.Cos(a), y = iy + inner.Height / 2.0 * Math.Sin(a);
+                if (((x - cx) / rx) * ((x - cx) / rx) + ((y - cy) / ry) * ((y - cy) / ry) > 1) return false;
+            }
+            return true;
+        }
+
         /// <summary>Sends `n` drawn by the screen itself; false (nothing sent) when it can't be (see NativeCommands).</summary>
         /// <param name="clean">`n` is on the screen as drawn before (a colour change): its old smoothed edge is wiped first
         /// (see NativeCommands), else the new one would blend over it.</param>
-        private bool SendNative(Node n, bool clean = false)
+        private bool SendNative(Node n, bool clean = false, bool whole = false)
         {
-            var cmds = NativeCommands(n, dx, dy, clean, out var rimNow);
+            var cmds = NativeCommands(n, dx, dy, clean, out var rimNow, whole);
             if (cmds == null) return false;
             n.DrawnRim = rimNow;
             NativeEvents++;
@@ -711,7 +752,7 @@ namespace User.FXProRpmSync
         /// colour is plain. Only the inside when only the inside's colour changed (a ring's fill: wiped with the rim's
         /// colour); else the whole shape, when what's around it is one colour.)
         /// </summary>
-        private List<string> NativeCommands(Node n, int ox, int oy, bool clean, out int rimNow)
+        private List<string> NativeCommands(Node n, int ox, int oy, bool clean, out int rimNow, bool whole = false)
         {
             rimNow = -1;
             var e = n.E;
@@ -760,7 +801,7 @@ namespace User.FXProRpmSync
             // (only when nothing else changed: nothing drawn over it since, nothing shown sits on it whose edge its wipe
             // would reach under)
             bool alone = !dynamic.Any(m => m.Index > n.Index && m.Kind == "shape" && m.Shown && m.Visible && m.R.IntersectsWith(n.R));
-            if (clean && alone && !n.DamageAll && n.Damage.IsEmpty && hasInner && n.DrawnRim == rimC && e.Border >= 3)
+            if (clean && !whole && alone && !n.DamageAll && n.Damage.IsEmpty && hasInner && n.DrawnRim == rimC && e.Border >= 3)
             {
                 // only the inside changed: it wiped with the rim's colour (grown into the rim), then drawn
                 int g = Math.Min(grow, e.Border - 1);
@@ -790,6 +831,9 @@ namespace User.FXProRpmSync
                 var around = UnderUniform(n, big, (x, y) => inBig(x, y) && !inSmall(x, y));
                 var wipe = around.HasValue && Clip(big) == big ? Shape(big, e.Radius + grow, around.Value) : null;
                 if (wipe != null) { list.AddRange(wipe); painted = (big, e.Radius + grow); }
+                // no one colour around it (an oval on ring art): drawn again over its own edge, that edge would blend over
+                // itself and darken (the race summary's blue oval went pure blue along its top): not drawn by the screen
+                else return null;
             }
             var outer = Shape(r, e.Radius, rimC);
             if (outer == null) return null;
@@ -832,6 +876,9 @@ namespace User.FXProRpmSync
                 for (int y = big.Top; y < big.Bottom && covered; y++)
                     for (int x = big.Left; x < big.Right; x++)
                         if (inBig(x, y) && !inSmall(x, y) && !inPainted(x, y)) { covered = false; break; }
+                // an oval in the same box or inside the one just drawn (a flag's oval over the pit oval): its pixels, edge and
+                // all, were painted over by that one's (its old edge isn't there to wipe)
+                if (!covered && n.E.Type == "ellipse" && m.E.Type == "ellipse" && EllipseInside(m.R, pr)) covered = true;
                 if (covered) { m.DamageAll = false; m.Damage = m.R; }
             }
         }
@@ -1039,15 +1086,20 @@ namespace User.FXProRpmSync
                 case "image":
                     if (e.Image != null && images.TryGetValue(e.Image, out var img))
                     {
-                        var old = g.InterpolationMode;
+                        var old = g.InterpolationMode; var oldOffset = g.PixelOffsetMode;
                         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
                         using (var attrs = new ImageAttributes())
                         {
                             if (e.Opacity < 100)
                                 attrs.SetColorMatrix(new ColorMatrix { Matrix33 = Math.Max(0, e.Opacity) / 100f });
+                            // edges sampled from the picture itself, not from transparency around it: an opaque picture
+                            // stays opaque to its edges, so it counts as covering what's under it (an art picture over
+                            // the dash's values let them update through it, and was drawn again over them each time)
+                            attrs.SetWrapMode(WrapMode.TileFlipXY);
                             g.DrawImage(img, r, 0, 0, img.Width, img.Height, GraphicsUnit.Pixel, attrs);
                         }
-                        g.InterpolationMode = old;
+                        g.InterpolationMode = old; g.PixelOffsetMode = oldOffset;
                     }
                     break;
             }
@@ -1113,15 +1165,22 @@ namespace User.FXProRpmSync
                 // chosen colour (a transparent background, black underneath, used to be picked as a colour and written back
                 // opaque: a black square around a logo; partly covered edge pixels kept see-through blend into one-off
                 // colours, many more rectangles).
+                // Each chosen cell is represented by its most common exact colour, not the cell's grid point: a plain colour
+                // (an oval's light blue around a logo) stays exactly that colour, so the picture's area doesn't show as a
+                // slightly different box on it.
                 var counts = new Dictionary<int, int>();
+                var exact = new Dictionary<int, Dictionary<int, int>>();
                 foreach (var p in px)
                 {
                     if (((p >> 24) & 255) < 128) continue;
                     int k = ((p >> 20) & 0xF) << 8 | ((p >> 12) & 0xF) << 4 | ((p >> 4) & 0xF); counts[k] = counts.TryGetValue(k, out var c) ? c + 1 : 1;
+                    if (!exact.TryGetValue(k, out var inCell)) exact[k] = inCell = new Dictionary<int, int>();
+                    int rgb = p & 0xFFFFFF; inCell[rgb] = inCell.TryGetValue(rgb, out var e) ? e + 1 : 1;
                 }
                 if (counts.Count == 0) return;
                 var palette = counts.OrderByDescending(kv => kv.Value).Take(max)
-                    .Select(kv => (R: ((kv.Key >> 8) & 0xF) * 17, G: ((kv.Key >> 4) & 0xF) * 17, B: (kv.Key & 0xF) * 17)).ToArray();
+                    .Select(kv => exact[kv.Key].OrderByDescending(x => x.Value).First().Key)
+                    .Select(rgb => (R: (rgb >> 16) & 255, G: (rgb >> 8) & 255, B: rgb & 255)).ToArray();
                 for (int i = 0; i < px.Length; i++)
                 {
                     if (((px[i] >> 24) & 255) < 128) { px[i] = 0; continue; }
@@ -1238,6 +1297,10 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>The one colour of an area, or null if it has several.</summary>
+        /// <summary>Two RGB565 colours at most one step apart in each channel.</summary>
+        private static bool Near565(int a, int b) =>
+            Math.Abs(((a >> 11) & 31) - ((b >> 11) & 31)) <= 1 && Math.Abs(((a >> 5) & 63) - ((b >> 5) & 63)) <= 1 && Math.Abs((a & 31) - (b & 31)) <= 1;
+
         private static int? Uniform(int[] px, int stride, Rectangle area)
         {
             if (area.Width <= 0 || area.Height <= 0) return null;
@@ -1355,6 +1418,7 @@ namespace User.FXProRpmSync
             // Hidden since last time: repaint their areas (this also marks what's under/over them for a redraw). An area
             // already put back by this pass (an overlay's box and the shapes and texts on it go together) isn't again.
             var repainted = new List<Rectangle>();
+            var redrawnHolders = new HashSet<Node>();
             foreach (var n in dynamic)
             {
                 if (!n.Shown || n.Visible) continue;
@@ -1366,6 +1430,25 @@ namespace User.FXProRpmSync
                 // one step over it
                 var under = IsText(n) ? dynamic.LastOrDefault(m => m.Index < n.Index && SolidText(m) && m.TextAt.Value.Contains(was)) : null;
                 if (under != null) { Invalidate(under); continue; }
+                // an oval going from over an oval the screen draws that holds all of it (a pop-up's oval over the dash's own
+                // disc): that one drawn again over it, its edge wiped first in the one colour around it (a few KB), instead
+                // of all of the box put back (its corners: the ring art around the disc, 12 KB without the RAM drive)
+                if (n.E.Type == "ellipse" && !repainted.Any(r => r.Contains(was)))
+                {
+                    var holder = dynamic.LastOrDefault(m => m.Index < n.Index && m.Kind == "shape" && m.E.Type == "ellipse" && m.Shown && m.Visible
+                                                            && m.Sent == m.Key && !Covered(m.R) && NativeCapable(m) && EllipseInside(n.R, m.R));
+                    if (holder != null && redrawnHolders.Contains(holder)) continue; // drawn again over it already (a ring's two ovals)
+                    if (holder != null && SendNative(holder, clean: true, whole: true))
+                    {
+                        Trace?.Invoke($"  #{n.Index} went from over #{holder.Index} {holder.E.Name}: that drawn again over it");
+                        MarkAboveNative(holder); redrawnHolders.Add(holder);
+                        holder.DrawnPx = holder.Px; holder.DrawnKey = holder.Key; holder.DamageAll = false; holder.Damage = Rectangle.Empty;
+                        // what hides inside it now (the pop-up's texts) is gone with it: the oval's inscribed box
+                        var ins = Rectangle.Inflate(n.R, -(int)Math.Ceiling(n.R.Width * 0.1465) - 1, -(int)Math.Ceiling(n.R.Height * 0.1465) - 1);
+                        if (ins.Width > 0 && ins.Height > 0) repainted.Add(ins);
+                        continue;
+                    }
+                }
                 // only what no solid shape above it covers (a pop-up going from under another one); a frame with
                 // nothing inside (an alert border round the screen) only where its border was
                 // (text: only where its ink was, not its whole box)
@@ -1439,7 +1522,8 @@ namespace User.FXProRpmSync
                         // still on the screen as drawn, only part of it drawn over since (a repaint under a corner): that part
                         // with fills of its pixels (drawn again whole, its smoothed edge would blend over itself and darken)
                         if (NativeCapable(n) && n.Shown && n.DrawnKey == n.Key && !n.DamageAll && !n.Damage.IsEmpty && !n.Damage.Contains(n.R)
-                            && FillsIn(n, n.Damage) <= TileRepaintFills) // (else all of it again, below: fewer bytes)
+                            && (FillsIn(n, n.Damage) <= TileRepaintFills || CantDrawClean(n))) // (else all of it again, below: fewer
+                            // bytes; but not one that can't be wiped clean: its area put back first would show what's under it)
                         {
                             Trace?.Invoke($"  #{n.Index} drawn again where it was drawn over: {n.Damage}");
                             foreach (var part in Subtract(Clip(n.Damage), skip)) { DrawShapeNode(n, part); MarkAbove(n, part); }
@@ -1448,6 +1532,15 @@ namespace User.FXProRpmSync
                             break;
                         }
                         bool onScreen = n.Shown && !(!n.DamageAll && n.Damage.Contains(n.R));
+                        // on the screen, with nothing of one colour around it to wipe its old edge with (an oval on ring art):
+                        // its area put back first (what's under it, it, what's over it), so it's drawn on fresh pixels
+                        if (onScreen && shapeBlocker == null && (!textOn || CostlyWithFills(n)) && CantDrawClean(n))
+                        {
+                            Trace?.Invoke($"  #{n.Index} no one colour around it to wipe its edge with: its area put back");
+                            Repaint(Clip(n.R));
+                            if (n.Sent == n.Key) { foreach (var m in keep) Invalidate(m); break; }
+                            onScreen = false;
+                        }
                         if (NativeCapable(n) && shapeBlocker == null && (!textOn || CostlyWithFills(n)) && SendNative(n, clean: onScreen))
                         {
                             if (textOn) PictureOverTextEvents++; // (as a picture over text: the text drawn again after it)
@@ -1461,8 +1554,13 @@ namespace User.FXProRpmSync
                         var picTile = tilesOn ? ChosenPicture(n, out picWith) : null;
                         if (Trace != null && tilesOn && Tiles.Pictures.ContainsKey(n.Index))
                             Trace($"  picture #{n.Index}: {(picTile == null ? "no picture for what's under it" : overDrawn ? $"#{blocker.Index} {blocker.E.Name} over it, on the screen" : PictureFits(n, picWith) ? "drawn from its file" : "what's under it differs: " + whyNot)}");
-                        if (picTile != null && !overDrawn && PictureFits(n, picWith))
+                        // a shape already on the screen over it (a lap summary's panel over a start screen's art): drawn from its
+                        // file all the same when the rest would take many fills (195 KB for a full-width art picture), and
+                        // what's over it is drawn again after it in this update (MarkAbove: a few fills and texts)
+                        bool overButCostly = overDrawn && blocker.Kind == "shape" && FillsIn(n, Clip(n.R)) > TileRepaintFills;
+                        if (picTile != null && (!overDrawn || overButCostly) && PictureFits(n, picWith))
                         {
+                            if (overButCostly) Trace?.Invoke($"  picture #{n.Index}: drawn from its file under #{blocker.Index} {blocker.E.Name}, which is drawn again");
                             screen.Cmd(ScreenTiles.Ramv(picTile, dx, dy));
                             MarkAbove(n, picAt);
                             if (overText) { PictureOverTextEvents++; foreach (var m in keep) Invalidate(m); }
@@ -1557,8 +1655,9 @@ namespace User.FXProRpmSync
                 foreach (var cond in e.Visible)
                 {
                     var t = v.Truthy(cond);
-                    // in a preview, a condition that can't be evaluated here (SimHub formula) follows PreviewVisible
-                    if (t == null && v.Preview && !DashValues.KnownKey(cond)) t = e.PreviewVisible ?? true;
+                    // in a preview, a condition that can't be evaluated here (SimHub formula) follows PreviewVisible; in
+                    // the demo, one it couldn't evaluate (DashValues.Unresolved) as well
+                    if (t == null && (v.Preview || v.Unresolved != null && v.Unresolved.Contains(cond)) && !DashValues.KnownKey(cond)) t = e.PreviewVisible ?? true;
                     if (t != true) { n.Visible = false; break; }
                 }
             n.Colour = ElementColour(e, v);
@@ -1634,6 +1733,8 @@ namespace User.FXProRpmSync
                 if (m.Index > n.Index && m.Shown && m.Visible && !(keepSolidText && SolidText(m)) &&
                     (IsText(m) && m.TextAt.HasValue ? Ink(m) : m.R).IntersectsWith(r))
                 {
+                    // a shape with no pixels there (the corner of an oval's box under a blinking arrow) wasn't drawn over
+                    if (m.Kind == "shape" && FillsIn(m, Rectangle.Intersect(r, m.R)) == 0) continue;
                     // a shape keeps where it was drawn over (the rest of it is still on the screen as it was)
                     bool partial = m.Kind == "shape" && (m.Sent == m.Key || !m.DamageAll);
                     var before = m.Sent == m.Key ? Rectangle.Empty : m.Damage;
@@ -1807,6 +1908,17 @@ namespace User.FXProRpmSync
                         var ink = IsText(n) && n.TextAt.HasValue ? Ink(n) : n.Kind == "label" ? LabelInk(n) : Rectangle.Empty;
                         if (!ink.IsEmpty && ink.IntersectsWith(area)) grown = Rectangle.Union(grown, ink);
                     }
+                // a shape drawn by the screen that a good part of the area would cut (a stretch of its smoothed edge), and
+                // that can't be drawn again clean over itself (CantDrawClean): all of it put back, then it drawn whole
+                if (layer == 0)
+                    foreach (var n in dynamic)
+                        if (n.Kind == "shape" && n.Shown && n.Visible && n.Sent == n.Key && (floor0 == null || n.Index >= floor0.Index)
+                            && n.R.IntersectsWith(grown) && !grown.Contains(n.R) && FillsIn(n, grown) > TileRepaintFills && CantDrawClean(n))
+                        {
+                            Trace?.Invoke($"  grown to #{n.Index} {n.E.Name}: can't be drawn again clean");
+                            grown = Rectangle.Union(grown, n.R);
+                            if (!fromTiles && floor0 == null && tilesOn && MergeRects(shownPx ?? staticPx, Width, Clip(grown)).Count > TileRepaintFills) fromTiles = true;
+                        }
                 grown = Clip(grown);
                 // a tile is drawn whole: what else it covers is put back too (an overlay's own area tile when it holds it)
                 if (fromTiles) grown = AreaTileFor(grown)?.R ?? ScreenTiles.Snap(grown);
@@ -1832,6 +1944,9 @@ namespace User.FXProRpmSync
                 if (!(IsText(n) && n.TextAt.HasValue ? Ink(n) : n.R).IntersectsWith(area)) continue;
                 if (n.Kind == "shape" && n.Shown && n.Visible)
                 {
+                    // to be drawn whole after this (a shape the screen drew under it painted all of it): nothing of it now,
+                    // or it's drawn again over that part (a smoothed edge drawn over itself darkens)
+                    if (n.Sent != n.Key && !n.DamageAll && n.Damage.Contains(n.R)) continue;
                     // with its picture on the screen: drawn whole from it (one command, the very pixels it showed), what's
                     // over it drawn again after; else its pixels in the area, with fills
                     if (coveredBy.TryGetValue(n.Index, out var over) && over.Shown && over.Visible && LeftToPicture(n)) continue;
@@ -1854,7 +1969,8 @@ namespace User.FXProRpmSync
                     }
                     // drawn by the screen itself, and its part here is many rectangles (a stretch of its smoothed edge under
                     // a blinking icon: a rectangle a pixel, seconds of traffic): all of it again, its old edge wiped
-                    else if (NativeCapable(n) && FillsIn(n, area) > TileRepaintFills && SendNative(n, clean: true))
+                    // (layer 0 only, as above: under text being drawn it marks that text, which repaints it again: a loop)
+                    else if (layer == 0 && NativeCapable(n) && FillsIn(n, area) > TileRepaintFills && SendNative(n, clean: true))
                     {
                         MarkAboveNative(n);
                         n.Sent = n.Key; n.DrawnPx = n.Px; n.DrawnKey = n.Key; n.DamageAll = false; n.Damage = Rectangle.Empty;
@@ -1951,6 +2067,31 @@ namespace User.FXProRpmSync
             }
             int c0 = px[0];
             return px.All(c => c == c0) ? c0 : (int?)null;
+        }
+
+        /// <summary>
+        /// A value whose whole box lies on an opaque shape that shows whenever it does (its own overlay's box or oval,
+        /// drawn before it): whatever colour that shape has now (a colour formula: a speed-coloured panel), it's all that
+        /// is under the value's text; the static layer under the shape is never redrawn for it (the repaint starts from
+        /// the shape: FloorUnder).
+        /// </summary>
+        private bool OnOwnShape(Node n)
+        {
+            var r = Clip(n.R);
+            if (r.Width <= 0 || r.Height <= 0 || n.E.Visible == null || n.E.Visible.Count == 0) return false;
+            foreach (var m in dynamic)
+            {
+                if (m.Index >= n.Index) break;
+                if (m.Kind != "shape" || m.E.Visible == null || m.E.Visible.Count == 0 || !m.E.Visible.All(n.E.Visible.Contains) || !m.R.Contains(r)) continue;
+                var spx = ShapePixels(m, DashColors.Parse(m.E.Color, Color.White));
+                int stride = Math.Max(1, m.E.W);
+                bool opaque = true;
+                for (int y = r.Top; y < r.Bottom && opaque; y++)
+                    for (int x = r.Left; x < r.Right; x++)
+                        if (spx[(y - m.R.Y) * stride + (x - m.R.X)] == Transparent) { opaque = false; break; }
+                if (opaque) return true;
+            }
+            return false;
         }
 
         private static string WidestText(Node n)
@@ -2207,6 +2348,9 @@ namespace User.FXProRpmSync
             if (under != null)
             {
                 major = under.GroupBy(c => c).OrderByDescending(g => g.Count()).First().Key;
+                // a step of RGB565 off that colour (where the screen's smoothed shapes meet inside an oval) can't be seen:
+                // the band covers it (four fills of it after every gear change were counted as a flash)
+                for (int i = 0; i < under.Length; i++) if (under[i] != major && under[i] != Transparent && Near565(under[i], major)) under[i] = major;
                 odd = under.Count(c => c != major);
             }
             if (strip.HasValue) screen.Cmd(Xstr(area, n.E.Font, colour, strip.Value, n.XCen, 1, n.Text));
@@ -2572,7 +2716,7 @@ namespace User.FXProRpmSync
                     Add("warning", null, $"takes {DashRam.Text(cost.RamBytes)} of the screen's RAM drive ({ScreenRam.Budget / 1024} KB): on a wheel with it, it's drawn with rectangles instead; fewer or smaller pictures and gradients fit");
             }
             foreach (var n in dynamic.Where(n => n.Kind == "value"))
-                if (n.E.Background == null && !n.StaticBg.HasValue)
+                if (n.E.Background == null && !n.StaticBg.HasValue && !OnOwnShape(n))
                 {
                     var r = Clip(n.R);
                     int f = r.Width > 0 && r.Height > 0 ? MergeRects(staticPx, Width, r).Count : 0;

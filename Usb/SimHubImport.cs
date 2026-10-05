@@ -651,9 +651,15 @@ namespace User.FXProRpmSync
                     using (var dst = new Bitmap(Math.Max(1, r.Width), Math.Max(1, r.Height), PixelFormat.Format32bppArgb))
                     {
                         using (var g = Graphics.FromImage(dst))
+                        using (var attrs = new ImageAttributes())
                         {
                             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                            g.DrawImage(src, new System.Drawing.Rectangle(0, 0, dst.Width, dst.Height));
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            // edges sampled from the picture itself, not from transparency around it: an opaque picture
+                            // stays opaque (its border pixels came out semi-transparent, so it no longer counted as
+                            // covering what's under it: a full-screen art picture let the values under it update through it)
+                            attrs.SetWrapMode(WrapMode.TileFlipXY);
+                            g.DrawImage(src, new System.Drawing.Rectangle(0, 0, dst.Width, dst.Height), 0, 0, src.Width, src.Height, GraphicsUnit.Pixel, attrs);
                         }
                         using (var o = new MemoryStream())
                         {

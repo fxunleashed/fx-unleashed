@@ -92,12 +92,19 @@ namespace User.FXProRpmSync
         {
             var engine = JsEngine();
             if (engine == null) { known = false; return null; }
+            // SimHub gives each formula its own `root`, an object kept between its runs (scripts remember a trigger in it:
+            // Redadeg's LIFT); without it they failed here, and their condition counted as false
+            if (!roots.TryGetValue(bind, out var root)) roots[bind] = root = engine.Evaluate("({})");
+            engine.SetValue("root", root);
             string code = bind.Substring(3);
             // SimHub runs a JS formula as a function body; a bare expression works too
             if (Regex.IsMatch(code, @"\breturn\b")) code = "(function(){\n" + code + "\n})()";
             var r = engine.Evaluate(code);
             return r.IsUndefined() || r.IsNull() ? null : r.ToObject();
         }
+
+        /// <summary>Each js: formula's own `root` object (SimHub's per-formula state), by its text.</summary>
+        private readonly Dictionary<string, JsValue> roots = new Dictionary<string, JsValue>();
 
         private Engine JsEngine()
         {
