@@ -19,7 +19,28 @@ namespace User.FXProRpmSync
 
         /// <summary>An element's own conditions: not its page, not the "take turns" ones.</summary>
         public static List<string> Own(DashElement e) =>
-            (e.Visible ?? new List<string>()).Where(c => !DashPages.Parse(c).HasValue && !c.StartsWith("ncalc:!(")).Distinct().ToList();
+            (e.Visible ?? new List<string>()).Where(c => !DashPages.Parse(c).HasValue && !IsTurn(c)).Distinct().ToList();
+
+        /// <summary>A "take turns" condition: !(an overlay's conditions), or an overlay's script returning the opposite.</summary>
+        public static bool IsTurn(string c) => c.StartsWith("ncalc:!(") || (c.StartsWith("js:") && ScriptReturn(c, out var r) && r.StartsWith("!("));
+
+        /// <summary>
+        /// A script condition's negation: the same script returning the opposite (scripts can't be wrapped, the checked-script
+        /// rules allow no functions), or null when it doesn't end in its one `return X;`. Running the script twice is
+        /// harmless: it sets the same state from the same data.
+        /// </summary>
+        public static string ScriptNegation(string js) =>
+            js.StartsWith("js:") && ScriptReturn(js, out var r) && !r.StartsWith("!(") ? js.TrimEnd().Substring(0, js.TrimEnd().LastIndexOf("return ", StringComparison.Ordinal)) + "return !(" + r + ");" : null;
+
+        private static bool ScriptReturn(string js, out string value)
+        {
+            value = null;
+            var body = js.TrimEnd();
+            int at = body.LastIndexOf("return ", StringComparison.Ordinal);
+            if (at < 0 || !body.EndsWith(";") || body.IndexOf("return ", StringComparison.Ordinal) != at) return false;
+            value = body.Substring(at + 7, body.Length - at - 8).Trim();
+            return true;
+        }
 
         public OverlayShowcase(DashDefinition d)
         {
@@ -104,6 +125,8 @@ namespace User.FXProRpmSync
             {
                 force[c] = true;
                 if (c.StartsWith("ncalc:")) force["ncalc:!(" + c.Substring(6) + ")"] = false;
+                var neg = ScriptNegation(c);
+                if (neg != null) force[neg] = false;
             }
             // an overlay inside another shows its parent too: the negations of every part of its conditions go false
             var nc = g.Where(c => c.StartsWith("ncalc:")).Take(8).ToList();
@@ -168,9 +191,11 @@ namespace User.FXProRpmSync
             foreach (var other in Groups)
                 foreach (var c in other)
                 {
-                    if (force.ContainsKey(c) || c.StartsWith("ncalc:!(")) continue;
+                    if (force.ContainsKey(c) || IsTurn(c)) continue;
                     v.Set(c, false);
                     if (c.StartsWith("ncalc:") && !force.ContainsKey("ncalc:!(" + c.Substring(6) + ")")) v.Set("ncalc:!(" + c.Substring(6) + ")", true);
+                    var neg = ScriptNegation(c);
+                    if (neg != null && !force.ContainsKey(neg)) v.Set(neg, true);
                 }
             foreach (var kv in force) v.Set(kv.Key, kv.Value);
         }

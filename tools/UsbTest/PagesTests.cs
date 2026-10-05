@@ -78,6 +78,24 @@ static class PagesTests
         using (var ma = new MemoryStream(a.Png())) using (var mb = new MemoryStream(b.Png())) return ma.ToArray().SequenceEqual(mb.ToArray());
     }
 
+    /// <summary>The largest difference of a colour channel between two screens (0-255).</summary>
+    static string WorstAt = "";
+
+    static int MaxDiff(PreviewScreen a, PreviewScreen b)
+    {
+        var r = new System.Drawing.Rectangle(0, 0, DashRenderer.Width, DashRenderer.Height);
+        int[] pa = a.Get(r), pb = b.Get(r);
+        int worst = 0;
+        for (int i = 0; i < pa.Length; i++)
+        {
+            if (pa[i] == pb[i]) continue;
+            System.Drawing.Color ca = DashRenderer.ToColor(pa[i]), cb = DashRenderer.ToColor(pb[i]);
+            int dd = Math.Max(Math.Abs(ca.R - cb.R), Math.Max(Math.Abs(ca.G - cb.G), Math.Abs(ca.B - cb.B)));
+            if (dd > worst) { worst = dd; WorstAt = $"{i % DashRenderer.Width},{i / DashRenderer.Width} {DashColors.Hex(ca)} vs {DashColors.Hex(cb)}"; }
+        }
+        return worst;
+    }
+
     static void Format()
     {
         var plain = new DashDefinition { Elements = { new DashElement { Type = "rect", Visible = new List<string> { "pitLimiter" } } } };
@@ -184,8 +202,9 @@ static class PagesTests
             flag |= v.Truthy("ncalc:[Flag_Blue]") == true;
         }
         Check("showcase: the demo brings up the pit limiter screen and the blue flag in its turns", turns > 15 && pit && flag, $"{turns} turns");
-        // the pit limiter oval changes colour with the speed (blue / green / red): with the RAM drive each colour is a
-        // picture of its own, so a change is a couple of commands, not the oval drawn again with rectangles
+        // the pit limiter oval changes colour with the speed (blue / green / red): the screen draws the ovals itself
+        // (ScreenShapes), so a change is a few KB of commands, not the oval drawn again with rectangles, and its smoothed
+        // edges are wiped first so the result is a full redraw's (to one RGB565 step)
         {
             var sc = new UsbTestMain.Counter();
             var r = new DashRenderer(sc, m, 10, 20);
@@ -197,7 +216,7 @@ static class PagesTests
             DashValues V(double speedState) { var v = demo.Step(0.1); foreach (var kv in showPit.Force(pitGroup)) v.Set(kv.Key, kv.Value); v.Set(colour, speedState); return v; }
             double t = 0.1;
             r.Update(V(-1), t += 0.1); r.Update(V(-1), t += 0.1);
-            long worst = 0; bool same = true;
+            long worst = 0; int off = 0;
             foreach (var state in new[] { 0.0, 1.0, -1.0, 1.0 })
             {
                 long b0 = sc.Bytes;
@@ -206,15 +225,20 @@ static class PagesTests
                 worst = Math.Max(worst, sc.Bytes - b0);
                 var full = new UsbTestMain.Counter();
                 var fr = new DashRenderer(full, m, 10, 20); fr.EnableTiles(); fr.UseTiles(true); fr.DrawAll(); fr.Update(v, t);
-                same &= Same(sc.P, full.P);
+                off = Math.Max(off, MaxDiff(sc.P, full.P));
             }
-            Check("mustang: the pit oval changes colour from its RAM pictures (a few hundred bytes, as a full redraw shows it)", worst < 1500 && same, $"worst change {worst} B");
+            Check("mustang: the pit oval changes colour drawn by the screen itself (a few KB, as a full redraw shows it)", worst < 8000 && off <= DashVerify.SmoothTolerance, $"worst change {worst} B, {off} levels off a full redraw (at {WorstAt})");
         }
         using (var p = new PreviewScreen())
         {
             var r = new DashRenderer(p, m, 10, 20);
-            var pics = r.PictureList().ToList();
-            Check("mustang: the ovals and the Ford script are pictures on the RAM drive", pics.Count > 20 && r.Tiles.Bytes + r.Tiles.FileCount * ScreenRam.FileOverhead < ScreenRam.Budget, $"{pics.Count} pictures, {r.Tiles.Bytes / 1024} KB");
+            var pics = r.PictureList().Select(o => Newtonsoft.Json.Linq.JObject.FromObject(o)).ToList();
+            var shapes = pics.Where(o => ((string)o["element"]).Contains(" ellipse ") || ((string)o["element"]).Contains(" box ")).ToList();
+            // ovals and rounded boxes are drawn by the screen itself; the Ford script and the icons stay pictures; the
+            // overlays' area tiles (a setting pop-up's going puts back just its area) add ~20 KB
+            Check("mustang: no pictures for ovals and boxes, the Ford script still one; the RAM drive under 96 KB",
+                  shapes.Count == 0 && pics.Any(o => ((string)o["element"]).Contains("ImageItem2")) && r.Tiles.Bytes < 96 * 1024 && r.Tiles.AreaTiles.Count > 0,
+                  $"{pics.Count} pictures, {r.Tiles.FileCount} files, {r.Tiles.Bytes / 1024} KB");
         }
     }
 }

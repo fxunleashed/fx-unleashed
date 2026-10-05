@@ -61,6 +61,8 @@ settings, `DesignerPort`). Offline: `fxdash serve` (no wheel, SimHub formulas no
   while it shows. With pages, the cards show what a page flip sends.
 - **Screen RAM** (the pill, or the drawer's tab): what the dash keeps on the screen's RAM drive, the dash itself and each
   picture of a shape that comes and goes (with its looks: a shape coloured by data has one per colour stop), biggest first.
+  Ovals and rounded boxes that come and go aren't there: the screen draws those itself, in any colour, so prefer an
+  Ellipse or a Box with a corner radius to a picture of one.
 - **Dim** (Add tab): darkens the whole screen while its conditions hold (headlights on), with the backlight; the canvas
   shows it darker when its overlay is previewed.
 - **Keys:** arrows (Shift = 10 px), Del, Ctrl+D, Ctrl+C/V, Ctrl+Z/Y, [ ], Esc, Ctrl+S, 1/2/3 views, ? for the list.

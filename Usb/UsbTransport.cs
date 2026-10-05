@@ -352,6 +352,10 @@ namespace User.FXProRpmSync
                 Array.Copy(b, 0, pending, count, b.Length);
                 pending[count + b.Length] = pending[count + b.Length + 1] = pending[count + b.Length + 2] = 0xFF;
                 count += len;
+                // smoothed shapes (draw_h, cirs) keep the screen busy for ~2 us a pixel: that time is paid as bytes, so
+                // what follows waits (unpaced, a burst of ovals overflowed the screen's input: FXProDashes screen-commands.md)
+                double smooth = ScreenShapes.SmoothPixels(cmd);
+                if (smooth > 0) credit -= smooth * ScreenShapes.SecondsPerSmoothPixel * Rate;
                 if (cmd.StartsWith("page ", StringComparison.Ordinal))
                 {
                     SendNow(count);

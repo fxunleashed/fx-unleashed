@@ -53,7 +53,8 @@ asks the user to confirm the rest once.
 
 What the screen can and can't do (all measured on the wheel):
 
-- Everything is drawn at runtime with the screen's own commands (TJC `fill`, `xstr`); the screen image isn't changed.
+- Everything is drawn at runtime with the screen's own commands (TJC `fill`, `xstr`; ovals and rounded boxes that come
+  and go with its smoothed `draw_h` polygon and `cirs` circle, `Usb/ScreenShapes.cs`); the screen image isn't changed.
 - **No new pictures.** Images become `fill` rectangles: fine for flat artwork in a few colours (the logo is ~3,300
   rectangles after sorting its colours into black/red/white), too slow for photos.
 - **Fonts are fixed:** 128 anti-aliased fonts in the stock screen image, by id. Their real sizes are in

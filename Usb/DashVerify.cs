@@ -206,6 +206,12 @@ namespace User.FXProRpmSync
                             fr.DrawAll(); fr.Update(v, now);
                             var diff = Diff(screen.P.Bitmap, full.Bitmap, tiles);
                             if (diff.Width > 0) res.RedrawMismatch = $"at {now:0.0}s, in {Rect(diff, left, top)} (dash coordinates): the screen no longer shows what a full redraw would";
+                            var dumpTo = Environment.GetEnvironmentVariable("FXDASH_DUMP");
+                            if (diff.Width > 0 && !string.IsNullOrEmpty(dumpTo))
+                            {
+                                screen.P.Bitmap.Save(System.IO.Path.Combine(dumpTo, "incremental.png"), ImageFormat.Png);
+                                full.Bitmap.Save(System.IO.Path.Combine(dumpTo, "full.png"), ImageFormat.Png);
+                            }
                         }
                     }
                 }
@@ -284,6 +290,7 @@ namespace User.FXProRpmSync
                             Console.Error.WriteLine($"--- page {pp + 1} update {kk} ({(on ? "on" : "off")})");
                             r.Trace = t => { keepTrace?.Invoke(t); Console.Error.WriteLine(t); };
                             foreach (var kv in force) Console.Error.WriteLine($"forced {kv.Key} = {kv.Value}");
+                            screen.Echo = Environment.GetEnvironmentVariable("FXDASH_TRACE_CMDS") == "1";
                         }
                         screen.Begin(by);
                         int events = r.PopupEvents, overText = r.PictureOverTextEvents;
@@ -291,6 +298,7 @@ namespace User.FXProRpmSync
                         r.Update(v, now);
                         changed |= r.PopupEvents != events || r.PictureOverTextEvents != overText;
                         r.Trace = keepTrace;
+                        screen.Echo = false;
                         int bytes = (int)(screen.Bytes - before);
                         var flash = screen.End();
                         Dictionary<string, long> Top(Dictionary<string, long> x) => x.OrderByDescending(kv => kv.Value).Take(4).ToDictionary(kv => kv.Key, kv => kv.Value);
@@ -364,6 +372,10 @@ namespace User.FXProRpmSync
         /// <summary>Per colour channel: what JPEG at the tiles' quality can move a pixel by (edges included).</summary>
         public const int JpegTolerance = 56;
 
+        /// <summary>Per colour channel, without tiles: one RGB565 step. A smoothed shape's edge (drawn by the screen itself,
+        /// ScreenShapes) wiped and drawn again rounds a level differently from one drawn once.</summary>
+        public const int SmoothTolerance = 8;
+
         private static int[] Pixels(Bitmap bmp)
         {
             var bd = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
@@ -376,7 +388,7 @@ namespace User.FXProRpmSync
         /// <summary>
         /// Where two screens differ. With tiles the same thing can be drawn two right ways, from a JPEG on the screen or
         /// with exact fills, a few levels apart: differences within JPEG's error (ScreenTiles.Quality) don't count, as
-        /// drawing errors (a stale or missing element) are whole colours apart.
+        /// drawing errors (a stale or missing element) are whole colours apart. Without, one RGB565 step doesn't either.
         /// </summary>
         private static Rectangle Diff(Bitmap a, Bitmap b, bool tiles = false)
         {
@@ -385,9 +397,8 @@ namespace User.FXProRpmSync
             bool Apart(int p, int q)
             {
                 if (p == q) return false;
-                if (!tiles) return true;
                 int dr = Math.Abs(((p >> 16) & 255) - ((q >> 16) & 255)), dg = Math.Abs(((p >> 8) & 255) - ((q >> 8) & 255)), db = Math.Abs((p & 255) - (q & 255));
-                return Math.Max(dr, Math.Max(dg, db)) > JpegTolerance;
+                return Math.Max(dr, Math.Max(dg, db)) > (tiles ? JpegTolerance : SmoothTolerance);
             }
             for (int i = 0; i < pa.Length; i++)
                 if (Apart(pa[i], pb[i])) { int x = i % DashRenderer.Width, y = i / DashRenderer.Width; x0 = Math.Min(x0, x); y0 = Math.Min(y0, y); x1 = Math.Max(x1, x); y1 = Math.Max(y1, y); }

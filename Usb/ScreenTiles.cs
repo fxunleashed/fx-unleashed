@@ -49,7 +49,11 @@ namespace User.FXProRpmSync
 
         /// <summary>The files this dash needs on the screen (each once).</summary>
         public IEnumerable<ScreenTile> Files =>
-            GridTiles.Concat(Bands.Values).Concat(Pictures.Values).Concat(Variants).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
+            GridTiles.Concat(AreaTiles).Concat(Bands.Values).Concat(Pictures.Values).Concat(Variants).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
+
+        /// <summary>What's under a box that comes and goes (a setting pop-up, a lap summary), exactly its area: put back when
+        /// it goes instead of the whole grid tiles it touches, and every element in them (DashRenderer.EnableTiles).</summary>
+        public readonly List<ScreenTile> AreaTiles = new List<ScreenTile>();
 
         /// <summary>More pictures of those shapes: with an overlay inside theirs under them (a flag inside the race start
         /// screen), or in another of their colours (a speed-coloured oval), so they're drawn from a file in that state too

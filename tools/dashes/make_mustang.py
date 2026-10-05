@@ -247,7 +247,10 @@ for g in els('GearText', 'value'):
 oval = el('FORD_Elipse', 'ellipse', always=True)
 sp = el('SpeedText', 'value')
 # (32 px tall from the top: all under the LIFT / pit limiter bars, 0-32, so they cover it whole while they show)
-sp['Y'] = 0; sp['H'] = 32; sp['Font'] = font_for(sp, ['388'], [101, 94]); sp['Samples'] = ['388']; sp['PreviewText'] = '0'
+# The original's speed is Sui Generis 60 (a wide face, ~28 px digits here); the narrow 963 digits at 32 px came out
+# ~19 px and looked small on the wheel (user, 2026-10-04). The screen's wide 32 px font (4) is the closest that fits: a
+# taller one (36 px) would cross the oval's rim at 35 and redraw it with every change.
+sp['Y'] = 0; sp['H'] = 32; sp['Font'] = font_for(sp, ['388'], [4, 101, 94]); sp['Samples'] = ['388']; sp['PreviewText'] = '0'
 gear = el('GearText', 'value', always=True)
 for s in els('Session', 'value'):
     # from just inside the oval's rim to just before the gear (PRACTICE needs 124 px)
@@ -258,11 +261,32 @@ for s in els('Session', 'value'):
     if rings:
         s['Samples'] = ['RACE']; s['PreviewText'] = 'RACE'
         s['X'] = rings[0]['X'] + rings[0]['Border'] + 3; s['W'] = gear['X'] - 1 - s['X']
+# The wiper icon: the original shows it when mWiperState > 0, but LMU reports 1 with the wipers off (seen live,
+# 2026-10-04: 1 for a whole dry stint), so it never went away. LMU's header doesn't say what the values mean; off = 0
+# or 1, so the icon shows above 1. (The ignition-on sweep's copy has its own timing, left as it is.)
+for w in els('Wiperimg', 'image', cond='mWiperState'):
+    w['Visible'] = [c.replace('mWiperState]>0', 'mWiperState]>1') for c in vis(w)]
+    w['Visible'] = w['Visible'][0] if len(w['Visible']) == 1 else w['Visible']
 # the headlight-switch flash ("FLASH" on white, blinking): 2 px wider so the word fits the small font
 for e in els('FLASH background', 'rect') + els('FLASH', 'label'):
     e['X'] -= 2; e['W'] += 4
 b = el('BIAS#', 'value', always=True)
 b['Samples'] = ['88.88']; b['PreviewText'] = '54.20'; b['Font'] = 101
+
+# The oval group 5 px lower (user, 2026-10-04: it sat tight under the top edge): every oval at its spot and what's in it
+# (gear, session, flag and pit texts, the Ford script), the indicator arrows at its top corners, the speed above it,
+# and the pit screens' boxes under the pit ring with what's on them (else the ring's bottom rim would run under them;
+# they still end above the settings row at 385).
+OVAL_DOWN = 5
+def in_oval(e): return e['X'] >= 205 and e['X'] + e['W'] <= 590 and e['Y'] >= 30 and e['Y'] + e['H'] <= 185
+def pit_screen(e): return any('[PitLimiterOn]' in c for c in vis(e)) and e['X'] >= 205 and e['X'] + e['W'] <= 590 and e['Y'] >= 185 and e['Y'] + e['H'] <= 385
+pit = [e for e in E if pit_screen(e)]
+moved = [e for e in E if in_oval(e) or e.get('Name') == 'Links'] + pit + [sp]
+for e in moved:
+    bottom = e['Y'] + e['H']
+    e['Y'] += OVAL_DOWN
+    if e in pit and bottom > 380:
+        e['H'] = bottom - e['Y']   # (a pit box down to the settings row: its top moves, its bottom stays clear of 385)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # 8. Overlays. The ignition screens' black backgrounds cover the wheel's visible area (790 x 460), not the screen's
@@ -318,11 +342,25 @@ def band(v):
 def own(e): return [c for c in vis(e) if not c.startswith('page:') and not c.startswith('ncalc:!(')]
 def opaque(e): return e.get('Opacity', 100) >= 100 and (e['Type'] == 'rect' or (e['Type'] in ('box', 'ellipse') and e.get('Fill')))
 turns = 0
+def negation(conds):
+    """A condition true whenever the overlay is off: !(all of its ncalc conditions); for a script (the LIFT bar's lift and
+    coast trigger) the same script returning the opposite (scripts can't be wrapped: the checked-script rules allow no
+    functions), its blink left out (the value stays hidden for the whole phase, not just the bar's on half)."""
+    if all(c.startswith('ncalc:') for c in conds):
+        cond = conds[0][6:] if len(conds) == 1 else ' and '.join('(' + c[6:] + ')' for c in conds)
+        return 'ncalc:!(' + cond + ')'
+    scripts = [c for c in conds if c.startswith('js:')]
+    if len(scripts) == 1 and all(c.startswith('js:') or "blink(" in c for c in conds):
+        body = scripts[0].rstrip()
+        last = body.rfind('return ')
+        if last > 0 and body.endswith(';') and body.count('return ') == 1:
+            return body[:last] + 'return !(' + body[last + 7:-1].strip() + ');'
+    return None
 for ti, top in enumerate(E):
     conds = own(top)
-    if not conds or not opaque(top) or not all(c.startswith('ncalc:') for c in conds) or page(top) is not None: continue
-    cond = conds[0][6:] if len(conds) == 1 else ' and '.join('(' + c[6:] + ')' for c in conds)
-    no = 'ncalc:!(' + cond + ')'
+    if not conds or not opaque(top) or page(top) is not None: continue
+    no = negation(conds)
+    if no is None: continue
     for under in E[:ti]:
         # values shown on their own terms: always, on a page, or under conditions that aren't this overlay's (an
         # element whose conditions hold all of the overlay's is part of it, or of an overlay inside it)

@@ -15,7 +15,9 @@ The machine-readable version of this page: `fxdash schema` or `GET /api/schema`.
 
 - 800 x 480 pixels, origin top left, 16-bit colour (RGB565: colours are rounded to 5/6/5 bits).
 - Without the screen's RAM patch nothing is a picture: shapes become `fill` rectangles, text is drawn by the screen in **its own
-  fonts** (by id), and images are cut into rectangles of a few colours. Flat colours draw fastest. With the RAM patch (picture
+  fonts** (by id), and images are cut into rectangles of a few colours. Flat colours draw fastest. Ovals and rounded boxes
+  that come and go (a `Visible` condition) are drawn by the screen itself, smoothed, in a few commands, with or without
+  the patch ([screen-ram.md](screen-ram.md), "Ovals and rounded boxes"). With the RAM patch (picture
   memory, [setup guide step 3](https://fxunleashed.com/start/#3-turn-on-picture-memory)) images are kept in the screen as JPEG
   tiles instead: full colour, drawn at once ([screen-ram.md](screen-ram.md)).
 - The wheel pads the whole dash (a setting, default 10 px left, 20 px top): keep the layout within
@@ -50,8 +52,8 @@ Every element: `Type`, `Name` (shown in messages and the designer), `X`, `Y`, `W
 | Type | What | Fields |
 |---|---|---|
 | `rect` | filled rectangle | `Color` |
-| `ellipse` | ellipse, or a ring | `Color` (whole ellipse, or the rim when `Border` > 0), `Fill` (inside, optional), `Border` |
-| `box` | rounded frame | `Color` (border), `Fill` (inside, optional), `Border`, `Radius` |
+| `ellipse` | ellipse, or a ring | `Color` (whole ellipse, or the rim when `Border` > 0), `Fill` (inside, optional), `Border`. With a `Visible` condition the screen draws it itself (smoothed, ~1.3 KB, any colour); at least 8 x 8 px, inside 8 x 8 too when it has a `Border` |
+| `box` | rounded frame | `Color` (border), `Fill` (inside, optional), `Border`, `Radius`. With a `Visible` condition and `Radius` 2-24 the screen draws it itself (two fills and a smoothed circle per corner, ~150 B) |
 | `gradient` | linear gradient | `Colors` (2+ stops), `Angle` (90 = top to bottom, 0 = left to right), `Radius`, `Border` + `Color` |
 | `image` | picture | `Image` (key in `Images`), `MaxColors` (2-64, default 8; fewer = faster) |
 | `label` | fixed text, no background | `Text`, `Font`, `Color`, `Align` (left / center / right) |
@@ -153,9 +155,13 @@ costliest ones (`SlowChanges`); `FXDASH_TRACE_AT=<seconds>` or `=FROM-TO` prints
 screens, warnings, ignition screens) on every page while the lap keeps running, the way the demo on the wheel does:
 what each sends when it comes and goes, and whether anything flashes while it shows. An overlay over most of the
 screen can't come or go for less than drawing the dash takes, so those are listed as `Notes`, not problems.
-`fxdash pictures DASH.json` lists what goes on the screen's RAM drive for shapes that come and go: each oval, frame,
-gradient or picture with a condition is kept there drawn over its own overlay (and over the overlays inside it), so
-it shows with one command.
+`fxdash pictures DASH.json` lists what goes on the screen's RAM drive for shapes that come and go: each gradient or
+picture with a condition is kept there drawn over its own overlay (and over the overlays inside it), so it shows with
+one command. Ovals and rounded boxes (`ellipse`, `box` with a `Radius` of 2-24) with a condition need no picture:
+the screen draws them itself, smoothed, in a few commands (any colour, nothing on the RAM drive). A ring with no
+`Fill`, or one with `Opacity` under 100, needs one colour under it (its middle, or all around it); else it's drawn with
+rectangles as before. A shape always shown (no `Visible`) is drawn as before too: text redrawn over its smoothed edge
+all the time would cost a rectangle a pixel.
 
 ## Sharing a dash
 

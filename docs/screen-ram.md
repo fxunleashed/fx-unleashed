@@ -14,12 +14,28 @@ draws it with `sets "ramv: X, Y, ram/NAME"` instead of thousands of `fill`s:
 - **Dash tiles** (`Usb/ScreenTiles.cs`, `DashRenderer.EnableTiles`): the static layer rendered in full colour and
   anti-aliased (no colour reduction), cut into a 160 px grid (5 x 3); a one-colour tile is a single `fill`, not a file.
   Plus **band tiles** (the background under a value's text when it isn't one colour: band + text, two commands) and
-  **pictures of shapes that come and go** (an icon, an overlay's oval, logo or frame: anything but a plain rectangle
-  with a fixed look, one per colour stop), blended over the static layer and the shapes of its own overlay under it
+  **pictures of shapes that come and go** (an icon, a logo, a gradient: anything but a plain rectangle, an oval or a
+  rounded box, which the screen draws itself, see below; one per colour stop), blended over the static layer and the
+  shapes of its own overlay under it
   (and a variant per mix of the overlays inside its own, at most `MaxVariants` 12): one command when it shows;
   `PictureFits` checks that exactly that is under it. Not for a shape over a bar, nor one 16 smooth rectangles draw
   (`SmoothShapeFills`). `fxdash pictures DASH [--files DIR]` lists them. File name = hash of the JPEG, so equal tiles
   are shared between dashes. Registry of every tile's bytes for previews and the mirror.
+- **Ovals and rounded boxes the screen draws itself** (`Usb/ScreenShapes.cs`, `DashRenderer.NativeCapable`, with or
+  without the RAM drive): the screen's own drawing smooths the edges of `draw_h` polygons (the gauge needle command:
+  any six-point shape symmetric about its axis) and `cirs` circles, and blends `fill`, `draw_h` and `cirs` with the
+  `aph=N` alpha (0-127; not used yet). An oval is plain fills inside plus thin smoothed `draw_h` bands along its edge
+  (~1.3 KB, a Ford ring ~2.8 KB), a rounded box two fills and a `cirs` per corner (~150 B); a ring is the outer shape in
+  its rim colour then the inner one in its fill (a ring with no fill: the one colour under its middle; a see-through
+  shape: its colours mixed with the one colour under it; else fills as before). No file, no RAM, the colour is just
+  an argument: the Mustang went from 51 files / 158 KB to 25 / 56 KB. Only for shapes that come and go, as pictures
+  were (one always shown gets text redrawn on it all the time, and its smoothed edge put back with fills is a fill a
+  pixel: HALO's delta disk). Smoothing costs ~2 us a pixel (a fill ~0.07), so `FxHostScreen` pays it as bytes
+  (`ScreenShapes.SmoothPixels`). Smoothed edges blend with what's on the screen, so a shape is never drawn whole over
+  itself: drawn over in part (MarkAbove's `Damage`), that part goes back with fills of its pixels (which come from
+  running its own commands on a preview screen, `NativeRender`, so they match); changed colour, its old edge is wiped
+  first (the shape 2 px larger in the colour around it, or a rounded box's corner squares put back with fills; a
+  ring's fill alone wiped with its rim's colour). `FXDASH_NATIVE=0` (fxdash) turns it off for comparisons.
 - **Repaints**: when a solid shape still shown covers all of the area (an overlay's box under its blinking label),
   only that shape and what's on it are drawn; a hidden label puts back only its text's ink, and a rounded box counts
   as covering all but its corners. Otherwise an area is put back from grid tiles only when exact fills would need more

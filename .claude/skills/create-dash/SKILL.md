@@ -169,6 +169,34 @@ dash that flashes and lags from one that doesn't. They were all measured on the 
   pictures for things that stay.
 - Elements are drawn in order, later on top. Frames and backgrounds go first, then their text.
 
+### Shapes: let the screen draw ovals and rounded boxes
+
+The screen smooths two of its own commands: `draw_h` (the gauge needle, really any six-point shape symmetric about its
+axis) and `cirs` (a filled circle). The plugin builds ovals and rounded boxes out of them, so they need no picture, no
+RAM and no colour reduction (docs/screen-ram.md, "Ovals and rounded boxes"):
+
+- **An `ellipse`, or a `box` with `Radius` 2-24, that has a `Visible` condition is drawn by the screen itself**: an oval
+  is plain fills inside plus thin smoothed bands along its edge (~1.3 KB; a ring of rim and fill ~2.8 KB), a rounded box
+  two fills and a `cirs` per corner (~150 B). Any colour, so a `ColorBind` with `ColorStops` (a speed-coloured pit
+  oval) costs nothing on the RAM drive; a colour change is ~2-6 KB (the old smoothed edge is wiped first).
+- So **draw ovals, rings, frames and panels as `ellipse` / `box` elements, never as images.** An imported SimHub dash
+  whose oval or frame is a PNG: replace it with the shape (keep pictures for real artwork: a logo, an icon).
+- **A ring (`Border`) is the outer shape in its rim colour, then the inner one in its `Fill`.** A ring with no `Fill`
+  paints its middle with the one colour under it, so put it over a filled shape (the Mustang's black ring over the
+  coloured pit oval of the same overlay); over anything multicoloured it falls back to rectangles: ~37 KB for a big
+  oval. The same for `Opacity` under 100: it needs one plain colour all around it (mixed into its colours).
+- **Sizes:** an oval at least 8 x 8 px (its inside 8 x 8 too, with a border); a box's `Radius` at most 24 (a `cirs`
+  corner smooths its whole disc: bigger corners cost too much screen time, so they're drawn with rectangles).
+- **Shapes always shown** (no `Visible`) are drawn as before, with plain hard-edged fills: values redrawn over a smoothed
+  edge all the time would cost a rectangle a pixel (HALO's delta disk tripled its traffic that way). Static ones go
+  into the static layer (tiles with the RAM patch, fills without). An always-shown oval may still change colour; it
+  just isn't smoothed.
+- **Keep text off a shape's edge.** A value whose text band touches a smoothed edge (the inside of a ring) has a
+  background of many colours: every change repaints. 2 px clear of the edge; `fit-bands` nudges what you miss.
+- **Screen time:** smoothing costs ~2 us a pixel (a plain fill ~0.07); the plugin paces it like bytes. An overlay of
+  three or four stacked big ovals (the Mustang's pit screen) takes ~0.3 s to come up. Fine for overlays; for something
+  that toggles every update (a blinking oval), blink a label on it instead.
+
 ### Pop-ups (setting changed, flags, lap summary)
 
 - A pop-up is a `box` or `rect` with an **opaque `Fill`**, then its label and value on top. All of them carry
@@ -237,8 +265,11 @@ lap never reaches most of them. It brings each one up over the running lap (its 
 timing) and reports, per overlay and page, `ShowBytes` / `HideBytes` (with `ShowBy` / `HideBy`: what sent them),
 flashes while it shows, and drawing errors. `Events` lists every condition change of the plain lap with its bytes.
 Diagnostics: `FXDASH_TRACE=<text in an overlay's name>` prints what its updates draw and why (`FXDASH_TRACE_ALL=1`:
-every update); `FXDASH_DUMP=<folder>` saves both screens when they stop matching; `fxdash pictures dash.json` lists
-the RAM-drive pictures of shapes that come and go. The rules it taught (all in tools/dashes/make_mustang.py):
+every update; `FXDASH_TRACE_CMDS=1`: every command too; lines like `#154 drawn by the screen (57 commands)` or `drawn
+again where it was drawn over` are the screen-drawn shapes); `FXDASH_DUMP=<folder>` saves both screens
+(`incremental.png`, `full.png`) when they stop matching, in the lap and in the sweep; `fxdash pictures dash.json` lists
+the RAM-drive pictures of shapes that come and go; `FXDASH_NATIVE=0` runs any fxdash command with ovals and boxes as
+pictures and fills, as before (compare traffic and RAM both ways). The rules it taught (all in tools/dashes/make_mustang.py):
 - a value or bar half under an overlay's box hides while it shows ("take turns": `ncalc:!(<the box's conditions>)`);
   a value fully under it needs nothing;
 - a value on its own overlay's box gets the box's colour as `Background`;
@@ -272,6 +303,9 @@ What typically comes back, and the fix:
 | flash on a value | text band on a line, image, gradient or bar edge | as above: flat colour under text |
 | flash at a pop-up | pop-up without `Fill`, or half over a value | opaque `Fill`; cover whole cells |
 | high traffic on one element | value over an image, overlapping another box, or an icon toggling | flat colour under it; separate the boxes; label instead of the icon |
+| an overlay's oval or ring sends 30-40 KB when it shows | a ring with no `Fill` (or with `Opacity`) over a multicoloured area: drawn with rectangles | give it a `Fill`, or put it over a filled shape of the same overlay |
+| `fxdash pictures` lists an oval or a frame | it has no `Visible`, it's an `image`, its `Radius` is over 24, or it's under 8 px | an `ellipse` / `box` with a condition and `Radius` <= 24 |
+| a value on an oval repaints at every change | its text band touches the oval's smoothed edge | move it 2 px further in (`fit-bands`) |
 
 Repeat until `check` has 0 errors and 0 warnings, `fit-bands` returns `"changes": []` and `verify` has `"Ok": true`
 (with `--overlays` too, when the dash has overlays; its `Notes` are overlays over most of the screen that come or go for
@@ -296,24 +330,31 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
 
 ### The RAM drive (wheels with the RAM patch)
 
-With the patch, the static layer is kept as JPEG tiles and every shape that comes and goes with a fixed look (an oval,
-a logo, a frame; one look per colour stop) as its own picture, so an overlay appears with a few commands instead of
-thousands of fills. The drive holds 350 KB **accounted: each file's bytes plus 512 B** (measured: holes in the dash at
-144 files / 333 KB), shared by every dash loaded. What fills it, and what doesn't help:
+With the patch, the static layer is kept as JPEG tiles and every shape that comes and goes with a fixed look and that
+the screen can't draw itself (a logo, an icon, a gradient; one look per colour stop) as its own picture, so an overlay
+appears with a few commands instead of thousands of fills. Ovals and rounded boxes need none (see "Shapes" above). The
+drive holds 350 KB **accounted: each file's bytes plus 512 B** (measured: holes in the dash at 144 files / 333 KB),
+shared by every dash loaded, and each file also carries ~600 B of JPEG tables: **small files are mostly overhead**.
+What fills it, and what doesn't help:
 - **Every distinct look is a file.** Inner overlays and colour stops multiply the looks of a picture (`MaxVariants` 12);
   a shape that could have a picture but is drawn with 16 smooth rectangles or fewer (`SmoothShapeFills`) gets none:
   ~0.5 KB, as fast. (60 was tried: the lap summary's boxes were seen drawing in.) A shape over a bar or delta bar gets
-  no picture at all and is drawn with plain (not anti-aliased) fills. The Mustang: 35 KB of tiles, 123 KB of pictures
-  for 33 shapes (155 KB); its 1.8 s ignition-on sweep alone is ~41 KB, the pit ring's six looks 25 KB.
+  no picture at all and is drawn with plain (not anti-aliased) fills.
+- **The Mustang, before and after the screen drew its ovals and boxes:** 51 files / 158 KB (35 KB tiles, 123 KB
+  pictures, ~100 KB of them ovals and frames in every colour and inner-overlay mix: the pit ring alone had six looks,
+  25 KB, the ignition oval four, one per indicator arrow) -> 25 files / 56 KB (tiles, the Ford script, the icons).
+  Traffic stayed the same (~2.4 KB/s); the demo's busiest second went from 6 to 10 KB.
 - `fxdash pictures dash.json [--files DIR]` lists them: `uniqueBytes`, `variants`, `with` (shapes baked in),
   `inner` (overlays it has variants with), `fills` / `smoothFills` (the cost without it). `--files` writes the files
   out to look at. The designer's Screen RAM tab shows the same.
+- **The same picture twice is two files** unless it's the same pixels: two copies of a logo 1 px apart over a 1 px
+  different oval (the Mustang's two Ford scripts) cost twice. Keep repeated artwork at the same size and spot over the
+  same background.
 - **JPEG quality is a weak lever:** pictures at q75 -> q45 took the Mustang from 150 to 123 KB. Don't trade looks for it.
-- **Transparent pictures don't help** (tried 2026-10-04): the screen draws `hmipicxi` files with a 7-bit alpha mask
-  (FXProDashes docs/screen-images.md), but a large oval's mask alone is 1.5-2.7 KB and the files must be 4:2:2; per
-  shape they came to 126 KB against 115 KB baked.
-- What does help: fewer looks (an overlay's ring and oval of the same conditions are one picture already), small
-  frames as plain shapes, and no picture for things shown once a session if the user accepts them appearing slower.
+- **Transparent pictures don't help** (tried 2026-10-04): the screen draws `hmipicxi` files with a 7-bit alpha mask, but
+  a large oval's mask alone is 1.5-2.7 KB and the files must be 4:2:2; per shape they came to 126 KB against 115 KB baked.
+- What does help: shapes instead of pictures of them, fewer looks, and no picture for things shown once a session if
+  the user accepts them appearing slower.
 
 ## 4. Look at it
 
@@ -366,6 +407,10 @@ compare with the SimHub dash's own preview (`<dash>.djson.png` in its folder).
   formula SimHub rejected live (NCalc backslashes). The pit oval's colour change cost 12 KB because text over it
   blocked its picture (now: a costly shape's picture goes over the text, which is drawn again). `verify --overlays`
   and the parity script found each one.
+- The Mustang's RAM drive (2026-10-04): 158 KB, two thirds of it pictures of ovals and frames, one per colour and per
+  mix of what's inside them. The screen turned out to smooth its own `draw_h` polygons and `cirs` circles; drawn with
+  those, the ovals and frames left the drive (56 KB). A first try smoothed whole ovals and overflowed the screen at
+  10 KB/s (smoothing costs per pixel), so only the edge is smoothed now; that keeps up at the full 25 KB/s on the wheel.
 
 References: `docs/dash-format.md` (format), `docs/dash-designer.md` (designer, API, import), `docs/usb-mode.md`
 (how it reaches the wheel), `tools/UsbTest` (`traffic DASH.json flash|diverge|blame` for deeper digging).

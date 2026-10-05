@@ -44,6 +44,8 @@ internal static class FxDash
     private static int Main(string[] args)
     {
         Console.OutputEncoding = new System.Text.UTF8Encoding(false); // JSON out is UTF-8 whatever the console's code page
+        // FXDASH_NATIVE=0: ovals and rounded boxes with fills and pictures, as before ScreenShapes (for comparisons)
+        if (Environment.GetEnvironmentVariable("FXDASH_NATIVE") == "0") DashRenderer.NativeShapes = false;
         try
         {
             var opts = Options(args, out var pos);

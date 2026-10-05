@@ -390,7 +390,7 @@ namespace User.FXProRpmSync
         private DashDefinition showcaseFor;
         private double demoStart;
         private readonly Stopwatch clock = Stopwatch.StartNew();
-        private double lastDash, lastDemo, lastLed;
+        private double lastDash, lastDemo, lastLed, lastSlowLog = -10;
         private volatile string[] props = new string[0];
         private string[] dashProps = new string[0], lightProps = new string[0];
 
@@ -1331,7 +1331,23 @@ namespace User.FXProRpmSync
                 v.Page = page;
                 var force = previewDash != null ? previewForce : null;
                 if (force != null) foreach (var kv in force) v.Set(kv.Key, kv.Value);
+                long bytes0 = screen?.Bytes ?? 0;
+                int native0 = renderer.NativeEvents;
+                var took = System.Diagnostics.Stopwatch.StartNew();
+                var drew = new Dictionary<DashElement, int>();
+                renderer.DrawCounts = drew;
                 renderer.Update(v, now);
+                renderer.DrawCounts = null;
+                // a slow update (what the screen takes over half a second for) in the log, with what it drew: the wheel's
+                // hiccups are hard to see anywhere else
+                long sent = (screen?.Bytes ?? 0) - bytes0;
+                if ((sent > 6000 || took.Elapsed.TotalSeconds > 0.5) && now - lastSlowLog > 2)
+                {
+                    lastSlowLog = now;
+                    SimHub.Logging.Current.Info($"[FXProRpmSync] USB mode: a slow dash update: {sent / 1024.0:0.0} KB in {took.Elapsed.TotalSeconds:0.00} s, " +
+                        $"{renderer.NativeEvents - native0} shapes drawn by the screen; drew {drew.Count}: " +
+                        string.Join(", ", drew.Keys.Take(12).Select(e => e.Name ?? e.Type)));
+                }
             }
             // The logo goes out in slices (~24 commands per frame) so the lights keep animating while it draws in.
             if (saver != null && screen != null && pendingTiles == null) saver.Step(screen, now, 24);

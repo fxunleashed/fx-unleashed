@@ -85,7 +85,9 @@ def evis(e):
 
 
 def own(e):
-    return [c for c in evis(e) if not c.startswith('page:') and not c.startswith('ncalc:!(')]
+    # (take turns, make_mustang.py 9.: !(an overlay's conditions), or its script returning the opposite)
+    return [c for c in evis(e) if not c.startswith('page:') and not c.startswith('ncalc:!(')
+            and not (c.startswith('js:') and 'return !(' in c)]
 
 
 def epage(e):
@@ -98,8 +100,12 @@ DELTA_LMU = '[GameRawData.CurrentPlayerTelemetry.mDeltaBest]'
 DELTA_ANY = 'isnull([GameRawData.CurrentPlayerTelemetry.mDeltaBest], [PersistantTrackerPlugin.SessionBestLiveDeltaSeconds])'
 
 
+# the wiper icon shows above 1, not above 0: LMU reports 1 with the wipers off (make_mustang.py, 7.)
+WIPER_ORIG, WIPER_CONV = 'mWiperState]>0', 'mWiperState]>1'
+
+
 def same_conds(orig, conv):
-    o = [norm(c).replace(DELTA_LMU, DELTA_ANY) for c in orig if c != '(blink)']
+    o = [norm(c).replace(DELTA_LMU, DELTA_ANY).replace(WIPER_ORIG, WIPER_CONV) for c in orig if c != '(blink)']
     v = [norm(c) for c in conv if 'blink(' not in c]
     return sorted(o) == sorted(v)
 
@@ -143,6 +149,8 @@ for it in items:
         continue
     used.add(best)
     e = E[best]
+    if any(WIPER_ORIG in norm(c) for c in it['conds']):
+        known.append(f'{tag}: shown when mWiperState > 1, not > 0 (LMU reports 1 with the wipers off)')
     if not it['colour'] and e.get('ColorBind') and not it['kind'].startswith('Leaderboard'):
         problems.append(f'{tag}: a colour formula the SimHub item doesn\'t have ({e["ColorBind"]})')
     if it['colour'] and norm(it['colour']).replace(DELTA_LMU, DELTA_ANY) != norm(e.get('ColorBind')):
