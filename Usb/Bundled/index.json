@@ -113,10 +113,10 @@
   "InLibrary": true,
   "Name": "Toyota GR010 Hybrid",
   "Author": "Redadeg (lmu-dashboards.com)",
-  "Description": "Converted for the FX Pro by FX Unleashed from Redadeg's SimHub dash \"Toyota GR010 Hybrid\" (https://lmu-dashboards.com).",
-  "Version": "1.0.0",
+  "Description": "Converted for the FX Pro by FX Unleashed from Redadeg's SimHub dash \"Toyota GR010 Hybrid\" (https://lmu-dashboards.com). Two pages in the bottom bar, as in the original: the anti-roll bars, and migration / regen (bind Next / Previous page to a wheel button).",
+  "Version": "1.1.0",
   "Source": "Redadeg's SimHub dash \"Toyota GR010 Hybrid\", https://lmu-dashboards.com",
   "License": "Converted work, rights with the original author",
-  "Sha256": "4beceb7e91607fca10e89768f9295fc873ce09bb13f04e434d069a962d5c8088"
+  "Sha256": "ab46fb68902549a8190d09b1f85bf68aec3b39fecab97b3f7a3eb22c8d15813f"
  }
 ]

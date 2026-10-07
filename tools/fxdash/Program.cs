@@ -20,6 +20,8 @@ internal static class FxDash
   fxdash check DASH.json [--pad L,T]         layout problems and draw cost (exit 1 if errors)
   fxdash render DASH.json OUT.png [--mode preview|demo] [--seconds N] [--pad L,T] [--page N]
                                              picture of the dash as the wheel shows it
+  fxdash frames DASH.json DIR [--seconds 20] [--start S] [--fps 10] [--pad L,T] [--tiles]
+                                             the wheel's demo (overlays in turn, pages flipping) as numbered PNGs, for a video
   fxdash verify DASH.json [--seconds N] [--pad L,T] [--overlays] [--tiles] [--demo]
                                              the demo lap on a simulated wheel: USB traffic, flashes, drawing
                                              errors, top senders (exit 1 if not ok; default pad 10,20, 120 s)
@@ -76,6 +78,16 @@ internal static class FxDash
                     int page = opts.TryGetValue("page", out var pg) ? int.Parse(pg) : 0;
                     File.WriteAllBytes(pos[2], DashTools.Render(Load(pos[1]), mode, seconds, pad.L, pad.T, null, opts.ContainsKey("tiles"), page));
                     return Out(new { written = Path.GetFullPath(pos[2]), mode, page });
+                }
+                case "frames":
+                {
+                    // the wheel's demo as numbered PNGs (a video of the dash: ffmpeg -framerate FPS -i frame%05d.png out.mp4)
+                    Need(pos, 3);
+                    double seconds = opts.TryGetValue("seconds", out var sec) ? double.Parse(sec, System.Globalization.CultureInfo.InvariantCulture) : 20;
+                    double start = opts.TryGetValue("start", out var st) ? double.Parse(st, System.Globalization.CultureInfo.InvariantCulture) : 0;
+                    int fps = opts.TryGetValue("fps", out var f) ? int.Parse(f) : 10;
+                    int n = DashTools.Frames(Load(pos[1]), pos[2], seconds, fps, pad.L, pad.T, opts.ContainsKey("tiles"), start);
+                    return Out(new { folder = Path.GetFullPath(pos[2]), frames = n, fps });
                 }
                 case "pictures":
                 {

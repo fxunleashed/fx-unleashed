@@ -56,7 +56,7 @@ Every element: `Type`, `Name` (shown in messages and the designer), `X`, `Y`, `W
 | `ellipse` | ellipse, or a ring | `Color` (whole ellipse, or the rim when `Border` > 0), `Fill` (inside, optional), `Border`. With a `Visible` condition the screen draws it itself (smoothed, ~1.3 KB, any colour); at least 8 x 8 px, inside 8 x 8 too when it has a `Border` |
 | `box` | rounded frame | `Color` (border), `Fill` (inside, optional), `Border`, `Radius`. With a `Visible` condition and `Radius` 2-24 the screen draws it itself (two fills and a smoothed circle per corner, ~150 B) |
 | `gradient` | linear gradient | `Colors` (2+ stops), `Angle` (90 = top to bottom, 0 = left to right), `Radius`, `Border` + `Color` |
-| `image` | picture | `Image` (key in `Images`), `MaxColors` (2-64, default 8; fewer = faster) |
+| `image` | picture | `Image` (key in `Images`: base64 PNG or JPEG; any format the system reads works, a GIF gives its first frame, the screen draws stills), `MaxColors` (2-64, default 8; fewer = faster), `Block` (1-16, default 1: pixel size, bigger = faster). With the screen's RAM drive on (and the dash using it) the picture is drawn as it is, in every colour, and `MaxColors` / `Block` are not used; without it the screen draws pictures with rectangles, reduced by those two |
 | `label` | fixed text, no background | `Text`, `Font`, `Color`, `Align` (left / center / right) |
 | `value` | text from data | `Bind`, `Format`, `Scale`, `Empty`, `Samples`, `PreviewText`, `Font`, `Color`, `Align`, `PositiveColor` / `NegativeColor`, `Background` |
 | `bar` | gauge fill | `Bind`, `Min`, `Max` (may be below `Min`), `Orientation` (horizontal / vertical), `Reverse`, `Color` (fill), `Fill` (empty part, optional) |

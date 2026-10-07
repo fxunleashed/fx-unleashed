@@ -31,6 +31,21 @@ namespace User.FXProRpmSync
             try { if (!string.IsNullOrEmpty(directory) && Engine() != null) engine.SetExtraJavasccriptExtensionsDirectory(directory); } catch { }
         }
 
+        /// <summary>
+        /// A formula as SimHub's dashes hold it. A script loads SimHub's JavascriptExtensions and the dash's own folder
+        /// (SetJavascriptDirectory) as a dash's formula does by default (JSExt Local | Global): built with this constructor it
+        /// loads neither (None), so every helper a script calls (the FX-Pro Fuel dash's haa_* and doXTiming*, Lovely's
+        /// ld_getSim) was "not defined" on the wheel while the demo, with its own engine, showed them.
+        /// </summary>
+        private static ExpressionValue Compile(string bind)
+        {
+            bool js = bind.StartsWith("js:", StringComparison.OrdinalIgnoreCase);
+            return new ExpressionValue(bind.Substring(js ? 3 : 6), js ? Interpreter.Javascript : Interpreter.NCalc)
+            {
+                JsExtensions = JsExtensionsLoading.Local | JsExtensionsLoading.Global,
+            };
+        }
+
         private NCalcEngineBase Engine()
         {
             if (engine != null || unavailable) return engine;
@@ -51,8 +66,7 @@ namespace User.FXProRpmSync
             {
                 if (!compiled.TryGetValue(bind, out var ev))
                 {
-                    bool js = bind.StartsWith("js:", StringComparison.OrdinalIgnoreCase);
-                    ev = new ExpressionValue(bind.Substring(js ? 3 : 6), js ? Interpreter.Javascript : Interpreter.NCalc);
+                    ev = Compile(bind);
                     compiled[bind] = ev;
                 }
                 return engine.ParseValue(ev);
@@ -73,8 +87,7 @@ namespace User.FXProRpmSync
             if (Engine() == null) return new { error = "SimHub's formula engine isn't available" };
             try
             {
-                bool js = bind.StartsWith("js:", StringComparison.OrdinalIgnoreCase);
-                var v = engine.ParseValue(new ExpressionValue(bind.Substring(js ? 3 : 6), js ? Interpreter.Javascript : Interpreter.NCalc));
+                var v = engine.ParseValue(Compile(bind));
                 return new { value = v is TimeSpan ts ? (object)ts.TotalSeconds : v, type = v?.GetType().Name ?? "null" };
             }
             catch (Exception ex) { return new { error = ex.GetType().Name + ": " + ex.Message }; }

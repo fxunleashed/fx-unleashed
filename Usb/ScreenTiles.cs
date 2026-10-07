@@ -49,7 +49,11 @@ namespace User.FXProRpmSync
 
         /// <summary>The files this dash needs on the screen (each once).</summary>
         public IEnumerable<ScreenTile> Files =>
-            GridTiles.Concat(AreaTiles).Concat(Bands.Values).Concat(Pictures.Values).Concat(Variants).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
+            GridTiles.Concat(AreaTiles).Concat(Bands.Values).Concat(Pictures.Values).Concat(Variants).Concat(FrameTiles).Where(t => t.Name != null).GroupBy(t => t.Name).Select(g => g.First());
+
+        /// <summary>The pictures of an animated screensaver (GifSaver): its first frame, then the part that changes in each
+        /// of the others, drawn in turn. Their R is relative to the picture's own corner.</summary>
+        public readonly List<ScreenTile> FrameTiles = new List<ScreenTile>();
 
         /// <summary>What's under a box that comes and goes (a setting pop-up, a lap summary), exactly its area: put back when
         /// it goes instead of the whole grid tiles it touches, and every element in them (DashRenderer.EnableTiles).</summary>

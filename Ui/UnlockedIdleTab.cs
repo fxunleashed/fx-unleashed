@@ -18,6 +18,7 @@ namespace User.FXProRpmSync
         private UsbController Usb => plugin.Usb;
 
         private readonly WrapPanel gallery;
+        private readonly Button addPicture;
         private readonly TextBlock sleepState;
         private readonly Button sleepButton;
         private readonly DispatcherTimer slowTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -39,7 +40,8 @@ namespace User.FXProRpmSync
             head.Children.Add(headText);
             saver.Children.Add(head);
             saver.Children.Add(Theme.Note("Shown on the wheel's screen between sessions; off gives the screen back to the wheel's own dash. " +
-                                          "Click one to make it the default; with \"Take turns\" on, tick the others to show in turn. Pictures are simplified to draw in within 15 seconds."));
+                                          "Click one to make it the default; with \"Take turns\" on, tick the others to show in turn. With picture memory on (Wheel tab), pictures show in full colour " +
+                                          "and a GIF plays (as many of its frames as fit in the screen's memory); without it, pictures are simplified to draw in within 15 seconds and a GIF shows its first frame."));
             gallery = new WrapPanel { Opacity = S.ScreenSaver ? 1 : 0.5 };
             saver.Children.Add(gallery);
             var rotate = Theme.SliderField(0, 60, S.SaverSwitchMinutes, 1, v => v < 1 ? "Just the default" : $"Every {v:0} min", v =>
@@ -53,7 +55,9 @@ namespace User.FXProRpmSync
             rotateRow.Margin = new Thickness(0, 6, 0, 10);
             saver.Children.Add(rotateRow);
             var add = new WrapPanel { Margin = new Thickness(0, 4, 0, -8) };
-            add.Children.Add(Theme.Btn("Add a picture…", AddPicture, icon: ""));
+            addPicture = Theme.Btn("Add a picture…", AddPicture, icon: "");
+            addPicture.ToolTip = "A picture, or a GIF: an animated one plays when the screen has picture memory";
+            add.Children.Add(addPicture);
             var dashBox = new ComboBox { Width = 260, Margin = new Thickness(0, 0, 8, 8), VerticalAlignment = VerticalAlignment.Top };
             bool filling = false;
             // the dashes as they are on disk now (one saved in the designer or installed from the library while SimHub
@@ -180,14 +184,17 @@ namespace User.FXProRpmSync
                         BuildGallery();
                     };
                     frame.Children.Add(remove);
-                    var share = new Button
+                    if (!item.IsAnimation) // the library holds pictures and dashes, not animations
                     {
-                        Content = "Share…", Height = 24, Padding = new Thickness(8, 0, 8, 0), FontSize = 11,
-                        HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 6, 0, 0),
-                        ToolTip = "Package this screensaver for the library, to share it with everyone",
-                    };
-                    share.Click += (s, e) => PackageSaver(captured);
-                    frame.Children.Add(share);
+                        var share = new Button
+                        {
+                            Content = "Share…", Height = 24, Padding = new Thickness(8, 0, 8, 0), FontSize = 11,
+                            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 6, 0, 0),
+                            ToolTip = "Package this screensaver for the library, to share it with everyone",
+                        };
+                        share.Click += (s, e) => PackageSaver(captured);
+                        frame.Children.Add(share);
+                    }
                 }
                 var id = item.Id;
                 bool isDefault = item.Id == IdleScreens.Find(S, S.SaverId).Id;
@@ -201,6 +208,23 @@ namespace User.FXProRpmSync
                 body.Children.Add(frame);
                 body.Children.Add(new TextBlock { Text = item.Name, FontFamily = Theme.Display, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
                 body.Children.Add(new TextBlock { Text = KindText(item), Foreground = Theme.Text3, FontSize = 11 });
+                if (item.IsAnimation)
+                {
+                    // the GIF is more than the screen's memory holds (about 200 KB of it for one animation, so the dashes stay
+                    // loaded): evenly spaced frames kept, the loop as long as the GIF's
+                    if (item.Frames < item.FramesTotal && !item.IsOversized)
+                        body.Children.Add(new TextBlock { Text = $"Took {item.Frames} of {item.FramesTotal} frames (your smoothness choice)", Foreground = Theme.Text3, FontSize = 11, TextWrapping = TextWrapping.Wrap });
+                    if (item.IsOversized)
+                        body.Children.Add(new TextBlock
+                        {
+                            Text = $"Oversized: took {item.Frames}/{item.FramesTotal} frames", Foreground = Theme.Amber, FontSize = 11, FontWeight = FontWeights.SemiBold,
+                            TextWrapping = TextWrapping.Wrap,
+                            ToolTip = "The GIF has more than the screen's picture memory holds for one animation (about 200 KB, so your dashes stay loaded). " +
+                                      "Evenly spaced frames were kept, so the loop is as long as the GIF's, with fewer steps.",
+                        });
+                    if (!S.ScreenRamDrive)
+                        body.Children.Add(new TextBlock { Text = "Plays with picture memory on (Wheel tab); until then it shows its first frame.", Foreground = Theme.Text3, FontSize = 11, TextWrapping = TextWrapping.Wrap });
+                }
                 if (S.SaverSwitchMinutes > 0 && !isDefault)
                 {
                     bool inTurn = S.SaverRotation.Contains(id);
@@ -233,6 +257,7 @@ namespace User.FXProRpmSync
         private static string KindText(SaverItem item)
         {
             if (item.Blurb != null) return "Built in · " + item.Blurb.ToLowerInvariant();
+            if (item.IsAnimation) return item.Frames < item.FramesTotal ? "Animated GIF" : $"Animated GIF · {item.Frames} frames";
             switch (item.Kind)
             {
                 case SaverKind.Image: return "Picture";
@@ -250,21 +275,33 @@ namespace User.FXProRpmSync
             PackageDialog.Show(owner, d, "saver");
         }
 
-        private void AddPicture()
+        private async void AddPicture()
         {
-            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Pictures|*.png;*.jpg;*.jpeg;*.bmp;*.gif", Title = "A picture for the wheel's screen" };
+            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Pictures and GIFs|*.png;*.jpg;*.jpeg;*.bmp;*.gif", Title = "A picture or an animated GIF for the wheel's screen" };
             if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
+            string path = dlg.FileName;
             try
             {
                 Cursor = System.Windows.Input.Cursors.Wait;
-                var item = IdleScreens.ImportImage(dlg.FileName);
+                addPicture.IsEnabled = false;
+                // an animated GIF gets its own window (how big, how smooth, what that gives); working things out takes a few
+                // seconds (every frame is worked over to fit the screen's memory): off the UI thread
+                var gif = await System.Threading.Tasks.Task.Run(() => AnimatedPicture.Inspect(path));
+                SaverItem item;
+                if (gif != null)
+                {
+                    Cursor = null;
+                    item = GifImportDialog.Show(Window.GetWindow(this), path, gif, S.ScreenRamDrive);
+                    if (item == null) return; // cancelled
+                }
+                else item = await System.Threading.Tasks.Task.Run(() => IdleScreens.ImportImage(path));
                 S.Savers.Add(item);
                 S.SaverId = item.Id;
                 Changed();
                 BuildGallery();
             }
             catch (Exception ex) { MessageBox.Show("Couldn't use that picture: " + ex.Message, "FX Unleashed"); }
-            finally { Cursor = null; }
+            finally { Cursor = null; addPicture.IsEnabled = true; }
         }
     }
 }

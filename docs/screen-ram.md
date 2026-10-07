@@ -44,6 +44,51 @@ draws it with `sets "ramv: X, Y, ram/NAME"` instead of thousands of `fill`s:
   a value's band doesn't become one fill per pixel.
 - **Screensavers** (`ITiledSaver`: the painted ones in `ArtSavers.cs` and the logo `ScreenSaver`): their art as tiles
   (`SaverTiles`), ~1 KB to draw instead of 20-90 KB of rectangles. The logo is drawn in full colour from tiles.
+- **Picture screensavers** (a picture added on the Idle tab, `IdleScreens.ImportImage`; any format the system reads, a GIF gives
+  its first frame): a dash with one `image` element, drawn from the RAM like a dash (`IdleScreens.DrawnFromRam`, `PrepareTiles`):
+  all its colours, a 736 x 460 photo ~100-150 KB of the drive. The file keeps the clean picture (PNG, or JPEG q92 when smaller);
+  for a screen without the RAM drive the element's `MaxColors` and `Block` (pixel size, `DashRenderer.Pixelate`) reduce it until
+  it draws in `MaxDrawSeconds`. Before 0.7.1 savers never used the RAM (they were drawn with fills at 8-24 colours, pixelated at
+  import, while the settings preview showed the RAM version). A dash whose pictures can't fit the drive at all is drawn with
+  fills from the start (`PrepareTiles`), not after an upload that evicted the rest.
+- **Animated GIF screensavers** (`Usb/AnimatedPicture.cs` the stored animation + importer, `Usb/GifSaver.cs` the player; "Add a
+  picture" on the Idle tab takes a GIF; settings: an `Image` item with `Animated`, `Frames`, `FramesTotal`, not a kind of its own,
+  so a rollback to a version without animations still reads the settings and shows a blank picture): the screen can't play a GIF
+  but draws a RAM JPEG in a few ms (under 25 ms full screen, screen-images.md), so the first frame goes up whole and each next frame
+  is only the rectangles that changed (a bounding box around what differs by more than 6, cut into up to 6 boxes where an empty band
+  worth ~4000 px runs through it), drawn with `ramv` over the one before at the GIF's own timing (delays of 10 ms or less count as
+  100, minimum 20). The last frame's changes back to the first make the loop (`Wrap`), so there's no drift. GDI+ hands out frames
+  already combined (checked against Pillow on a partial-frame and a disposal/transparency GIF: 0 pixels apart). Identical pictures
+  are one file (names are JPEG hashes: a sprite moving over black is 3 files for 6 frames). **Budget: `AnimatedPicture.Budget`
+  200 KB of the 350 KB drive, at most `MaxFiles` 80 files** (~0.3 s each to upload, behind the loading screen, once after a power-on;
+  the rest of the drive stays for the dashes). More than that: evenly spaced frames are kept (binary search for the most that fit
+  at JPEG quality 72, then 60, 48, then a smaller picture if even the first doesn't), each lasting until the next kept one, so the loop
+  keeps its length; the card says "Oversized: took X/Y frames". Size: the GIF fitted into 790 x 460, at most 3x its own size. A step
+  whose changes cover 80% of the picture or more is drawn as the whole picture (a clip: every pixel moves), so it stands alone.
+  **Speed (first test on the wheel, 2026-10-07: "about half speed")**: a 460 x 460 clip, 12 steps of ~200 ms, every step a whole
+  15 KB picture. The PC can't see how long the screen takes to draw a picture (no replies, a 4 KB command buffer that drops what
+  doesn't fit, a frame shown only when it runs dry: screen-speed.md), and the first player just sent each step on the GIF's clock, so
+  the screen fell behind. The old "a full-screen JPEG draws in well under 25 ms" was an eyeball test, never measured. `GifSaver`
+  now models the screen (`MicrosecondsPerPixel` 1.9 = what that report implied, + `FixedMs` 5 a draw), sends the next step only when
+  the last should be drawn, and when that puts it behind the GIF's clock jumps to the step that should show now if that one is a whole
+  picture (so a clip keeps its speed with fewer steps; patches, being cheap, catch up one by one). `GET/POST
+  /api/wheel/gif?cost=US_PER_PX&fixed=MS&hold=PIXELS|off` shows and sets the model live (this session) with the steps drawn and skipped; the
+  log has a line every 15 s for the first minute of playing (steps drawn / skipped against the animation's own pace). **To find the real
+  cost: lower `cost` while it plays until it runs slow again.** The `ref_stop` / `ref_star` pair around big steps (`HoldArea`, was 40,000 px)
+  is off by default: it was added untried and is the second suspect.
+  **The import window** (`Ui/GifImportDialog.cs`, "Add a picture" on an animated GIF; a still picture or a one-frame GIF skips it):
+  the GIF's size / frames / length and first frame, **Size** (20-100% of the fit, `GifOptions.Size`) and **Smoothness** (most steps a
+  second to keep, `GifOptions.MaxStepsPerSecond`, 0 = every frame), a **Best fit** button (`AnimatedPicture.BestFit`: the biggest 5%
+  step of size that plays at the GIF's speed, i.e. `ScreenLoad` <= 0.95 by the screen model, at most `SmoothSteps` 10 steps a second or
+  the GIF's own, and not so memory-cut that it keeps under 80% of that), and "what you'll get" (verdict, frames kept, steps a second
+  against the GIF's, memory used). Every change works the import out again in the background after 450 ms (`FromGif(..., needStill:
+  false)`: the first-frame still is made when it's added); Add saves exactly that picture (`IdleScreens.SaveAnimation`). The card says
+  "Oversized: took X/Y" only when the memory cut the frames (`SaverItem.MemoryLimited`; null on older items = fewer frames means that);
+  frames left out by the Smoothness choice say "(your smoothness choice)". Driven in tests by `UsbTest OUT gifdialog-add FILE.gif`;
+  `UsbTest OUT gifdialog FILE.gif [noram]` renders it. The estimates are only as good as `MicrosecondsPerPixel`. Long GIFs: at most 120 evenly spaced candidates (and as
+  many as fit in ~100 MB). Without the RAM drive an animation shows its first frame as a picture dash (`AnimatedPicture.Still`).
+  Measured with the harness: 150 frames of 400 x 240 where every pixel changes keeps 7 (28 KB each at full size, 0.9 s steps);
+  a clip that changes a small part keeps all of its frames. Not in the designer (a GIF there gives its first frame).
 - **The drive** (`Usb/ScreenRam.cs`): 384 KB, budget 336 KB (room for a file's temporary `.tm` copy). Files are tracked in
   settings (`Usb.ScreenRam`) with a **power-loss token** in marker word `0x20000850` (status byte 0x20): a reconnect
   with the token gone = the wheel lost power, files forgotten. LRU eviction (`delfile`) when full.

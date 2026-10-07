@@ -53,7 +53,11 @@ $FX tune out.json > tune.json               # the automatic fixes below (1-5); l
     `Pages` with `"page:N"` conditions; only widgets flipped by the same command pair count (a "Low NRG" widget with its
     own commands stays an overlay);
   - **overlay screens** (flags, pit, ignition): imported with their trigger condition and a background rect;
-  - **blinking** (`BlinkEnabled`): `ncalc:blink('name-n', delay ?? 250, true)` (SimHub's default delay is 250 ms);
+  - **blinking** (`BlinkEnabled`): `ncalc:blink('name-n', delay ?? 250, true)` (SimHub's default delay is 250 ms).
+    **Not a blink turned on by a formula** (`Bindings.BlinkEnabled`: the Toyota's PIT LIMITER blinks only over 60 km/h):
+    the import blinks it all the time. Write `ncalc:blink('name-n', 500, true) or !(<formula>)` (blink first: its timer
+    keeps running). **A condition must never start with `!(`**: `convert_kit`, the parity scripts and the take-turns
+    tools read that as a take-turns condition;
   - **layer opacity** multiplies into the colours; a big black see-through rect becomes a `dim` element (the screen's
     backlight goes down while it shows: `DimPercent`);
   - **leaderboard items** (driver ahead/behind in class, names, best laps, gaps) as `ncalc:` formulas with SimHub's
@@ -62,6 +66,11 @@ $FX tune out.json > tune.json               # the automatic fixes below (1-5); l
   (`'mm\\:ss\\.fff'`), or SimHub fails live with "no viable alternative at character ':'" while the demo looks fine.
   The importer doubles them; anything you write by hand, check with SimHub's parser (the UsbTest check "formulas
   parse" in `tools/UsbTest/PagesTests.cs` runs every formula of a dash through it).
+- **An item with `"Visible": false` and no Visible formula is never drawn by SimHub** (the Toyota's qualifying
+  background, its four TyreTemperatureText items): the importer leaves it out, rightly. Check that flag before taking a
+  missing element for an import bug.
+- **Leading spaces** in an original text (" %" after a number) are stripped by the importer; measure the label with
+  them (`place(..., measure_text=item.it['Text'])`), or it sits a space too far left, into the number before it.
 - The importer hides pop-ups in previews (`PreviewVisible: false`), shrinks colliding labels and values, and turns
   `library:` images into rectangles. Look at `out.png`, and at the SimHub dash's own picture (`<name>.djson.png` in
   `C:\Program Files (x86)\SimHub\DashTemplates\<dash>\`).
@@ -236,6 +245,13 @@ RAM and no colour reduction (docs/screen-ram.md, "Ovals and rounded boxes"):
 - **SimHub's format string applies to numbers only**: a formula that returns text (`format([x], '0.0')`) is shown as it
   is. The wheel formats numeric text too ("26.9" under `0.00` becomes "26.90"). When an item's formula returns text for
   some cases (tyre pressures per unit), format every case in the formula and use `"Format": "text"`.
+- **A number with no format string:** SimHub prints every digit ("98.4316528320313"); the wheel prints at most 2
+  decimals (`"text"` on a double). Look at every original number without a format: give it real `Samples` (with the
+  decimals), and where SimHub's output is a bug of the original (the Toyota's oil and water temperatures, right-aligned
+  over their own captions), format it like its neighbours and list it in the parity script as explained.
+- **Scripts in library dashes** may call only `$prop('...')` and `Math.*` (`Usb/ScriptCheck.cs`). A `js:` calling
+  SimHub's helpers (`replace(...)`, `format(...)`) is refused; most exist in NCalc with the same name: write the formula
+  there (the Toyota's REGEN: `ncalc:replace([...], 'kW', '')`).
 - **A zero lap time:** SimHub formats it ("0.00.000" before the first lap); the wheel shows the value's `Empty` for a
   time of 0, and imports leave `Empty` blank. Set `Empty` to the zero time in the original's format. The gates don't
   see this; a parity script should (ginetta_g61_parity.py does).
@@ -257,6 +273,9 @@ $FX verify dash.json --overlays --tiles > v2.json # then every overlay in turn o
 $FX verify dash.json --tiles --demo --seconds 300 > v3.json   # exactly the wheel's demo: the lap with the overlays
                                                   # taking turns, several at once as it happens there
 ```
+
+**Run the long ones in the background, in parallel** (one `fxdash` per command, each to its own file): the overlay
+sweeps and a 300 s demo run one after another took longer than a 10-minute command allows.
 
 **`--demo`** is what the user sees when they press Demo, and what to run when they report flashes or redraws in it. The
 demo (`OverlayShowcase.Apply`) gives each overlay a 3 s turn with 2 s of plain dash between; during a turn every other
@@ -363,7 +382,9 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
 - Run both, then all gates, before every hand-over. A built-in dash lives in `Usb/BuiltIn/<id>.json` (embedded in the
   plugin, fxdash and UsbTest); its UsbTest checks are in `tools/UsbTest/PagesTests.cs`.
 - **Prove the parity script works:** run it on a copy with a wrong colour stop, a wrong format and a dropped condition;
-  it must exit 1 and name all three.
+  it must exit 1 and name all three. Put the wrong format on an item the original has **no** format string for: the
+  parity script must check the format SimHub implies then (a bare lap time shows as a time, `laptime`; anything else as
+  it comes, `text`). The Toyota's first parity script compared formats only where the original had one and missed it.
 - **Sizes and places, measured from the original** (worked example: `make_ginetta_g61.py`, `measure` / `choose` /
   `place` / `place_group`). Render each original text with its own font (Windows' `LSANS.TTF` for Lucida Sans,
   `arial.ttf`; size = FontSize x 766/1200) in its box with its alignments (PIL `getbbox(text, anchor='la')`), and take
@@ -379,8 +400,16 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
   opaque (a 30 % logo came out at full strength on a black square), and a see-through rectangle mixes with the dash
   under it (the dash showed through). Give such a logo `MaxColors` 2 for wheels without the RAM patch (107 KB of
   rectangles in 6 colours, 38 KB in 2; with the patch it's a full-colour picture either way).
-- **A tyre widget's frame that's the same on every page**: one frame, always shown. A page flip then redraws only the
-  numbers.
+- **A widget's frame that's the same on every page** (a tyre widget, a bottom bar): one frame, always shown. A page
+  flip then redraws only the texts, and an overlay going from over it doesn't wipe the page's box (the Toyota's demo
+  did). A box a page adds only for a divider (its other sides on the frame): a 1 px `rect` line on that page.
+- **One font per group grows the group's areas together:** one item whose box is shorter than the font that fits the
+  rest (the Toyota's tyre temperatures, 27 px boxes for a 32 px font) widened every area of the group into its
+  neighbours. Give that item its own area (`AREAS`). Rows closer than 32 px apart (TC level / slip / cut, 26 px) take no
+  normally spaced font, and `place_group` tries only those: give them a font (`FONTS`, 60 = 24 px).
+- **A logo screen** (ignition, start-up: a logo on one plain colour): `convert_kit.logo_on_plain` makes it a rectangle of
+  that colour plus only the logo's area as a picture, its Opacity mixed in, in the colours it has (`MaxColors`: black and
+  red on white 3, a faint logo 2). The Toyota's ignition screens without the RAM patch: 93 -> 47 KB.
 
 - **Shared helpers: `tools/dashes/convert_kit.py`** (worked example: `make_lmgt3_aston.py` + `lmgt3_aston_parity.py`, the AMR). `Original` walks the
   SimHub dash (screens, layers, widgets as pages) with each text item's box, font, size and weight on the wheel;
@@ -390,14 +419,20 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
   `keep_inside_boxes`, `fit_in_ellipse` (a gear inside its oval, clear of the lettering on it), `clear_of_shapes_after`
   (a value's band off the shapes of its own overlay drawn after it: the AMR's start-screen speed over its start lights),
   `flatten_picture` (art noise: 67 greens within 1 of each other made a dial number redraw 686 rectangles),
-  `box_as_rects`, `split_label`, `crop_to_screen`. Write new ones there, not in a dash's script.
+  `box_as_rects` (keeps a box's colour formula on its fill), `split_label`, `crop_to_screen`, `shrink_to_text` (value
+  boxes trimmed to their text where they meet other texts or static caption pictures), `logo_on_plain`. `Original`
+  also finds SimHub's built-in text items (FuelText...). Write new ones there, not in a dash's script, and after a
+  change re-run the other conversions' scripts: their output must stay byte-identical (`cmp`).
 - **`tools/dashes/simhub_ref.py` draws the original screen** at wheel size (`--true "formula"` for an overlay, `--page
   Widget=N`): compare it side by side with `fxdash render` for every overlay and page, not just the main screen.
 - **Fixed text in the original's font, as a picture** (the user: "the text looks so weird, a lot of spacing between the
-  letters"): under 32 px the screen has only its S fonts, spaced like a typewriter. A caption always shown or smaller
-  than 25 px becomes a picture of its text in the original's font (`text_picture`): in the static layer (the RAM drive's
-  tiles: free; without it rectangles in `MaxColors` 2, its colour and black, 3 over faint art). Values stay screen
-  text, in the tight fonts only (`convert_kit.tight`). A character no screen font has (the AMR's page dots "•"): a
+  letters"): under 32 px the screen has only its S fonts, spaced like a typewriter. A caption smaller than ~30 px
+  becomes a picture of its text in the original's font (`text_picture`): in the static layer, without the RAM patch
+  rectangles in `MaxColors` 2 (its colour and black, 3 over faint art). **Not every always-shown caption:** with the
+  RAM patch the static layer is JPEG tiles, and anti-aliased letters make them dearer: the Toyota's left column went
+  from ~2 to 6-9 KB a tile (61 KB of grid tiles; 47 KB with the 32 px captions as screen text in the 963 family). An
+  overlay's caption as a picture is a RAM file of its own: only under 25 px. Values stay screen text, in the tight
+  fonts only (`convert_kit.tight`). A character no screen font has (the AMR's page dots "•"): a
   picture too (the import leaves such texts empty: check every empty label).
 - **Sets of pages** (format 4): widgets the driver flips on their own SimHub commands import as sets (`Pages` = set 1,
   `PageSets` = sets 2-4, conditions `page:N` / `page2:N`..); "Next page" flips them all, `UsbDashNextPage1..4` one each.
@@ -416,6 +451,39 @@ built-in Mustang, `make_mustang.py` + `mustang_parity.py`):
   Decide which gives way the way a race would go, and write it down (the AMR's race summary waits for the start screen).
 - **Captions in pictures without the RAM patch:** 2 colours unless over faint art that would take their grey; a third
   colour where they only touch a line doubled their rectangles.
+- **Panels the import can't draw** (worked example: `make_ferrari_296.py` + `ferrari_296_parity.py`). SimHub draws an
+  `ImageItem` over its own `BackgroundColor` and rounded `BorderStyle` (the 296's panels: a shading picture on a coloured
+  box); the import keeps only the picture. `convert_kit.draw_items` draws any original items exactly as `simhub_ref.py`
+  does (`Original.all`: every item with its frame; `drawn_of(e, orig, sets)`: the item an element came from), so a panel,
+  its gradient line and its fixed captions become one picture (an overlay's: one RAM file per look; repeated panels in
+  the same place share a file when captions are split off them). Values on a panel: the panel flat in the colour behind
+  the value's text, from the caption's line down, as far as the shading runs smoothly (a flood fill that stops at the
+  border, the line and the captions: those stay, found by drawing the panel without them, and its border in another
+  colour). Flattening only the rows under the text left a stripe across the shading that read on the wheel as a box
+  behind every number (the user's report); the caption's part keeps its shading, so the step sits on the line.
+- **Wide layout on request** (`make_mercedes_amg_gt3.py` 2. and 7.): a dash with side columns can be stretched over the
+  screen's width. Map x linearly: boxes, bars, lines and value boxes to their new edges; pictures keep their size and move
+  by their centre, pictures that touch (a logo's strips, a logo in several texts, a text split in two) as one; a box's
+  1-2 px side stays at its box's new edge. Leave out the side items early (before fonts and take-turns), stretch late
+  (after the areas fixed in the original's coordinates). Keep flags as thin strips at the screen's edges.
+- **A RAM-drive picture is used only over exactly what it was made over** (the static layer and its own overlay's
+  shapes). Anything else under it while it shows (a value, another overlay's tile, an element on a page) and it's drawn
+  with rectangles (the 296's lap summary: 54 KB each time). Values, page elements and other overlays under an overlay's
+  picture hide while it shows; an overlay's blinking part gets its overlay's take-turns conditions too (else its panel
+  isn't baked into its picture: the 296's energy triangle, 33 KB a blink). No picture at all for a shape over a bar's
+  box: cut a logo into strips around the rows of the bar (the 296's ignition logo, 161 KB as rectangles).
+- **Bars over background boxes:** each step down repaints what the bar leaves; if that isn't one colour (a gauge 2 px
+  wider than its box) the repaint pulls in tiles and the bars beside it (56 KB a segment). Give the bar its box's place
+  and colour as `Fill`.
+- **`convert_kit.keep_inside_boxes` doesn't know a page set's panel covers another's frame** (the AMG's tyre widget over
+  the lap time box): it pulled the tyres' rows together and the start-up copy's lap time 59 px sideways. Restore values
+  on pages after it.
+- **The importer now turns pictures a right angle** (`Rotation` 90/180/270: the AMG's right arrow, the lap summaries'
+  up and down arrows; before, every copy pointed the way of the source picture: the Mustang, AMR and McLaren have such
+  arrows) **and puts a copy of a widget (same file, as many screens) in its set of pages** (the AMG's start-up screen
+  copies took sets of their own and left the main tyre widget with one screen).
+- **Characters the original stores broken** ("�" where "°" or "•" was meant: SimHub shows the replacement glyph):
+  the intended character, as a picture; listed in the parity script.
 
 ### The RAM drive (wheels with the RAM patch)
 
@@ -433,6 +501,10 @@ What fills it, and what doesn't help:
   pictures, ~100 KB of them ovals and frames in every colour and inner-overlay mix: the pit ring alone had six looks,
   25 KB, the ignition oval four, one per indicator arrow) -> 25 files / 56 KB (tiles, the Ford script, the icons).
   Traffic stayed the same (~2.4 KB/s); the demo's busiest second went from 6 to 10 KB.
+- **Where the rest goes, file by file:** `tools/dashes/ram_files.ps1 DASH.json` (32-bit PowerShell:
+  `C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...`) lists the grid
+  tiles, area tiles, value bands and pictures with their bytes. `check` gives only the total, `pictures` only the
+  pictures; the Toyota's 137 KB were 61 KB of grid tiles and 45 KB of area tiles before they were looked at.
 - `fxdash pictures dash.json [--files DIR]` lists them: `uniqueBytes`, `variants`, `with` (shapes baked in),
   `inner` (overlays it has variants with), `fills` / `smoothFills` (the cost without it). `--files` writes the files
   out to look at. The designer's Screen RAM tab shows the same.
@@ -450,7 +522,8 @@ What fills it, and what doesn't help:
 - **The static layer is 160 px grid tiles, and every cell that isn't one colour is a file** (1.3-4 KB each, mostly JPEG
   tables): a dash of frames and lines takes all 15, ~30-40 KB with the overhead. On top: band tiles (a value whose text
   band crosses a line or picture: gone once its text clears them) and area tiles (the static picture under a box that
-  comes and goes, 1.5-2 KB each). The Ginetta import went from 69 to 46 KB with no loss of look: text off the lines,
+  comes and goes, 1.5-2 KB each; a shape inside a shape of its own overlay gets none, its outer one covers it: a box as
+  two `rect`s made two copies of the same area, 16 KB in the Toyota, before the renderer knew). The Ginetta import went from 69 to 46 KB with no loss of look: text off the lines,
   the bordered banner as `rect`s, the two logos pre-mixed.
 
 ## 4. Look at it
@@ -466,8 +539,14 @@ background, `POST /api/overlays` (body: the dash) for the overlay numbers, then 
 /api/render?mode=demo&seconds=97&overlay=K&tiles=1` (drop `tiles` for a wheel without the RAM patch: pictures drawn
 with rectangles in `MaxColors`). Stop the server before rebuilding fxdash (it locks the exe).
 
-Open both PNGs. The renders draw text with a Windows font scaled to each screen font. Boxes, positions and colours
-are exact; glyph shapes are approximate, and digits look a little smaller than on the wheel. Judge them like a
+Open both PNGs. The renders draw every screen font as Segoe UI at 78 % of its height, each character centred in the
+screen font's advance. Boxes, positions and colours are exact; glyph shapes are approximate, digits look a little
+smaller than on the wheel, and a font can look letter-spaced in the render when it isn't: judge spacing by
+`fxdash fonts --sample` widths against the original's, not by the picture.
+
+The demo's limits show in renders: its session is always "Race" (forcing a qualifying or practice overlay brings up
+the race one too: check those on a copy with the race condition replaced by `false`), and it has no clutch (clutch
+values render blank). Don't chase those in the dash. Judge them like a
 designer. The gear and shift information are biggest, lap time and delta next,
 everything else small and grouped. Keep high contrast on black, one accent colour, and colour only for state. Align
 to a grid and leave margins. For a reference image, compare with `compare.png` (1b) and iterate. For an import,
@@ -521,6 +600,12 @@ compare with the SimHub dash's own preview (`<dash>.djson.png` in its folder).
   the screen command's length (`check` didn't know; it does now). The 1:1 rebuild with measured sizes and a parity
   script found each one. The no-RAM ignition screens also showed a renderer bug: colour reduction ignored transparency
   (black squares around logos), fixed in `Quantize`.
+
+- The Toyota GR010 1:1 rebuild (2026-10-06, `make_toyota_gr010.py` + `toyota_gr010_parity.py`): the hand-tuned
+  conversion before it passed every gate and lacked the bottom bar's migration / regen page, had captions in the S fonts
+  and 114 KB on the RAM drive. The rebuild's own first try took 137 KB: caption pictures in the tiles, area tiles twice
+  for every bordered box. Its parity script, run on a broken copy, missed a wrong format until it checked formats SimHub
+  implies. Now 94 KB, every gate, parity clean.
 
 References: `docs/dash-format.md` (format), `docs/dash-designer.md` (designer, API, import), `docs/usb-mode.md`
 (how it reaches the wheel), `tools/UsbTest` (`traffic DASH.json flash|diverge|blame` for deeper digging).

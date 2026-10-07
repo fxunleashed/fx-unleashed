@@ -190,6 +190,8 @@ static class UsbTestMain
         if (args.Length > 1 && args[1] == "fwcard") { UiTest.RunFirmwareCard(dir); return 0; }
         if (args.Length > 1 && args[1] == "wheel") { UiTest.RunWheel(dir); return 0; }
         if (args.Length > 1 && args[1] == "rampill") { UiTest.RunRamPill(dir); return 0; }
+        if (args.Length > 2 && args[1] == "gifdialog-add") return UiTest.RunGifDialogAdd(dir, args[2]);
+        if (args.Length > 2 && args[1] == "gifdialog") { UiTest.RunGifDialog(dir, args[2], !(args.Length > 3 && args[3] == "noram")); return 0; }
         if (args.Length > 1 && args[1] == "checks") { UiTest.RunChecks(args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 1 && args[1] == "stills") { UiTest.RunStills(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 2 && args[1] == "repairlights")

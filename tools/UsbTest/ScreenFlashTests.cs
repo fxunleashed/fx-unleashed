@@ -71,6 +71,17 @@ static class ScreenFlashTests
         var back = Newtonsoft.Json.JsonConvert.DeserializeObject<UsbSettings>(json);
         Check("screen: the upload records survive the settings file", back.ScreenFlashes.Count == 4 && back.ScreenFlashes[0].ImageId == img.Id && back.ScreenFlashes[3].Result == "ok");
 
+        // the whole image (support only): nothing but the record's .tft, byte for byte, ever goes out
+        Check("screen: a whole image of the wrong size is refused", img.CheckFull(new byte[1000]) != null && img.CheckFull(null) != null);
+        Check("screen: a block 0 is not a whole image", img.CheckFull(stock) != null);
+        var noop = new System.Threading.ManualResetEvent(true);
+        Check("screen: Upload refuses a whole image that isn't the record's, before touching the wheel",
+              Throws(() => ScreenFlasher.Upload("no-wheel", new byte[img.TftSize], 512000, (t, f) => { }, noop, img)) && ScreenFlasher.InProgress == null);
+        Check("screen: Upload refuses anything but block 0 for a header upload", Throws(() => ScreenFlasher.Upload("no-wheel", new byte[ScreenImage.Block0 + 4], 512000, (t, f) => { }, noop)));
+        var rec = new UsbSettings();
+        ScreenFlasher.Record(rec, img, "full", "sent");
+        ScreenFlasher.Answer(rec, "ok");
+        Check("screen: a confirmed whole-image upload = picture memory off (Simagic's header)", ScreenFlasher.RamDriveOn(rec) == false && !rec.ScreenRamDrive);
         var full = Environment.GetEnvironmentVariable("FXPRO_STOCK_TFT");
         if (full != null && File.Exists(full))
         {
@@ -88,16 +99,37 @@ static class ScreenFlashTests
             other[0x500000] ^= 1;
             Array.Copy(ramfs, other, ramfs.Length);
             Check("screen: ramfs on an image that differs by one bit fails the seal check (never 'Update Successed')", !SealOk(other));
+
+            Check("screen: the recorded whole image passes every check", img.CheckFull(tft) == null, img.CheckFull(tft) ?? "");
+            var flipped = (byte[])tft.Clone();
+            flipped[0x500000] ^= 1;
+            Check("screen: a whole image with one bit flipped is refused", img.CheckFull(flipped) != null);
+            Check("screen: a whole image with 16 bytes of padding is refused (exactly the record's bytes)", img.CheckFull(tft.Concat(new byte[16]).ToArray()) != null);
+            var tmp = Path.Combine(Path.GetTempPath(), "fxtest-screen.tft");
+            File.WriteAllBytes(tmp, tft);
+            var imported = ScreenImage.ImportFull(tmp, out var importError);
+            Check("screen: the whole image is added to the plugin's folder and loads back checked",
+                  imported == img && img.HasFullImage && img.LoadFull().SequenceEqual(tft), importError ?? "");
+            File.Delete(img.FullImagePath);
+            var zipPath = Path.Combine(Path.GetTempPath(), "fxtest-screen.zip");
+            if (File.Exists(zipPath)) File.Delete(zipPath);
+            using (var z = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
+            {
+                using (var w = new StreamWriter(z.CreateEntry("READ ME FIRST.txt").Open())) w.Write("read me");
+                using (var es = z.CreateEntry("FXPproXScreen_1.3.11.tft").Open()) es.Write(tft, 0, tft.Length);
+            }
+            Check("screen: the support zip is read (its image found next to the read-me) and checked",
+                  ScreenImage.ImportFull(zipPath, out var zipError) == img && img.LoadFull().SequenceEqual(tft), zipError ?? "");
+            File.Delete(zipPath);
+            File.WriteAllBytes(tmp, flipped);
+            Check("screen: a wrong file is refused and the good copy is kept", ScreenImage.ImportFull(tmp, out _) == null && img.LoadFull().SequenceEqual(tft));
+            File.Delete(tmp);
+            File.Delete(img.FullImagePath);
         }
     }
 
     /// <summary>The screen's end check (FUN_0003F368): CRC of the image up to the seal, mixed with size, model and version bytes.</summary>
-    static bool SealOk(byte[] img)
-    {
-        int n = (int)BitConverter.ToUInt32(img, 0x3C);
-        uint seal = ScreenImage.CrcWords(img, 0, n - 4) ^ (uint)(n & 0xFF) ^ img[0x2E] ^ img[3];
-        return seal == BitConverter.ToUInt32(img, n - 4);
-    }
+    static bool SealOk(byte[] img) => ScreenImage.SealOk(img);
 
     static bool Throws(Action a)
     {

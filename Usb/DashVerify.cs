@@ -280,7 +280,9 @@ namespace User.FXProRpmSync
                     var parent = show.Parent(g);
                     var parentForce = parent == null ? null : show.Force(parent);
                     bool[] wasVis = null;
-                    int lead = parentForce == null ? 0 : 6;
+                    // (an update on the page first: the page's flip from the last one isn't the overlay's cost; a page that
+                    // fills the screen made every overlay look like a whole redraw)
+                    int lead = parentForce == null ? 2 : 6;
                     for (int k = -lead; k < 23; k++)   // (the parent alone,) 15 updates on, 8 off (10 a second)
                     {
                         bool on = k < 15;
@@ -288,7 +290,7 @@ namespace User.FXProRpmSync
                         for (int j = 0; j < 3; j++) v = demo.Step(1 / 30.0);
                         now += 0.1;
                         DashPages.ShowFlip(v, d, page);
-                        if (k < 0) { foreach (var kv in parentForce) v.Set(kv.Key, kv.Value); r.Update(v, now); wasVis = null; continue; }
+                        if (k < 0) { if (parentForce != null) foreach (var kv in parentForce) v.Set(kv.Key, kv.Value); r.Update(v, now); wasVis = null; continue; }
                         if (on) foreach (var kv in force) v.Set(kv.Key, kv.Value);
                         var vis = d.Elements.Select(e => e.Visible == null || e.Visible.All(c => v.Truthy(c) ?? (e.PreviewVisible ?? true))).ToArray();
                         bool changed = wasVis == null || vis.Where((x, i) => x != wasVis[i]).Any();

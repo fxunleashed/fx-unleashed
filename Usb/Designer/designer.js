@@ -181,7 +181,7 @@ function load(d, opt = {}) {
 }
 function loadImages() {
   for (const k of Object.keys(images)) delete images[k];
-  for (const [k, v] of Object.entries(dash.Images || {})) { const img = new Image(); img.onload = draw; img.src = 'data:image/png;base64,' + v; images[k] = img; }
+  for (const [k, v] of Object.entries(dash.Images || {})) { const img = new Image(); img.onload = draw; img.src = 'data:' + imageMime(v) + ';base64,' + v; images[k] = img; }
 }
 const blankDash = () => ({ FormatVersion: 2, Id: 'my-dash', Name: 'My dash', Author: '', Description: '', Elements: [], Images: {} });
 function renderAll() { if (page >= flipCount()) page = 0; renderHeader(); renderPages(); renderLayers(); renderInspector(); draw(); updateHint(); }
@@ -599,24 +599,42 @@ function addElement(type, at) {
   switchTab('layers', true);
 }
 let pendingImageAt = null;
-function addImage(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const b64 = String(reader.result).split(',')[1];
-    const img = new Image();
-    img.onload = () => {
-      begin();
-      const name = file.name.replace(/\.[^.]+$/, '') + '@' + img.naturalWidth + 'x' + img.naturalHeight;
-      dash.Images[name] = b64; images[name] = img;
-      const k = Math.min(1, 300 / img.naturalWidth, 200 / img.naturalHeight), w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
-      const at = pendingImageAt || { x: W / 2, y: H / 2 };
-      const e = { Type: 'image', Name: uniqueName('image'), Image: name, X: Math.round(clamp(at.x - w / 2, 0, W - w)), Y: Math.round(clamp(at.y - h / 2, 0, H - h)), W: w, H: h, MaxColors: 6 };
-      dash.Elements.push(e); sel = dash.Elements.length - 1;
-      changed({ inspector: true }); flashAt(bounds(e));
-    };
-    img.src = reader.result;
+// the mime type a stored picture needs, from its first bytes (base64): PNG, JPEG or a GIF someone put in by hand
+function imageMime(b64) { return b64.startsWith('/9j/') ? 'image/jpeg' : b64.startsWith('R0lGOD') ? 'image/gif' : 'image/png'; }
+// A picture file as the dash keeps it: its first frame (a GIF's, an animated one's too: the screen draws stills), no bigger
+// than the screen, as a PNG, or as a JPEG when that's much smaller (photos) and nothing in it is see-through.
+async function normalisePicture(file) {
+  let src;
+  try { src = await createImageBitmap(file); }
+  catch (_) { src = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('not a picture the browser can read')); i.src = URL.createObjectURL(file); }); }
+  const sw = src.width || src.naturalWidth, sh = src.height || src.naturalHeight;
+  const k = Math.min(1, W / sw, H / sh), w = Math.max(1, Math.round(sw * k)), h = Math.max(1, Math.round(sh * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, w, h);
+  const px = g.getImageData(0, 0, w, h).data; let seeThrough = false;
+  for (let i = 3; i < px.length; i += 4) if (px[i] < 250) { seeThrough = true; break; }
+  const b64 = u => u.split(',')[1];
+  let out = b64(c.toDataURL('image/png'));
+  if (!seeThrough) { const j = b64(c.toDataURL('image/jpeg', 0.92)); if (j.length * 2 < out.length) out = j; }
+  return { b64: out, w, h, scaled: k < 1, gif: file.type === 'image/gif' };
+}
+async function addImage(file) {
+  let pic;
+  try { pic = await normalisePicture(file); }
+  catch (err) { toast("Couldn't use that picture: " + err.message, 'err'); return; }
+  const img = new Image();
+  img.onload = () => {
+    begin();
+    const name = file.name.replace(/\.[^.]+$/, '') + '@' + pic.w + 'x' + pic.h;
+    dash.Images[name] = pic.b64; images[name] = img;
+    const k = Math.min(1, 300 / pic.w, 200 / pic.h), w = Math.round(pic.w * k), h = Math.round(pic.h * k);
+    const at = pendingImageAt || { x: W / 2, y: H / 2 };
+    const e = { Type: 'image', Name: uniqueName('image'), Image: name, X: Math.round(clamp(at.x - w / 2, 0, W - w)), Y: Math.round(clamp(at.y - h / 2, 0, H - h)), W: w, H: h, MaxColors: 6, Block: 1 };
+    dash.Elements.push(e); sel = dash.Elements.length - 1;
+    changed({ inspector: true }); flashAt(bounds(e));
+    if (pic.gif) toast('A GIF gives its first frame: the screen draws stills', 'ok', 3500);
   };
-  reader.readAsDataURL(file);
+  img.src = 'data:' + imageMime(pic.b64) + ';base64,' + pic.b64;
 }
 function duplicate() {
   const e = cur(); if (!e) return;
@@ -909,7 +927,8 @@ function renderInspector() {
     case 'box': st += f('Border', colorIn('Color', e.Color)) + f('Inside', colorIn('Fill', e.Fill, true)) + f('Width', rangeIn('Border', e.Border || 0, 0, 30, ' px')) + f('Corners', rangeIn('Radius', e.Radius || 0, 0, 80, ' px')); break;
     case 'gradient': st += f('Colours', gradList(e), true) + f('Angle', rangeIn('Angle', e.Angle ?? 90, 0, 360, '°')) + f('Corners', rangeIn('Radius', e.Radius || 0, 0, 80, ' px')); break;
     case 'image': st += f('Picture', `<select class="in" data-k="Image">${Object.keys(dash.Images || {}).map(n => `<option ${n === e.Image ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`) +
-      f('Colours', rangeIn('MaxColors', e.MaxColors ?? 8, 2, 32)) + `<div class="note">The wheel draws pictures with rectangles: fewer colours draw faster.</div>`; break;
+      f('Colours', rangeIn('MaxColors', e.MaxColors ?? 8, 2, 32)) + f('Pixel size', rangeIn('Block', e.Block ?? 1, 1, 12, ' px')) +
+      `<div class="note">A screen with picture memory draws the picture as it is, in every colour: turn on "My screen has picture memory" on the plugin's Wheel tab (its Test button checks it), and the dash must use it. Without, the wheel draws pictures with rectangles, in at most these colours and squares of this size: fewer colours and bigger pixels draw faster. A GIF gives its first frame.</div>`; break;
     case 'bar': st += f('Fill', colorIn('Color', e.Color)) + f('Empty', colorIn('Fill', e.Fill, true)); break;
     case 'deltabar': st += f('Slower', colorIn('PositiveColor', e.PositiveColor)) + f('Faster', colorIn('NegativeColor', e.NegativeColor)) + f('Off', colorIn('SegmentColor', e.SegmentColor)) +
       f('Segments', rangeIn('Segments', e.Segments || 7, 2, 15)) + f('Seg. width', rangeIn('SegmentWidth', e.SegmentWidth || 30, 2, 80, ' px')) + f('Spacing', rangeIn('Pitch', e.Pitch || 40, 4, 100, ' px')); break;

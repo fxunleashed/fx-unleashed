@@ -25,9 +25,9 @@ namespace User.FXProRpmSync
         private UsbSettings S => plugin.Settings.Usb;
         private UsbController Usb => plugin.Usb;
 
-        private readonly TextBlock memState, simproState, recoverSpeedText;
+        private readonly TextBlock memState, simproState, recoverSpeedText, fullState;
         private readonly CheckBox ack;
-        private readonly Button turnOn, turnOff, recover, updateMode;
+        private readonly Button turnOn, turnOff, recover, updateMode, addFull, writeFull;
         private readonly Button[] pings;
         private readonly Expander recovery;
         private volatile bool busy;
@@ -36,7 +36,7 @@ namespace User.FXProRpmSync
         // the guided flow
         private enum Step { None, Sending, Watching, PowerCycle, Checking, Done, Failed, Message }
         private Step step = Step.None;
-        private string flowMode;                 // "ramfs" or "stock"
+        private string flowMode;                 // "ramfs", "stock" or "full"
         private ManualResetEvent answered;
         private volatile bool answeredOk;
         private DateTime backAt;
@@ -134,6 +134,24 @@ namespace User.FXProRpmSync
             recRow.Children.Add(recover);
             rec.Children.Add(recRow);
             rec.Children.Add(StepLine("4", "The steps above then guide you: watch the screen, power-cycle the wheel, check the screen."));
+
+            // ----- the whole image: support only (a screen whose image isn't the recorded one) -----
+            var full = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+            full.Children.Add(new TextBlock { Text = "Whole screen image (from support)", FontFamily = Theme.Display, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = Theme.Text });
+            full.Children.Add(Theme.Note("Only with a screen image file sent to you by FX Unleashed support, for a screen that answers \"Update Failed\" to every " +
+                "picture-memory upload: its image isn't the one the plugin's header is made for. This writes Simagic's whole 1.3.11 screen image, the one " +
+                "the header is made for: about 11 minutes (22 at 115200). Afterwards, picture memory is turned on as usual. It is also the recovery if this " +
+                "upload itself is interrupted: power-cycle the wheel, find the speed (step 2), pick it (step 3) and write the whole image again.",
+                new Thickness(0, 4, 0, 8)));
+            fullState = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text, Margin = new Thickness(0, 0, 0, 8) };
+            full.Children.Add(fullState);
+            var fullRow = new WrapPanel();
+            addFull = Theme.Btn("Add the file from support...", AddFullImage);
+            writeFull = Theme.Btn("Write the whole image", () => Flash("full", recoverSpeed));
+            fullRow.Children.Add(addFull);
+            fullRow.Children.Add(writeFull);
+            full.Children.Add(fullRow);
+            rec.Children.Add(new Border { BorderBrush = Theme.Line, BorderThickness = new Thickness(0, 1, 0, 0), Margin = new Thickness(36, 6, 0, 0), Child = full });
             recovery = new Expander
             {
                 Header = new TextBlock { Text = "Screen recovery", FontFamily = Theme.Display, FontSize = 15 },
@@ -190,10 +208,15 @@ namespace User.FXProRpmSync
                     : "The last upload wasn't finished: check the screen in the card above, or use Screen recovery if it has no dash")
                 + (last != null ? $"  ·  last change {last.When:d MMM HH:mm}" : "")
                 + (refusal != null ? "\n" + refusal : img != null ? $"\nScreen image: {img.Id}" : "");
-            bool can = !busy && !FlowActive && img != null && ack.IsChecked == true;
+            bool can = !busy && !FlowActive && img != null && ack.IsChecked == true && ScreenFlasher.InProgress == null;
             turnOn.IsEnabled = can && on != true;
             turnOff.IsEnabled = can && on != false;
             recover.IsEnabled = can;
+            bool hasFull = img != null && img.HasFullImage;
+            fullState.Text = img == null ? "" : hasFull ? $"✓ Screen image {img.Id} added and checked." : "No screen image file added.";
+            fullState.Visibility = fullState.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            addFull.IsEnabled = !busy && !FlowActive && img != null;
+            writeFull.IsEnabled = can && hasFull;
             foreach (var p in pings) p.IsEnabled = !busy && !FlowActive && img != null;
             recoverSpeedText.Text = recoverSpeed == 9600 ? "At 9600 the plugin wakes the screen's updater first (com_star), as in the runbook; the data then goes at full speed."
                 : recoverSpeed == 115200 ? "At 115200 the upload is slower (about 20 s)." : "The normal speed: for a screen whose dash still works.";
@@ -305,8 +328,11 @@ namespace User.FXProRpmSync
             var img = ScreenFlasher.Choose(Usb, S, out var refusal);
             if (img == null) { ShowStep(Step.Message, "", "Not sent", refusal, Theme.Amber, CloseButton()); return; }
             byte[] block;
-            try { block = img.Build(mode); }
+            try { block = mode == "full" ? img.LoadFull() : img.Build(mode); }
             catch (Exception e) { ShowStep(Step.Message, "", "Not sent", e.Message, Theme.Amber, CloseButton()); return; }
+            if (mode == "full") { if (!ConfirmFull(img, screenAt)) return; }
+            else
+            {
             string what = mode == "ramfs" ? "turn the screen's picture memory on" : "put Simagic's header back on the screen (picture memory off)";
             if (!Confirm($"This will {what} (screen image {img.Id}).\n\n" +
                          "What happens:\n" +
@@ -315,6 +341,7 @@ namespace User.FXProRpmSync
                          "3. You power-cycle the wheel: base off AND USB unplugged for 5 seconds, then both back.\n" +
                          "4. The plugin checks the screen (a green card in the middle of red means picture memory is on, a solid red screen means it's off) and tells you the result.\n\n" +
                          "Wheel on the base, USB plugged in, no game running. Don't unplug or switch off before step 3. Go ahead?")) return;
+            }
 
             // From now on the screen's picture memory is unknown: nothing may use it until the check at the end says so,
             // and whatever was in it is gone (the screen restarts after the upload).
@@ -330,8 +357,13 @@ namespace User.FXProRpmSync
             keptPowerShown = false;
             answered = new ManualResetEvent(false);
             var hold = answered;
-            ShowStep(Step.Sending, "STEP 1 OF 4", "Sending the screen's header",
-                "About 10 seconds. Don't unplug the wheel or switch the base off.", Theme.Red);
+            if (mode == "full")
+                ShowStep(Step.Sending, "STEP 1 OF 4", "Writing the whole screen image",
+                    $"About {(screenAt == 115200 ? 22 : 11)} minutes. The screen shows red \"USART Update\" text with its own progress. Until it's done: " +
+                    "don't unplug the wheel, don't switch the base off, keep SimHub open and don't change the game in SimHub. The PC is kept awake meanwhile.", Theme.Red);
+            else
+                ShowStep(Step.Sending, "STEP 1 OF 4", "Sending the screen's header",
+                    "About 10 seconds. Don't unplug the wheel or switch the base off.", Theme.Red);
             progress.Visibility = Visibility.Visible;
             progress.Value = 0;
             Run("Updating the screen", path =>
@@ -340,16 +372,61 @@ namespace User.FXProRpmSync
                 {
                     if (f >= 1 && step == Step.Sending) ShowWatching();
                     else if (step == Step.Sending) { progress.Value = f; Status(t); }
-                })), hold);
+                })), hold, mode == "full" ? img : null);
                 // a confirmed upload: mark the wheel so the plugin can tell a real power cycle from a USB replug
                 if (answeredOk)
                 {
                     using (var c = new FxConnection(path)) c.WriteRam(FxUsb.MarkerWord, BitConverter.GetBytes((uint)PowerToken));
                     Usb.ExpectPowerCycle(PowerToken);
                 }
-            }, error => ShowStep(Step.Failed, "", "The upload stopped", error + "\n\nLeave the wheel as it is. If the screen has no dash after a power cycle, " +
-                                                                         "open Screen recovery below.", Theme.Amber, CloseButton()));
+            }, error =>
+            {
+                if (mode == "full") recovery.IsExpanded = true;
+                ShowStep(Step.Failed, "", "The upload stopped", error + "\n\n" + (mode == "full"
+                    ? "If any of the image was sent, the screen's image is incomplete and it will show no dash; writing the whole image again puts it right. " +
+                      "Power-cycle the wheel (base off and USB unplugged for 5 seconds), then follow Screen recovery below (opened for you): find the speed, " +
+                      "pick it, and press \"Write the whole image\"."
+                    : "Leave the wheel as it is. If the screen has no dash after a power cycle, open Screen recovery below."), Theme.Amber, CloseButton());
+            });
         }
+
+        /// <summary>The whole image from support: checked byte for byte against the record, then kept in the plugin's folder.</summary>
+        private void AddFullImage()
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog { Title = "The screen image file from FX Unleashed support", Filter = "Screen image from support (*.zip;*.tft)|*.zip;*.tft|All files (*.*)|*.*" };
+            if (dlg.ShowDialog() != true) return;
+            var file = dlg.FileName;
+            ShowStep(Step.Message, "", "Checking the file...", "", Theme.Line2);
+            busy = true;
+            Refresh();
+            Task.Run(() =>
+            {
+                var img = ScreenImage.ImportFull(file, out var error);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    busy = false;
+                    if (img == null) ShowStep(Step.Message, "", "Not added", error, Theme.Amber, CloseButton());
+                    else
+                    {
+                        SimHub.Logging.Current.Info("[FXProRpmSync] screen: whole image " + img.Id + " added and checked");
+                        ShowStep(Step.Message, "", "Screen image added",
+                            $"It is Simagic's {img.Id} image, byte for byte. \"Write the whole image\" in Screen recovery is now available.", Theme.Green, CloseButton());
+                    }
+                    Refresh();
+                }));
+            });
+        }
+
+        private bool ConfirmFull(ScreenImage img, int screenAt) => Confirm(
+            $"This rewrites the screen's WHOLE image with Simagic's {img.Id} image (checked byte for byte).\n\n" +
+            $"It takes about {(screenAt == 115200 ? 22 : 11)} minutes. While it runs the screen shows only its own red update text. " +
+            "Until the steps say so:\n" +
+            "  - don't unplug the wheel or switch the base off,\n" +
+            "  - keep SimHub open, don't change the game in SimHub, don't let the PC shut down.\n\n" +
+            "If it's interrupted anyway, the screen shows no dash (white) until the whole image is written again from Screen recovery: " +
+            "the wheel itself, the base and the screen's own settings aren't touched. Whatever image the screen has now is replaced for good; " +
+            "afterwards it has the same image as screens that take picture memory.\n\n" +
+            "Then, as usual: watch the screen, power-cycle the wheel, and the plugin checks the screen. Go ahead?");
 
         private void ShowWatching()
         {
@@ -378,6 +455,16 @@ namespace User.FXProRpmSync
                     Usb.ExpectPowerCycle(PowerToken);
                 });
             if (answeredOk) ShowPowerCycle(null);
+            else if (flowMode == "full")
+            {
+                recovery.IsExpanded = true;
+                ShowStep(Step.Failed, "", "The whole image didn't take",
+                    "The screen found the image incomplete, so it shows no dash yet. It still takes the upload (its settings are kept apart from the " +
+                    "image), and writing the whole image again puts it right. Power-cycle the wheel (base off and USB unplugged for 5 seconds), then follow " +
+                    "Screen recovery below (opened for you): find the speed (usually 9600 now), pick it, and press \"Write the whole image\". " +
+                    "If it fails twice, stop there and send support SimHub's log (SimHub\\Logs\\SimHub.txt).",
+                    Theme.Amber, CloseButton());
+            }
             else
             {
                 recovery.IsExpanded = true;
@@ -440,7 +527,11 @@ namespace User.FXProRpmSync
         private void CheckAnswered(string result)
         {
             string expected = flowMode == "ramfs" ? "on" : "off";
-            if (result == expected)
+            if (result == expected && flowMode == "full")
+                ShowStep(Step.Done, "", "Done: the screen has Simagic's 1.3.11 image",
+                    "It is now the image the plugin's header is made for. To turn picture memory on, close this and press \"Turn picture memory on\" above " +
+                    "(about a minute, as usual).", Theme.Green, CloseButton());
+            else if (result == expected)
                 ShowStep(Step.Done, "", flowMode == "ramfs" ? "Done: picture memory is on" : "Done: picture memory is off",
                     flowMode == "ramfs" ? "Your dashes and screensavers are now drawn from pictures kept in the screen. The first time each one shows it loads for a few seconds."
                                         : "The screen has Simagic's header again, byte for byte. Dashes are drawn with rectangles.", Theme.Green, CloseButton());

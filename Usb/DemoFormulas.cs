@@ -401,6 +401,10 @@ namespace User.FXProRpmSync
             {
                 case "sessiontypename": return "Race";
                 case "mvirtualenergy": return (v.Number("virtualEnergy") ?? 70) / 100; // LMU gives a fraction
+                // LMU's lift-and-coast progress (0-255): the demo car doesn't lift on its own (the overlay demo brings up a
+                // LIFT screen in its turn); unknown, every condition reading it (a LIFT trigger script and its negations)
+                // fell back to its preview look: the AMR's blue flag oval stayed hidden while the gear hid for it
+                case "mliftandcoastprogress": return v.LiftCoast * 2.55;
                 case "speedlocalunit": return "KMH";
                 case "tyrepressureunit": return "Psi";
                 case "temperatureunit": return "C";

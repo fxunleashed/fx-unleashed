@@ -40,7 +40,7 @@ namespace User.FXProRpmSync
             dash = new Dictionary<string, string>
             {
                 ["Id"] = "unique id (file name when saved)", ["Name"] = "shown in the dash list", ["Author"] = "", ["Description"] = "",
-                ["Elements"] = "list, drawn in order (later on top)", ["Images"] = "name -> base64 PNG, for image elements",
+                ["Elements"] = "list, drawn in order (later on top)", ["Images"] = "name -> base64 PNG (or JPEG; a GIF gives its first frame), for image elements",
                 ["Source"] = "where an import came from", ["ScriptsFolder"] = "JavaScript helpers for js: bindings",
                 ["Pages"] = "optional: names of the pages the driver flips through (Next / Previous page); an element is on page N with \"page:N\" (0 = the first) in Visible, on every page without one. Saved as format 3 only when used",
                 ["PageSets"] = "optional: more sets of pages, each flipped on its own (parts of a dash that flip separately: fuel, lap times, tyres): [{Name, Pages: [names]}]; the first is set 2, its elements carry \"page2:N\", then \"page3:N\", \"page4:N\". Next / Previous page flip every set, Next / Previous page 2-4 one set each. Saved as format 4 only when used",
@@ -52,7 +52,7 @@ namespace User.FXProRpmSync
                 ["ellipse"] = "ellipse: Color (whole, or the rim when Border > 0), Fill (inside, optional), Border",
                 ["box"] = "rounded frame: Color (border), Fill (inside, optional), Border, Radius",
                 ["gradient"] = "linear gradient: Colors (2+ stops), Angle (90 = top to bottom), Radius, Border + Color",
-                ["image"] = "picture from Images: Image (name), MaxColors (2-64; fewer draws faster)",
+                ["image"] = "picture from Images: Image (name), MaxColors (2-64; fewer draws faster), Block (1-16: pixel size when drawn with rectangles; bigger draws faster). A screen with the RAM drive draws it as it is, in every colour",
                 ["label"] = "fixed text: Text, Font, Color, Align",
                 ["value"] = "text from data: Bind, Format, Scale, Empty, Samples (widest texts, checked), PreviewText, Font, Color, Align, PositiveColor/NegativeColor, Background (optional)",
                 ["bar"] = "gauge fill: Bind, Min, Max (may be below Min), Orientation horizontal|vertical, Reverse, Color (fill), Fill (empty part, optional)",
@@ -300,6 +300,52 @@ namespace User.FXProRpmSync
                 }
                 else { var pv = new DashValues { Preview = true, Running = true }; DashPages.ShowFlip(pv, d, page); r.Update(Shown(pv), 0); }
                 return p.Png();
+            }
+        }
+
+        /// <summary>
+        /// The wheel's demo as pictures (`fxdash frames`, a video of a dash): the simulated lap with the overlays taking turns
+        /// (OverlayShowcase) and every set of pages flipping every `pageEvery` s, drawn incrementally as the wheel draws it, a
+        /// PNG of the screen every 1/`fps` s from `start` for `seconds`. Returns how many frames were written.
+        /// </summary>
+        public static int Frames(DashDefinition d, string folder, double seconds, int fps, int left, int top, bool tiles, double start = 0, double pageEvery = 6)
+        {
+            Directory.CreateDirectory(folder);
+            var showcase = new OverlayShowcase(d);
+            using (var p = new PreviewScreen())
+            {
+                var r = new DashRenderer(p, d, left, top);
+                if (tiles) { r.EnableTiles(); r.UseTiles(true); }
+                r.DrawAll();
+                var demo = new UsbDemo(d) { BudgetMs = null };
+                int flip = 0, n = 0;
+                double next = start;
+                // the dash updates 10 times a second, as on the wheel; a frame shows the screen as it is at its time
+                for (int k = 1; k * 0.1 <= start + seconds + 1e-9; k++)
+                {
+                    double t = k * 0.1;
+                    var v = demo.Step(0.1);
+                    showcase.Apply(v, t);
+                    if (d.FlipCount > 1) flip = (int)(t / pageEvery) % d.FlipCount;
+                    DashPages.ShowFlip(v, d, flip);
+                    // FXDASH_TRACE_AT=<from>-<to>: what the updates then draw, and why (as verify)
+                    var at = Environment.GetEnvironmentVariable("FXDASH_TRACE_AT")?.Split('-');
+                    bool trace = at != null && at.Length == 2 && t >= double.Parse(at[0], System.Globalization.CultureInfo.InvariantCulture) - 1e-9
+                                 && t <= double.Parse(at[1], System.Globalization.CultureInfo.InvariantCulture) + 1e-9;
+                    if (trace)
+                    {
+                        Console.Error.WriteLine($"== {t:0.0}s");
+                        r.Trace = Console.Error.WriteLine;
+                    }
+                    r.Update(v, t);
+                    r.Trace = null;
+                    while (next <= t + 1e-9 && next < start + seconds)
+                    {
+                        File.WriteAllBytes(Path.Combine(folder, $"frame{n++:D5}.png"), p.Png());
+                        next = start + n / (double)fps;
+                    }
+                }
+                return n;
             }
         }
 

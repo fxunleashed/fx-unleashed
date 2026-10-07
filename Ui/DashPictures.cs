@@ -164,7 +164,7 @@ namespace User.FXProRpmSync
             {
                 using (var screen = new PreviewScreen())
                 {
-                    var d = IdleScreens.DashFor(item);
+                    var d = IdleScreens.DashFor(item, null, ram); // an animation with the RAM drive: no dash, the saver itself (first frame here)
                     if (d == null)
                     {
                         var saver = IdleScreens.Animated(item, new LastSession { Car = "McLaren 720S GT3 Evo", BestLap = 107.832, Laps = 23, Position = 3 }) ?? new ScreenSaver();
@@ -177,7 +177,7 @@ namespace User.FXProRpmSync
                     {
                         var room = DashRenderer.Room(d);
                         var r = new DashRenderer(screen, d, Math.Min(10, room.Right), Math.Min(20, room.Down));
-                        if (ram && WantsTiles(d)) { r.EnableTiles(); r.UseTiles(true); }
+                        if (ram && IdleScreens.DrawnFromRam(d) && WantsTiles(d)) { r.EnableTiles(); r.UseTiles(true); } // as on the wheel (UsbController)
                         r.DrawAll();
                         var v = new DashValues();
                         // a moment with things lit, and a sample session for the pit board

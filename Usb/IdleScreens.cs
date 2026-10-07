@@ -53,7 +53,8 @@ namespace User.FXProRpmSync
     [JsonConverter(typeof(StringEnumConverter))]
     public enum SaverKind { Logo, Clock, Image, Dash, Builtin }
 
-    /// <summary>A screensaver: the logo, a built-in one, a picture (stored as a one-image dash) or one of the dashes.</summary>
+    /// <summary>A screensaver: the logo, a built-in one, a picture (stored as a one-image dash), an animated GIF
+    /// (AnimatedPicture: played from the screen's RAM, or its first frame as a picture without) or one of the dashes.</summary>
     public class SaverItem
     {
         public const string LogoId = "logo", ClockId = "clock";
@@ -64,6 +65,19 @@ namespace User.FXProRpmSync
         /// <summary>Dash: the dash's id. Image: the file of its generated dash (in IdleScreens.Folder).</summary>
         public string DashId;
         public string File;
+        /// <summary>An animated GIF (File is its AnimatedPicture). Kept as an Image item with this flag, not a kind of its own:
+        /// a version without animations reads the same settings file (a new enum value would fail to load there, and the
+        /// settings with it) and shows it as a blank picture instead.</summary>
+        public bool Animated;
+        /// <summary>Animated: the frames kept (the GIF's own number of them is FramesTotal; fewer = it didn't all fit in the
+        /// screen's RAM).</summary>
+        public int Frames, FramesTotal;
+        /// <summary>Animated: the memory is why frames were left out (null for what was saved before this was kept: then fewer
+        /// frames than the GIF has means that).</summary>
+        public bool? MemoryLimited;
+        [JsonIgnore] public bool IsAnimation => Animated && Kind == SaverKind.Image;
+        /// <summary>Animated, and the screen's memory couldn't hold all its frames.</summary>
+        [JsonIgnore] public bool IsOversized => IsAnimation && Frames < FramesTotal && (MemoryLimited ?? true);
         /// <summary>For the gallery.</summary>
         [JsonIgnore] public string Blurb;
     }
@@ -103,9 +117,17 @@ namespace User.FXProRpmSync
 
         public static SaverItem Find(UsbSettings s, string id) => All(s).FirstOrDefault(x => x.Id == id) ?? Logo;
 
-        /// <summary>The dash a screensaver draws (null for the logo, which has its own animation).</summary>
-        public static DashDefinition DashFor(SaverItem item, List<DashDefinition> library = null)
+        /// <summary>
+        /// The dash a screensaver draws (null for the logo, which has its own animation). `animated`: the screen has the RAM
+        /// drive, so an animation plays (GifSaver, no dash: null); else its first frame is the dash.
+        /// </summary>
+        public static DashDefinition DashFor(SaverItem item, List<DashDefinition> library = null, bool animated = false)
         {
+            if (item?.IsAnimation == true)
+            {
+                var anim = GifSaver.Load(item);
+                return animated && anim != null ? null : anim?.Still;
+            }
             switch (item?.Kind)
             {
                 case SaverKind.Clock: return ClockDash();
@@ -119,10 +141,12 @@ namespace User.FXProRpmSync
             }
         }
 
-        /// <summary>The screensavers that draw themselves (the logo, the painted built-ins); null for dash ones.</summary>
-        internal static IAnimatedSaver Animated(SaverItem item, LastSession last = null)
+        /// <summary>The screensavers that draw themselves (the logo, the painted built-ins, an animated GIF placed inside the
+        /// screen's padding); null for dash ones.</summary>
+        internal static IAnimatedSaver Animated(SaverItem item, LastSession last = null, int padLeft = 10, int padTop = 20)
         {
             if (item == null || item.Kind == SaverKind.Logo) return new ScreenSaver();
+            if (item.IsAnimation) return GifSaver.Create(item, padLeft, padTop);
             switch (item.Id)
             {
                 case "lights-out": return new LightsOutSaver();
@@ -197,25 +221,17 @@ namespace User.FXProRpmSync
         public const double MaxDrawSeconds = 15;
 
         /// <summary>
-        /// Turns a picture into a screensaver: fitted into the screen's usable 790x460, then reduced (fewer colours, then
-        /// bigger pixels) until it draws in MaxDrawSeconds, since the screen only draws rectangles. Saved as a dash file.
+        /// Turns a picture into a screensaver: fitted into the screen's usable 790x460 and kept as it is (any format the
+        /// system reads; a GIF gives its first frame, transparency over black). A screen with the RAM drive shows it in all
+        /// its colours (a picture screensaver is drawn from the RAM like a dash); without, the screen only draws
+        /// rectangles, so the dash tells the renderer to draw it reduced (fewer colours, then bigger pixels: `MaxColors`,
+        /// `Block`) until it draws in MaxDrawSeconds. Saved as a dash file.
         /// </summary>
         public static SaverItem ImportImage(string path)
         {
-            const int areaW = 790, areaH = 460;
             using (var src = new Bitmap(path))
             {
-                double k = Math.Min(1.0 * areaW / src.Width, 1.0 * areaH / src.Height);
-                int w = Math.Max(8, (int)Math.Round(src.Width * k)), h = Math.Max(8, (int)Math.Round(src.Height * k));
-                DashDefinition best = null;
-                foreach (int block in new[] { 1, 2, 3, 4, 5, 6, 8, 10 })
-                    foreach (int colours in new[] { 24, 16, 12, 8 })
-                    {
-                        var d = ImageDash(src, w, h, block, colours, Path.GetFileNameWithoutExtension(path));
-                        best = d;
-                        if (DrawSeconds(d) <= MaxDrawSeconds) goto done;
-                    }
-                done:
+                var best = StillDash(src, Path.GetFileNameWithoutExtension(path));
                 Directory.CreateDirectory(Folder);
                 string id = "img-" + Guid.NewGuid().ToString("N").Substring(0, 8);
                 best.Id = "saver:" + id;
@@ -224,6 +240,63 @@ namespace User.FXProRpmSync
                 return new SaverItem { Id = id, Name = best.Name, Kind = SaverKind.Image, File = file };
             }
         }
+
+        /// <summary>
+        /// What "Add a picture" does with a file (slow for a GIF: call it off the UI thread): a GIF with more than one frame
+        /// becomes an animation (AnimatedPicture: as many of its frames as fit in the screen's RAM), anything else a
+        /// still picture (ImportImage).
+        /// </summary>
+        public static SaverItem ImportPicture(string path) => ImportAnimation(path) ?? ImportImage(path);
+
+        /// <summary>An animated GIF as a screensaver, or null (not a GIF, or only one frame).</summary>
+        public static SaverItem ImportAnimation(string path, int budget = AnimatedPicture.Budget, GifOptions options = null)
+        {
+            if (!string.Equals(Path.GetExtension(path), ".gif", StringComparison.OrdinalIgnoreCase)) return null;
+            var pic = AnimatedPicture.FromGif(path, Path.GetFileNameWithoutExtension(path), budget, AnimatedPicture.MaxFiles, options);
+            return pic == null ? null : SaveAnimation(pic, path);
+        }
+
+        /// <summary>
+        /// An animation as a screensaver item: its file written (with the first frame as a picture dash for a screen without the RAM
+        /// drive, made now if the picture was worked out without one: the import window's tries are).
+        /// </summary>
+        public static SaverItem SaveAnimation(AnimatedPicture pic, string gifPath)
+        {
+            if (pic.Still == null)
+                using (var first = new Bitmap(gifPath)) pic.Still = StillDash(first, pic.Name);
+            Directory.CreateDirectory(Folder);
+            string id = "anim-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            var file = Path.Combine(Folder, id + ".json");
+            System.IO.File.WriteAllText(file, JsonConvert.SerializeObject(pic));
+            return new SaverItem { Id = id, Name = pic.Name, Kind = SaverKind.Image, Animated = true, File = file, Frames = pic.FramesTaken, FramesTotal = pic.FramesTotal, MemoryLimited = pic.MemoryLimited };
+        }
+
+        /// <summary>
+        /// A picture as a one-image dash: fitted into the screen's usable 790x460 and reduced (MaxColors, Block) until a screen
+        /// without the RAM drive draws it in MaxDrawSeconds.
+        /// </summary>
+        internal static DashDefinition StillDash(Bitmap src, string name)
+        {
+            const int areaW = 790, areaH = 460;
+            double k = Math.Min(1.0 * areaW / src.Width, 1.0 * areaH / src.Height);
+            int w = Math.Max(8, (int)Math.Round(src.Width * k)), h = Math.Max(8, (int)Math.Round(src.Height * k));
+            string picture = FittedPicture(src, w, h);
+            DashDefinition best = null;
+            foreach (int block in new[] { 1, 2, 3, 4, 5, 6, 8, 10 })
+                foreach (int colours in new[] { 24, 16, 12, 8 })
+                {
+                    best = ImageDash(picture, w, h, block, colours, name);
+                    if (DrawSeconds(best) <= MaxDrawSeconds) return best;
+                }
+            return best;
+        }
+
+        /// <summary>
+        /// Whether a screensaver dash is drawn from the screen's RAM drive (when it's on): the ones made of pictures, in all
+        /// their colours. The others (the clock, a library dash of values and shapes) draw with a few rectangles, which the
+        /// RAM would only make slower to show (a file to load first).
+        /// </summary>
+        public static bool DrawnFromRam(DashDefinition d) => d?.Elements != null && d.Elements.Any(e => e.Type == "image");
 
         public static double DrawSeconds(DashDefinition d)
         {
@@ -234,36 +307,45 @@ namespace User.FXProRpmSync
             }
         }
 
-        private static DashDefinition ImageDash(Bitmap src, int w, int h, int block, int colours, string name)
+        /// <summary>
+        /// The picture scaled to w x h on black, as base64: a PNG, or a JPEG (quality 92) when that's smaller (a photo is
+        /// a fifth of the size; flat art stays exact), so the saver's file and a shared copy stay small.
+        /// </summary>
+        private static string FittedPicture(Bitmap src, int w, int h)
         {
-            using (var small = new Bitmap(Math.Max(1, w / block), Math.Max(1, h / block), PixelFormat.Format32bppArgb))
             using (var full = new Bitmap(w, h, PixelFormat.Format32bppArgb))
             {
-                using (var g = Graphics.FromImage(small))
+                using (var g = Graphics.FromImage(full))
                 {
                     g.Clear(Color.Black);
                     g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.DrawImage(src, 0, 0, small.Width, small.Height);
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    using (var edges = EdgeFlip()) g.DrawImage(src, new Rectangle(0, 0, w, h), 0, 0, src.Width, src.Height, GraphicsUnit.Pixel, edges);
                 }
-                using (var g = Graphics.FromImage(full))
-                {
-                    g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                    g.PixelOffsetMode = PixelOffsetMode.Half;
-                    g.DrawImage(small, 0, 0, w, h);
-                }
-                string png;
-                using (var ms = new MemoryStream()) { full.Save(ms, ImageFormat.Png); png = Convert.ToBase64String(ms.ToArray()); }
-                return new DashDefinition
-                {
-                    Name = name, Author = "FX Unleashed",
-                    Images = new Dictionary<string, string> { ["picture"] = png },
-                    Elements = new List<DashElement>
-                    {
-                        new DashElement { Type = "image", Name = "picture", Image = "picture", MaxColors = colours, X = (790 - w) / 2, Y = (460 - h) / 2, W = w, H = h },
-                    },
-                };
+                byte[] png, jpg;
+                using (var ms = new MemoryStream()) { full.Save(ms, ImageFormat.Png); png = ms.ToArray(); }
+                using (var rgb = full.Clone(new Rectangle(0, 0, w, h), PixelFormat.Format24bppRgb)) jpg = ScreenTiles.Jpeg(rgb, 92);
+                return Convert.ToBase64String(jpg.Length < png.Length ? jpg : png);
             }
         }
+
+        /// <summary>Edge pixels taken from the picture itself (not from the transparency around it).</summary>
+        private static System.Drawing.Imaging.ImageAttributes EdgeFlip()
+        {
+            var a = new System.Drawing.Imaging.ImageAttributes();
+            a.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY);
+            return a;
+        }
+
+        private static DashDefinition ImageDash(string picture, int w, int h, int block, int colours, string name) => new DashDefinition
+        {
+            Name = name, Author = "FX Unleashed",
+            Images = new Dictionary<string, string> { ["picture"] = picture },
+            Elements = new List<DashElement>
+            {
+                new DashElement { Type = "image", Name = "picture", Image = "picture", MaxColors = colours, Block = block, X = (790 - w) / 2, Y = (460 - h) / 2, W = w, H = h },
+            },
+        };
 
         public static void Delete(SaverItem item)
         {

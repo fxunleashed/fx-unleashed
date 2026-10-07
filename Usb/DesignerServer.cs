@@ -261,6 +261,7 @@ namespace User.FXProRpmSync
             ("POST", "/api/wheel/ram/waits?arm=MS&packet=MS&done=MS", "upload waits for this session, for tuning (plugin only)"),
             ("POST", "/api/wheel/ram/clear", "delete the plugin's files from the screen's RAM; the dash loads again (plugin only)"),
             ("POST", "/api/wheel/ram/budget?kb=N&overhead=BYTES", "how much the plugin fills (KB, each file counted as its size + overhead) for this session, for tuning (plugin only)"),
+            ("GET", "/api/wheel/gif[?cost=US_PER_PX&fixed=MS&hold=PIXELS|off]", "the animated GIF screensaver's timing: the screen's model (us per pixel of a picture, ms a draw, hold above N pixels) and how many steps were drawn / skipped; with options, sets them for this session, for tuning (plugin only)"),
             ("POST", "/api/wheel/demo?dash=c:ID|w:PAGE|rotation|off", "the demo lap on the wheel with that dash, e.g. w:12 for the wheel's own dash page 12; rotation = the default rotation, cycled with the dash button (plugin only)"),
             ("GET", "/api/wheel/scenario[?id=ID|stop=1]", "the light scenarios (\"Try the lights\": pit lane, launch, spotter, alerts, ...) and what's playing; id plays one on the wheel, stop=1 ends it (plugin only)"),
             ("GET", "/api/library/status", "plugin version (for the website's Install button)"),
@@ -424,6 +425,21 @@ namespace User.FXProRpmSync
                 int? Q(string k) => r.Q(k) == null ? (int?)null : r.QI(k, 0);
                 string op = path.EndsWith("/waits") ? "waits" : path.EndsWith("/clear") ? "clear" : path.EndsWith("/budget") ? "budget" : null;
                 return Json(host.Ram(op, Q("arm"), Q("packet"), Q("done"), Q("kb"), Q("overhead")));
+            }
+            if (path == "/api/wheel/gif")
+            {
+                // timing of the animated GIF screensaver (GifSaver): what the screen is assumed to take, and how it's going
+                if (r.Q("cost") != null && double.TryParse(r.Q("cost"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var cost)) GifSaver.MicrosecondsPerPixel = Math.Max(0, cost);
+                if (r.Q("fixed") != null && double.TryParse(r.Q("fixed"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var fixedMs)) GifSaver.FixedMs = Math.Max(0, fixedMs);
+                if (r.Q("hold") != null) GifSaver.HoldArea = r.Q("hold") == "off" ? int.MaxValue : Math.Max(0, r.QI("hold", 0));
+                return Json(new
+                {
+                    microsecondsPerPixel = GifSaver.MicrosecondsPerPixel,
+                    fixedMs = GifSaver.FixedMs,
+                    holdPixels = GifSaver.HoldArea == int.MaxValue ? (int?)null : GifSaver.HoldArea,
+                    stepsDrawn = GifSaver.StepsDrawn,
+                    stepsSkipped = GifSaver.StepsSkipped,
+                });
             }
             if (path == "/api/wheel/demo")
             {

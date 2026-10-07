@@ -21,7 +21,8 @@ from PIL import Image, ImageDraw, ImageFont
 SIMHUB = os.environ.get('SIMHUB_INSTALL_PATH', r'C:\Program Files (x86)\SimHub')
 WINFONTS = r'C:\Windows\Fonts'
 FONT_FILES = {'arial': ('arial.ttf', 'arialbd.ttf'), 'bahnschrift': ('bahnschrift.ttf', 'bahnschrift.ttf'),
-              'lucida sans': ('LSANS.TTF', 'LSANSD.TTF'), 'segoe ui': ('segoeui.ttf', 'segoeuib.ttf')}
+              'lucida sans': ('LSANS.TTF', 'LSANSD.TTF'), 'segoe ui': ('segoeui.ttf', 'segoeuib.ttf'),
+              'microsoft jhenghei': ('msjh.ttc', 'msjhbd.ttc'), 'microsoft jhenghei ui': ('msjh.ttc#1', 'msjhbd.ttc#1')}
 WEIGHTS = {'Thin': 'Light', 'ExtraLight': 'Light', 'Light': 'Light', 'Normal': 'Regular', 'Regular': 'Regular',
            'Medium': 'SemiBold', 'SemiBold': 'SemiBold', 'DemiBold': 'SemiBold', 'Bold': 'Bold', 'ExtraBold': 'Bold',
            'UltraBold': 'Bold', 'Black': 'Bold', 'Heavy': 'Bold'}
@@ -68,13 +69,22 @@ class Dash:
         files = FONT_FILES.get(fam)
         path = None
         if files: path = os.path.join(WINFONTS, files[1 if bold else 0])
-        if not path or not os.path.exists(path):
+        if not path or not os.path.exists(path.split('#')[0]):
             # the dash's own fonts
             shf = os.path.join(self.folder, '_SHFonts')
             for f in (os.listdir(shf) if os.path.isdir(shf) else []):
                 if fam.split()[0] in f.lower(): path = os.path.join(shf, f); break
-        if not path or not os.path.exists(path): path = os.path.join(WINFONTS, 'arial.ttf')
-        f = ImageFont.truetype(path, max(1, size))
+            else:
+                # by the family name inside the file (the Mercedes AMG's "SansSerif" is sanss___.ttf / sanssb__.ttf)
+                for f in sorted(os.listdir(shf) if os.path.isdir(shf) else []):
+                    try: n = ImageFont.truetype(os.path.join(shf, f), 10).getname()
+                    except Exception: continue
+                    if n[0].lower() == fam and (n[1].lower() == ('bold' if bold else 'regular')):
+                        path = os.path.join(shf, f); break
+        if not path or not os.path.exists(path.split('#')[0]): path = os.path.join(WINFONTS, 'arial.ttf')
+        idx = 0
+        if '#' in os.path.basename(path): path, idx = path.rsplit('#', 1)[0], int(path.rsplit('#', 1)[1])   # a face in a .ttc
+        f = ImageFont.truetype(path, max(1, size), index=idx)
         if fam == 'bahnschrift':
             try: f.set_variation_by_name(WEIGHTS.get(weight or 'Normal', 'Regular'))
             except Exception: pass
@@ -123,7 +133,9 @@ class Renderer:
             t = tname(it)
             o = op * ((it.get('Opacity') if it.get('Opacity') is not None else 100) / 100)
             if t in ('Layer', 'GroupItem'):
-                self.draw_items(it.get('Childrens') or it.get('Items'), fx, fy, fs, o)
+                # a group's children are placed from its corner (a layer's on the screen's own coordinates)
+                gx, gy = ((it.get('Left') or 0) * fs, (it.get('Top') or 0) * fs) if t == 'GroupItem' else (0, 0)
+                self.draw_items(it.get('Childrens') or it.get('Items'), fx + gx, fy + gy, fs, o)
             elif t == 'WidgetItem':
                 self.widget(it, fx, fy, fs, o)
             else:
@@ -181,9 +193,24 @@ class Renderer:
         self.over(L)
 
     def d_ImageItem(self, it, fx, fy, fs, o):
+        # a picture's own background colour and border (a panel: a shading picture on a coloured rounded box), then
+        # the picture inside the border
+        bs = it.get('BorderStyle') or {}
+        if (colour(it.get('BackgroundColor')) or (0, 0, 0, 0))[3] > 0 or any(bs.get(k) for k in ('BorderTop', 'BorderLeft')):
+            self.rect(it, fx, fy, fs, o)
         src = self.d.image(it.get('Image'))
         if src is None or o <= 0: return
         x, y, w, h = self.box(it, fx, fy, fs)
+        if not it.get('AutoSize') and (bs.get('BorderTop') or (colour(it.get('BackgroundColor')) or (0, 0, 0, 0))[3] > 0):
+            # a picture on a panel fills it (as SimHub shows the Ferrari 296's "shadow" panels): stretched inside the border
+            b = max(bs.get('BorderTop', 0), bs.get('BorderLeft', 0)) * fs
+            pic = src.resize((max(1, round(w - 2 * b)), max(1, round(h - 2 * b))), Image.LANCZOS)
+            if o < 1: pic.putalpha(pic.getchannel('A').point(lambda a: int(a * o)))
+            r = max(bs.get('RadiusTopLeft', 0), bs.get('RadiusTopRight', 0)) * fs
+            m = Image.new('L', pic.size, 0); ImageDraw.Draw(m).rounded_rectangle([0, 0, pic.width - 1, pic.height - 1], radius=max(0, r - b), fill=255)
+            pic.putalpha(Image.composite(pic.getchannel('A'), Image.new('L', pic.size, 0), m))
+            L = self.layer(); L.alpha_composite(pic, (int(round(x + b)), int(round(y + b)))); self.over(L)
+            return
         # Uniform in its box (an AutoSize picture's stored size is what the designer sized it to)
         k = min(w / src.width, h / src.height)
         w2, h2 = src.width * k, src.height * k
@@ -194,6 +221,38 @@ class Renderer:
         L = self.layer()
         L.alpha_composite(pic, (int(round(x + (w - w2) / 2)), int(round(y + (h - h2) / 2))))
         self.over(L)
+
+    def d_GradientItem(self, it, fx, fy, fs, o):
+        br = ((it.get('Color') or {}).get('LinearGradientBrush')) or {}
+        st = br.get('LinearGradientBrush.GradientStops', {}).get('GradientStop')
+        if isinstance(st, dict): st = [st]
+        stops = sorted(((float(g.get('@Offset', 0)), colour(g.get('@Color'), o)) for g in st or [] if colour(g.get('@Color'))), key=lambda t: t[0])
+        if not stops: return
+        x, y, w, h = self.box(it, fx, fy, fs)
+        W, H = max(1, round(w)), max(1, round(h))
+        sx, sy = (float(v) for v in br.get('@StartPoint', '0.5,0').split(','))
+        ex, ey = (float(v) for v in br.get('@EndPoint', '0.5,1').split(','))
+        g = Image.new('RGBA', (W, H))
+        px = g.load()
+        dx, dy = ex - sx, ey - sy
+        n2 = dx * dx + dy * dy or 1
+        for yy in range(H):
+            for xx in range(W):
+                t = (((xx + 0.5) / W - sx) * dx + ((yy + 0.5) / H - sy) * dy) / n2
+                if t <= stops[0][0]: c = stops[0][1]
+                elif t >= stops[-1][0]: c = stops[-1][1]
+                else:
+                    for (a, ca), (b, cb) in zip(stops, stops[1:]):
+                        if a <= t <= b:
+                            k = (t - a) / (b - a) if b > a else 0
+                            c = tuple(int(round(ca[i] + (cb[i] - ca[i]) * k)) for i in range(4)); break
+                px[xx, yy] = c
+        bs = it.get('BorderStyle') or {}
+        r = max(bs.get('RadiusTopLeft', 0), bs.get('RadiusTopRight', 0)) * fs
+        r = min(r, W / 2, H / 2)
+        m = Image.new('L', (W, H), 0); ImageDraw.Draw(m).rounded_rectangle([0, 0, W - 1, H - 1], radius=r, fill=255)
+        g.putalpha(Image.composite(g.getchannel('A'), Image.new('L', (W, H), 0), m))
+        L = self.layer(); L.alpha_composite(g, (int(round(x)), int(round(y)))); self.over(L)
 
     def text(self, it, fx, fy, fs, o, text, family=None, size=None, colour_=None):
         if text is None or text == '': return

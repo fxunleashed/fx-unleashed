@@ -71,6 +71,96 @@ namespace User.FXProRpmSync
             return b;
         }
 
+        // ---------- the whole image (support only) ----------
+        // For a screen whose image isn't the recorded one (a header upload ends in "Update Failed" every time): the whole
+        // recorded image written once makes it the recorded one. Simagic's image is never in a release: support sends the
+        // decrypted file to that user, the plugin keeps a checked copy here and refuses anything that isn't byte for byte
+        // the record's .tft.
+
+        public static string FullImageFolder => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PluginsData", "Common", "FXProRpmSync", "screen");
+        public string FullImagePath => Path.Combine(FullImageFolder, Id + ".tft");
+
+        /// <summary>A copy of this image's whole file is in the plugin's folder (its size only; Load checks every byte).</summary>
+        public bool HasFullImage
+        {
+            get { try { var f = new FileInfo(FullImagePath); return f.Exists && f.Length == TftSize; } catch { return false; } }
+        }
+
+        /// <summary>
+        /// Why `tft` isn't this record's whole image, or null when it is. Every check the screen makes and then some: the
+        /// pinned size and sha256, the header record, the declared size, both header CRCs, block 0 = the pinned stock block,
+        /// and the seal the screen checks at the end of an upload.
+        /// </summary>
+        public string CheckFull(byte[] tft)
+        {
+            if (tft == null || tft.Length != TftSize) return $"wrong size ({tft?.Length ?? 0} bytes, expected {TftSize})";
+            if (Sha256(tft) != TftSha256) return "not Simagic's image " + Id + " (sha256 differs)";
+            var h = Hex(Header);
+            for (int i = 0; i < h.Length; i++) if (tft[i] != h[i]) return "the header differs from the record";
+            if (BitConverter.ToUInt32(tft, 0x3C) != TftSize) return "the declared size differs";
+            if (BitConverter.ToUInt32(tft, 0xC4) != CrcBytes(tft, 0, 0xC4) || BitConverter.ToUInt32(tft, 0x18C) != CrcBytes(tft, 200, 0xC4))
+                return "a header CRC is wrong";
+            var b0 = new byte[Block0];
+            Array.Copy(tft, b0, Block0);
+            if (!Blocks.TryGetValue("stock", out var pinned) || Sha256(b0) != pinned) return "block 0 isn't the pinned stock block";
+            if (!SealOk(tft)) return "the seal doesn't match (the screen would answer \"Update Failed\")";
+            return null;
+        }
+
+        /// <summary>The screen's end check (FUN_0003F368): CRC of the image up to the seal, mixed with size, model and version bytes.</summary>
+        public static bool SealOk(byte[] img)
+        {
+            int n = (int)BitConverter.ToUInt32(img, 0x3C);
+            if (n < 0x200 || n > img.Length || (n & 3) != 0) return false;
+            uint seal = CrcWords(img, 0, n - 4) ^ (uint)(n & 0xFF) ^ img[0x2E] ^ img[3];
+            return seal == BitConverter.ToUInt32(img, n - 4);
+        }
+
+        /// <summary>The whole image from the plugin's folder, checked byte for byte; throws if it isn't the record's.</summary>
+        public byte[] LoadFull()
+        {
+            var tft = File.ReadAllBytes(FullImagePath);
+            var why = CheckFull(tft);
+            if (why != null) throw new InvalidDataException("The screen image file in the plugin's folder can't be used: " + why + ". Add it again.");
+            return tft;
+        }
+
+        /// <summary>
+        /// Takes a whole image file the user picked: finds its record, checks it and keeps a copy in the plugin's folder
+        /// (written to a temporary name first, then checked again after the move). Returns the record, or null and why not.
+        /// </summary>
+        public static ScreenImage ImportFull(string file, out string error)
+        {
+            error = null;
+            try
+            {
+                // support sends a zip (the image + a read-me): take the entry that has a recorded image's size
+                byte[] tft = null;
+                if (file.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    using (var z = System.IO.Compression.ZipFile.OpenRead(file))
+                    {
+                        var entry = z.Entries.FirstOrDefault(e => All.Any(i => i.TftSize == e.Length));
+                        if (entry == null) { error = "This zip has no screen image the plugin knows. Nothing was changed."; return null; }
+                        using (var s = entry.Open()) using (var m = new MemoryStream()) { s.CopyTo(m); tft = m.ToArray(); }
+                    }
+                }
+                else tft = File.ReadAllBytes(file);
+                var img = All.FirstOrDefault(i => i.TftSize == tft.Length);
+                if (img == null) { error = "This isn't a screen image the plugin knows (its size doesn't match any). Nothing was changed."; return null; }
+                var why = img.CheckFull(tft);
+                if (why != null) { error = "This file can't be used: " + why + ". Nothing was changed."; return null; }
+                Directory.CreateDirectory(FullImageFolder);
+                var tmp = img.FullImagePath + ".tmp";
+                File.WriteAllBytes(tmp, tft);
+                if (File.Exists(img.FullImagePath)) File.Delete(img.FullImagePath);
+                File.Move(tmp, img.FullImagePath);
+                img.LoadFull();
+                return img;
+            }
+            catch (Exception e) { error = "Couldn't add the file: " + e.Message; return null; }
+        }
+
         public static string Sha256(byte[] data)
         {
             using (var s = SHA256.Create()) return BitConverter.ToString(s.ComputeHash(data)).Replace("-", "").ToLowerInvariant();

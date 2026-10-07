@@ -122,6 +122,25 @@ static class UiTest
         // UI_PRESET=id: that light preset selected
         var preset = Environment.GetEnvironmentVariable("UI_PRESET");
         if (!string.IsNullOrEmpty(preset)) plugin.Settings.Usb.LightPreset = preset;
+        // UI_ANIM=1: animated GIF screensavers on the Idle tab (one that fits, one oversized, a sprite); UI_RAM=0: no picture memory;
+        // UI_ANIM_DIR: where their files go
+        if (Environment.GetEnvironmentVariable("UI_ANIM") == "1")
+        {
+            var u = plugin.Settings.Usb;
+            u.ScreenRamDrive = Environment.GetEnvironmentVariable("UI_RAM") != "0";
+            string dir = Environment.GetEnvironmentVariable("UI_ANIM_DIR") ?? Path.Combine(Path.GetTempPath(), "fx-ui-anim");
+            Directory.CreateDirectory(dir);
+            DashLibrary.Root = dir;
+            var file = Path.Combine(dir, "partial.gif");
+            File.WriteAllBytes(file, Convert.FromBase64String(TestGifs.Partial));
+            var sprite = Path.Combine(dir, "sprite.gif");
+            File.WriteAllBytes(sprite, Convert.FromBase64String(TestGifs.Sprite));
+            var whole = IdleScreens.ImportAnimation(file); whole.Name = "Sliding square (fits)";
+            var tight = IdleScreens.ImportAnimation(file, GifSaver.Load(whole).RamBytes * 6 / 10); tight.Name = "Sliding square (oversized)";
+            var ball = IdleScreens.ImportAnimation(sprite); ball.Name = "Ball";
+            u.Savers.Add(whole); u.Savers.Add(tight); u.Savers.Add(ball);
+            u.SaverId = tight.Id;
+        }
         if (Environment.GetEnvironmentVariable("UI_CUSTOM") == "1")
         {
             var u = plugin.Settings.Usb;
@@ -189,6 +208,9 @@ static class UiTest
                 ("powercycle", () => Call(card, "ShowPowerCycle", (object)null)),
                 ("done", () => { card.GetType().GetField("flowMode", flags).SetValue(card, "ramfs"); Call(card, "CheckAnswered", "on"); }),
                 ("failed", () => Call(card, "Answer", "failed")),
+                // the whole image (support only): its failure opens Screen recovery, where the whole-image section is
+                ("full-failed", () => { card.GetType().GetField("flowMode", flags).SetValue(card, "full"); Call(card, "Answer", "failed"); }),
+                ("full-done", () => { card.GetType().GetField("flowMode", flags).SetValue(card, "full"); Call(card, "CheckAnswered", "off"); }),
             })
             {
                 act();
@@ -315,6 +337,107 @@ static class UiTest
         t.SetApartmentState(System.Threading.ApartmentState.STA);
         t.Start();
         t.Join();
+    }
+
+    /// <summary>The "Add an animated GIF" window for a GIF, offscreen: gif-dialog.png in `dir`, once its best fit is worked out
+    /// (UsbTest OUT gifdialog FILE.gif [noram]).</summary>
+    public static void RunGifDialog(string dir, string gifPath, bool ramOn)
+    {
+        var t = new System.Threading.Thread(() =>
+        {
+            var info = AnimatedPicture.Inspect(gifPath);
+            if (info == null) { Console.WriteLine("not an animated GIF: " + gifPath); return; }
+            var d = new GifImportDialog(gifPath, info, ramOn);
+            d.Window.Left = -3000; d.Window.Top = 0; d.Window.ShowActivated = false; d.Window.ShowInTaskbar = false;
+            d.Window.Show();
+            var frame = new DispatcherFrame();
+            var tm = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            tm.Tick += (a, b) => { tm.Stop(); frame.Continue = false; };
+            tm.Start();
+            Dispatcher.PushFrame(frame);
+            // the window as it looks: its dark background and its whole height
+            var content = (FrameworkElement)d.Window.Content;
+            content.Measure(new Size(640, double.PositiveInfinity)); content.Arrange(new Rect(0, 0, 640, content.DesiredSize.Height)); content.UpdateLayout();
+            var bmp = new RenderTargetBitmap(640, (int)content.DesiredSize.Height + 4, 96, 96, PixelFormats.Pbgra32);
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0A, 0x0B, 0x0D)), null, new Rect(0, 0, 640, bmp.Height));
+                dc.DrawRectangle(new VisualBrush(content) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, 0, 640, content.DesiredSize.Height));
+            }
+            bmp.Render(dv);
+            var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(bmp));
+            using (var f = File.Create(Path.Combine(dir, "gif-dialog.png"))) enc.Save(f);
+            d.Window.Close();
+        });
+        t.SetApartmentState(System.Threading.ApartmentState.STA);
+        t.Start();
+        t.Join();
+    }
+
+    private static void Pump(double seconds)
+    {
+        var frame = new DispatcherFrame();
+        var tm = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) };
+        tm.Tick += (a, b) => { tm.Stop(); frame.Continue = false; };
+        tm.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
+    private static Button FindButton(DependencyObject root, string text)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var c = VisualTreeHelper.GetChild(root, i);
+            if (c is Button b && b.Content as string == text) return b;
+            var found = FindButton(c, text);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The import window's Add and Cancel, driven the way a click does (UI automation): open it for a GIF, wait for the best fit,
+    /// press Add, and check a screensaver file came out. Returns 0 when it did (UsbTest OUT gifdialog-add FILE.gif).
+    /// </summary>
+    public static int RunGifDialogAdd(string dir, string gifPath)
+    {
+        int code = 1;
+        var t = new System.Threading.Thread(() =>
+        {
+            DashLibrary.Root = Path.Combine(dir, "fakeSimHub"); // the saver's file goes under here, not into SimHub's folder
+            var info = AnimatedPicture.Inspect(gifPath);
+            var d = new GifImportDialog(gifPath, info, true);
+            d.Window.Left = -3000; d.Window.Top = 0; d.Window.ShowActivated = false; d.Window.ShowInTaskbar = false;
+            d.Window.Show();
+            Pump(10);
+            var add = FindButton(d.Window, "Add");
+            Console.WriteLine("Add button found: " + (add != null) + ", enabled after the best fit: " + (add?.IsEnabled == true));
+            if (add == null || !add.IsEnabled) return;
+            ((System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(add)
+                .GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            Pump(8);
+            var r = d.Result;
+            Console.WriteLine("result: " + (r == null ? "none" : $"{r.Name}, {r.Frames}/{r.FramesTotal} frames, oversized {r.IsOversized}, file {(File.Exists(r.File) ? new FileInfo(r.File).Length / 1024 + " KB" : "missing")}"));
+            Console.WriteLine("window closed by Add: " + !d.Window.IsVisible);
+            code = r != null && r.IsAnimation && File.Exists(r.File) && GifSaver.Load(r)?.Still != null ? 0 : 1;
+            if (d.Window.IsVisible) d.Window.Close();
+
+            // Cancel adds nothing
+            var d2 = new GifImportDialog(gifPath, info, true);
+            d2.Window.Left = -3000; d2.Window.ShowActivated = false; d2.Window.ShowInTaskbar = false;
+            d2.Window.Show();
+            Pump(3);
+            ((System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(FindButton(d2.Window, "Cancel"))
+                .GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            Pump(1);
+            Console.WriteLine("Cancel: closed " + !d2.Window.IsVisible + ", nothing added " + (d2.Result == null));
+            if (d2.Window.IsVisible || d2.Result != null) code = 1;
+        });
+        t.SetApartmentState(System.Threading.ApartmentState.STA);
+        t.Start();
+        t.Join();
+        return code;
     }
 
     private static void SaveElement(FrameworkElement e, string file)

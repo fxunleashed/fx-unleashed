@@ -11,12 +11,16 @@ predate it and carry their own copies).
   width ~ its advance) that fits `area`, the band centred on the original's ink. One font for a group the original
   draws at one size.
 - Conditions: vis(e), pages_of(e), own(e) (not page or take-turns conditions).
+- Fixes every 1:1 conversion needs (each with its reason in its docstring): take_turns, backgrounds_from_overlays,
+  snap_into_panels, keep_inside_boxes, fit_in_ellipse, clear_of_shapes_after, shrink_to_text (value boxes trimmed to
+  their text where they meet other texts or caption pictures), box_as_rects, split_label, flatten_picture,
+  crop_to_screen, logo_on_plain (a logo screen as a rectangle + the logo's own area).
 """
 import json, os, re, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-FX = os.path.join(REPO, 'tools', 'fxdash', 'bin', 'Release', 'net48', 'fxdash.exe')
+FX = os.environ.get('FXDASH_EXE') or os.path.join(REPO, 'tools', 'fxdash', 'bin', 'Release', 'net48', 'fxdash.exe')   # (another build: FXDASH_EXE)
 sys.path.insert(0, HERE)
 import simhub_ref  # noqa: E402
 
@@ -91,6 +95,73 @@ class Item:
     def __repr__(self): return f'<{self.type} {self.name!r} {self.screen}/{self.widget or ""}{"" if self.page is None else "#" + str(self.page)} @{self.x:.0f},{self.y:.0f}>'
 
 
+class Drawn:
+    """Any item of the original as SimHub draws it: its frame (fx, fy, fs: where its parent puts it), box on the wheel,
+    conditions (every layer's and its own, an overlay screen's trigger first) and widget page."""
+    def __init__(self, it, fx, fy, fs, screen, widget, page, conds):
+        self.it, self.fx, self.fy, self.fs = it, fx, fy, fs
+        self.screen, self.widget, self.page, self.conds = screen, widget, page, conds
+        self.type = simhub_ref.tname(it)
+        self.name = it.get('Name')
+        self.x, self.y = fx + (it.get('Left') or 0) * fs, fy + (it.get('Top') or 0) * fs
+        self.w, self.h = (it.get('Width') or 0) * fs, (it.get('Height') or 0) * fs
+
+    def __repr__(self): return f'<{self.type} {self.name!r} {self.screen}/{self.widget or ""}{"" if self.page is None else "#" + str(self.page)} @{self.x:.0f},{self.y:.0f}>'
+
+
+def draw_items(orig, drawn, size=(790, 460), crop=True):
+    """Items of the original (Drawn) drawn together as SimHub draws them (simhub_ref.Renderer: a picture on its panel's
+    colour and border, gradients, texts in their own font), on transparent: (PIL RGBA cut to what was drawn, x, y), or
+    None. One picture for what an overlay shows that never changes (its panel, line and caption): one RAM-drive file."""
+    from PIL import Image
+    r = simhub_ref.Renderer(orig.dash, [], {}, 'text', orig.sc, orig.ox, orig.oy, size)
+    r.im = Image.new('RGBA', size, (0, 0, 0, 0))
+    for o in drawn:
+        getattr(r, 'd_' + o.type, r.d_other)(o.it, o.fx, o.fy, o.fs, (o.it.get('Opacity') if o.it.get('Opacity') is not None else 100) / 100)
+    bb = r.im.getbbox()
+    if not bb: return None
+    if not crop: return r.im, 0, 0
+    return r.im.crop(bb), bb[0], bb[1]
+
+
+DRAWN_TYPES = {'image': ('ImageItem',), 'gradient': ('GradientItem',), 'label': ('TextItem',), 'rect': ('RectangleItem',),
+               'box': ('RectangleItem',), 'ellipse': ('EllipseItem',), 'bar': ('LinearGaugeItem',)}
+
+
+def drawn_of(e, orig, sets):
+    """The original item (Drawn) an imported element came from: the same type and name, the same conditions (its own:
+    no page, blink or take-turns ones) and widget page, then the nearest box. sets: widget name -> 'page' / 'page2'...
+    (the dash's sets of pages, in the import's order)."""
+    mine = sorted({_norm(c[6:] if c.startswith('ncalc:') else c[3:]) for c in own(e) if 'blink(' not in c})
+    pg = {c.split(':')[0]: int(c.split(':')[1]) for c in pages_of(e)}
+    def ok(o):
+        if o.type not in DRAWN_TYPES.get(e['Type'], (o.type,)) or o.name != e.get('Name'): return False
+        if sorted({_norm(c) for c in o.conds}) != mine: return False
+        return (o.page is None and not pg) or (o.widget in sets and pg == {sets[o.widget]: o.page})
+    hits = [o for o in orig.all if ok(o)]
+    if not hits: return None
+    return min(hits, key=lambda o: abs(o.x - e['X']) + abs(o.y - e['Y']) + abs(o.w - e['W']) + abs(o.h - e['H']))
+
+
+def flatten_under(im, box, tolerance=60):
+    """A picture's pixels in `box` (x0, y0, x1, y1, in the picture) close to the box's most common colour (within
+    `tolerance` per channel: the panel's shading) made that colour: a value's text band drawn there is then on one
+    colour (it redraws in one step; over shading every change repaints the picture under it). Lines and letters (far from
+    it) stay. Returns the colour, or None."""
+    from collections import Counter
+    x0, y0, x1, y1 = (max(0, int(box[0])), max(0, int(box[1])), min(im.width, int(box[2])), min(im.height, int(box[3])))
+    if x1 <= x0 or y1 <= y0: return None
+    px = im.load()
+    cnt = Counter(px[x, y] for y in range(y0, y1) for x in range(x0, x1) if px[x, y][3] >= 250)
+    if not cnt: return None
+    base = cnt.most_common(1)[0][0]
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            p = px[x, y]
+            if p[3] >= 250 and max(abs(a - b) for a, b in zip(p[:3], base[:3])) <= tolerance: px[x, y] = base
+    return '#%02X%02X%02X' % base[:3]
+
+
 class Original:
     def __init__(self, dash_name, fit=(790, 460)):
         self.dash = simhub_ref.Dash(simhub_ref.find(dash_name))
@@ -99,18 +170,26 @@ class Original:
         self.sc = min(fit[0] / bw, fit[1] / bh)
         self.ox, self.oy = (fit[0] - bw * self.sc) / 2, (fit[1] - bh * self.sc) / 2
         self.items = []
+        self.all = []   # every drawn item (not layers or widgets), in drawing order: Drawn
         for s in j['Screens']:
             # an overlay screen shows while its trigger holds: part of its items' conditions (as the importer does)
             trig = ((s.get('OverlayTriggerExpression') or {}).get('Expression') or '').strip() if s.get('IsOverlayLayer') else ''
             self._walk(s.get('Items'), self.ox, self.oy, self.sc, s.get('Name'), None, None, [trig] if trig else [])
 
-    def _walk(self, items, fx_, fy, fs, screen, widget, page, conds):
+    def _walk(self, items, fx_, fy, fs, screen, widget, page, conds, hidden=False):
         for it in items or []:
             t = simhub_ref.tname(it)
             v = simhub_ref.formula(it, 'Visible')
             c = conds + ([v] if v else [])
+            # hidden for good (Visible off, no formula): SimHub never draws it or what's in it (`all` leaves it out;
+            # `items` keeps it, as the earlier conversions were built with)
+            gone = hidden or (it.get('Visible') is False and v is None)
+            if t not in ('Layer', 'GroupItem', 'WidgetItem') and not gone:
+                self.all.append(Drawn(it, fx_, fy, fs, screen, widget, page, c))
             if t in ('Layer', 'GroupItem'):
-                self._walk(it.get('Childrens') or it.get('Items'), fx_, fy, fs, screen, widget, page, c)
+                # a group's children are placed from its corner (a layer's on the screen's own coordinates)
+                gx, gy = ((it.get('Left') or 0) * fs, (it.get('Top') or 0) * fs) if t == 'GroupItem' else (0, 0)
+                self._walk(it.get('Childrens') or it.get('Items'), fx_ + gx, fy + gy, fs, screen, widget, page, c, gone)
             elif t == 'WidgetItem':
                 p = os.path.join(self.dash.folder, it.get('FileName') or '')
                 if not os.path.exists(p): continue
@@ -119,8 +198,9 @@ class Original:
                 s = fs * (it.get('Width') or bw) / bw
                 x, y = fx_ + (it.get('Left') or 0) * fs, fy + (it.get('Top') or 0) * fs
                 for k, scr in enumerate(w.get('Screens') or []):
-                    self._walk(scr.get('Items'), x, y, s, screen, it.get('Name'), k, c)
-            elif t in ('TextItem', 'GearText', 'SpeedText') or t.startswith('Leaderboard'):
+                    self._walk(scr.get('Items'), x, y, s, screen, it.get('Name'), k, c, gone)
+            # (SimHub's built-in texts too: FuelText, TyreTemperatureText... with their own font and box)
+            elif t in ('TextItem', 'GearText', 'SpeedText') or t.startswith('Leaderboard') or (t.endswith('Text') and 'Font' in it):
                 x, y = fx_ + (it.get('Left') or 0) * fs, fy + (it.get('Top') or 0) * fs
                 self.items.append(Item(it, x, y, (it.get('Width') or 0) * fs, (it.get('Height') or 0) * fs, fs, screen, widget, page, c))
 
@@ -132,6 +212,11 @@ class Original:
         f = self.font(item)
         asc, desc = f.getmetrics()
         l, t, r, b = f.getbbox(text, anchor='la')
+        # PIL counts leading spaces as ink (" %": the box began at the space); the ink starts after them
+        lead = text[:len(text) - len(text.lstrip())]
+        if lead and text.strip():
+            l, t, r, b = f.getbbox(text.strip(), anchor='la')
+            l, r = l + f.getlength(lead), r + f.getlength(lead)
         adv = f.getlength(text)
         ha, va = item.halign, item.valign
         tx = item.x if ha == 'left' else item.x + (item.w - adv) / 2 if ha == 'center' else item.x + item.w - adv
@@ -300,6 +385,8 @@ def box_as_rects(E, e):
              'Color': e.get('Color', '#FFFFFF'), 'Visible': e.get('Visible'), 'PreviewVisible': e.get('PreviewVisible')}
     inner = {'Type': 'rect', 'Name': e.get('Name'), 'X': e['X'] + b, 'Y': e['Y'] + b, 'W': e['W'] - 2 * b, 'H': e['H'] - 2 * b,
              'Color': e.get('Fill'), 'Visible': e.get('Visible'), 'PreviewVisible': e.get('PreviewVisible')}
+    # a box's colour formula colours its fill (a start screen's box by speed): the inner rectangle's
+    if e.get('ColorBind'): inner.update(ColorBind=e['ColorBind'], ColorStops=e.get('ColorStops'))
     E[i:i + 1] = [outer, inner] if b > 0 else [inner]
     return outer, inner
 
@@ -478,7 +565,7 @@ def negation(conds):
     return None
 
 
-def take_turns(E, images=None):
+def take_turns(E, images=None, rounded=False):
     """Values and bars half under an overlay's opaque box or picture (a lap summary's panel over the delta; the race
     start screen's art over the side panels; `images`: the dash's pictures, to tell opaque ones): while the overlay shows,
     every change of the value would draw it and the box over it again (a flash). They hide while that overlay shows and
@@ -498,10 +585,18 @@ def take_turns(E, images=None):
     from PIL import Image
     solid = {}
     def opaque_picture(key):
-        # a picture with no see-through pixel (an art picture an overlay draws over the dash) hides all of its box
+        # a picture with no see-through pixel (an art picture an overlay draws over the dash) hides all of its box;
+        # rounded=True: a panel with rounded corners too (see-through only in its corners: what's under it there is
+        # never a value's text)
         if key not in solid:
             im = Image.open(io.BytesIO(base64.b64decode(images[key]))).convert('RGBA')
-            solid[key] = im.getchannel('A').getextrema()[0] >= 250
+            a = im.getchannel('A')
+            solid[key] = a.getextrema()[0] >= 250
+            if not solid[key] and rounded and im.width > 24 and im.height > 24:
+                r = 12
+                px = a.load()
+                solid[key] = all(px[x, y] >= 250 for y in range(im.height) for x in range(im.width)
+                                 if not ((x < r or x >= im.width - r) and (y < r or y >= im.height - r)))
         return solid[key]
     def opaque(e):
         if e.get('Opacity', 100) < 100: return False
@@ -563,3 +658,109 @@ def clear_of_shapes_after(E, orig, gap=2):
             if place(v, orig, item, v.get('Samples') or [v.get('PreviewText') or '0'], (x0, y0, x1, y1)) is not None:
                 moved.append(v.get('Name'))
     return moved
+
+
+def _rect(e): return (e['X'], e['Y'], e['X'] + e['W'], e['Y'] + e['H'])
+
+
+def _meet(a, b): return min(a[2], b[2]) - max(a[0], b[0]) > 0 and min(a[3], b[3]) - max(a[1], b[1]) > 0
+
+
+def _texts(e): return e.get('Samples') or [e.get('Text') or ''] if e['Type'] == 'value' else [e.get('Text') or '']
+
+
+def shrink_to_text(E, also=()):
+    """A value's box reaching into another text shown with it (the original's boxes overlap, only their ink doesn't: a
+    tyre corner's pressure and its temperature, two numbers in one bar) or into one of `also` (static caption pictures:
+    a number right-aligned up to its caption): every change would redraw the other one (a flash). Such boxes shrink to
+    their widest text (+2 px each side), kept where their alignment holds them; a value meeting a value shrinks both.
+    Shown together: not on different pages of a set, and the same overlay or one of them always shown. A value of an
+    overlay over a static caption is covered by its overlay's box with it: left alone. Returns (names shrunk, what
+    still meets a caption: (value, caption) pairs)."""
+    def together(a, b):
+        if b in also and own(a): return False
+        for k in range(4):
+            key = 'page' if k == 0 else f'page{k + 1}'
+            pa = [c for c in pages_of(a) if c.split(':')[0] == key]
+            pb = [c for c in pages_of(b) if c.split(':')[0] == key]
+            if pa and pb and pa != pb: return False
+        return sorted(own(a)) == sorted(own(b)) or not own(a) or not own(b)
+
+    def shrink(v):
+        tw = max(width(v['Font'], t) for t in _texts(v)) + 4
+        if v['W'] <= tw: return
+        if v.get('Align') == 'right': v['X'] += v['W'] - tw
+        elif v.get('Align') == 'center': v['X'] += (v['W'] - tw) // 2
+        v['W'] = tw
+
+    shrunk = []
+    for v in [e for e in E if e['Type'] == 'value']:
+        for o in E:
+            if o is v or (o['Type'] not in ('value', 'label') and o not in also) or not _meet(_rect(v), _rect(o)) or not together(v, o): continue
+            shrink(v); shrunk.append(v.get('Name'))
+            if o['Type'] == 'value': shrink(o)
+    still = [(v.get('Name'), c.get('Name')) for v in E if v['Type'] == 'value' for c in also if _meet(_rect(v), _rect(c)) and together(v, c)]
+    return shrunk, still
+
+
+def strips_around_bars(d, E, e, rows=170):
+    """The renderer makes no RAM-drive picture of a shape over a bar's box: a logo reaching over a rev bar is drawn with
+    rectangles (the Ferrari 296's ignition logo: 161 KB, 6.5 s, each time, with the RAM patch too). The picture `e` is cut
+    in strips: the rows level with the bars it reaches over (rectangles, a few KB), and the rest in pictures of at most
+    `rows` rows (one file stays under the drive's 24 KB a picture). Replaces `e` in E; returns the strips."""
+    import base64, io
+    from PIL import Image
+    bars = [b for b in E if b['Type'] in ('bar', 'deltabar') and b['X'] < e['X'] + e['W'] and e['X'] < b['X'] + b['W']
+            and b['Y'] < e['Y'] + e['H'] and e['Y'] < b['Y'] + b['H']]
+    if not bars: return [e]
+    bar_y0, bar_y1 = min(b['Y'] for b in bars), max(b['Y'] + b['H'] for b in bars)
+    im = Image.open(io.BytesIO(base64.b64decode(d['Images'][e['Image']]))).convert('RGBA')
+    cuts = [e['Y'], bar_y0, bar_y1]
+    y = bar_y1
+    while e['Y'] + e['H'] - y > rows:
+        y += (e['Y'] + e['H'] - bar_y1) // 2 if e['Y'] + e['H'] - bar_y1 <= 2 * rows else rows
+        cuts.append(y)
+    cuts.append(e['Y'] + e['H'])
+    cuts = sorted(c for c in set(cuts) if e['Y'] <= c <= e['Y'] + e['H'])
+    strips = []
+    for a, b in zip(cuts, cuts[1:]):
+        if b <= a: continue
+        k = e['Image'].split('@')[0] + f' rows {a}-{b}@{e["W"]}x{b - a}'
+        buf = io.BytesIO(); im.crop((0, a - e['Y'], e['W'], b - e['Y'])).save(buf, 'PNG')
+        d['Images'][k] = base64.b64encode(buf.getvalue()).decode('ascii')
+        strips.append(dict(e, Image=k, Y=a, H=b - a))
+    i = E.index(e)
+    E[i:i + 1] = strips
+    return strips
+
+
+def logo_on_plain(d, E, e, key, max_colors, tolerance=3):
+    """A full-screen picture that is a logo on one plain colour (a start-up or ignition screen): a rectangle of that colour
+    (`<name> background`, a fill: nothing on the RAM drive) and only the logo's own area as a picture over it, cut to
+    where it differs from the colour in its corner by more than `tolerance`. The picture's Opacity is mixed in over black
+    first (the wheel draws pictures opaque: a logo at 8 % on a black screen). `max_colors`: the colours it really has
+    (without the RAM patch it's rectangles in that many: a black and red logo on white, 3; a faint one, 2). The same
+    look; the Toyota's ignition-on logo went from a screenful to its 727 x 192 area. Returns the rectangle."""
+    import base64, io
+    from PIL import Image
+    im = Image.open(io.BytesIO(base64.b64decode(d['Images'][e['Image']]))).convert('RGBA').resize((e['W'], e['H']), Image.LANCZOS).convert('RGB')
+    a = e.get('Opacity', 100) / 100
+    if a < 1:
+        im = Image.eval(im, lambda v: int(round(v * a)))
+        e['Opacity'] = 100
+    bg = im.getpixel((2, 2))
+    mask = Image.new('L', im.size, 0)
+    px, mp = im.load(), mask.load()
+    for yy in range(im.height):
+        for xx in range(im.width):
+            if max(abs(c - b) for c, b in zip(px[xx, yy], bg)) > tolerance: mp[xx, yy] = 255
+    x0, y0, x1, y1 = mask.getbbox()
+    x0, y0, x1, y1 = max(0, x0 - 2), max(0, y0 - 2), min(im.width, x1 + 2), min(im.height, y1 + 2)
+    rect = {'Type': 'rect', 'Name': (e.get('Name') or '') + ' background', 'X': e['X'], 'Y': e['Y'], 'W': e['W'], 'H': e['H'],
+            'Color': '#%02X%02X%02X' % bg, 'Visible': e.get('Visible'), 'PreviewVisible': e.get('PreviewVisible')}
+    key = f'{key}@{x1 - x0}x{y1 - y0}'
+    buf = io.BytesIO(); im.crop((x0, y0, x1, y1)).save(buf, 'PNG')
+    d['Images'][key] = base64.b64encode(buf.getvalue()).decode('ascii')
+    e.update(Image=key, X=e['X'] + x0, Y=e['Y'] + y0, W=x1 - x0, H=y1 - y0, MaxColors=max_colors)
+    E.insert(E.index(e), rect)
+    return rect

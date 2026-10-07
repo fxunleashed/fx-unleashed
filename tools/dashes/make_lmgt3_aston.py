@@ -212,27 +212,7 @@ for v in [e for e in E if e.get('Name') in DIALS and e['Type'] == 'value' and no
 # A value's box reaching into another text shown with it (the tyre widget: a corner's brake temperature and its
 # pressure share the corner, the original's boxes overlap and only their ink doesn't): every change would redraw the
 # other one (a flash). Such boxes shrink to their widest text (+2 px each side), kept where their alignment holds them.
-def rect(e): return (e['X'], e['Y'], e['X'] + e['W'], e['Y'] + e['H'])
-def meet(a, b): return min(a[2], b[2]) - max(a[0], b[0]) > 0 and min(a[3], b[3]) - max(a[1], b[1]) > 0
-def together(a, b):
-    """Can show at the same time: not on different pages of a set (overlays are left to take-turns / the checks)."""
-    for k in range(4):
-        pa = [c for c in K.pages_of(a) if c.split(':')[0] == ('page' if k == 0 else f'page{k + 1}')]
-        pb = [c for c in K.pages_of(b) if c.split(':')[0] == ('page' if k == 0 else f'page{k + 1}')]
-        if pa and pb and pa != pb: return False
-    return sorted(own(a)) == sorted(own(b)) or not own(a) or not own(b)
-def shrink(v):
-    tw = max(K.width(v['Font'], t) for t in texts_of(v)) + 4
-    if v['W'] <= tw: return
-    if v.get('Align') == 'right': v['X'] += v['W'] - tw
-    elif v.get('Align') == 'center': v['X'] += (v['W'] - tw) // 2
-    v['W'] = tw
-shrunk = 0
-for v in [e for e in E if e['Type'] == 'value']:
-    for o in E:
-        if o is v or o['Type'] not in ('value', 'label') or not meet(rect(v), rect(o)) or not together(v, o): continue
-        shrink(v); shrunk += 1
-        if o['Type'] == 'value': shrink(o)
+K.shrink_to_text(E)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # 5. Fixed texts as pictures in the original's own font. The screen draws text only in its own fonts, and below 32 px

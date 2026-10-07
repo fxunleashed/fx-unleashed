@@ -213,7 +213,7 @@ namespace User.FXProRpmSync
             /// elements carry a placeholder condition until NumberPageSets numbers the sets by their commands.
             /// </summary>
             private readonly List<Pager> pagers = new List<Pager>();
-            private sealed class Pager { public int Next, Prev, Count; public string Name; public List<string> Names; }
+            private sealed class Pager { public int Next, Prev, Count; public string Name, File; public List<string> Names; }
             private const string PagerMark = "\u0001pager:";
 
             public Context(string path, ImportOptions opt) { this.path = path; this.opt = opt; folder = Path.GetDirectoryName(path); }
@@ -466,7 +466,10 @@ namespace User.FXProRpmSync
                     case "Layer":
                     case "GroupItem":
                         Background(it, f, cond);
-                        Items((it["Childrens"] ?? it["Items"]) as JArray, f.With(f.OX, f.OY, f.Scale, cond, null, Math.Max(0, Math.Min(100, (double?)it["Opacity"] ?? 100)) / 100));
+                        // a group's children are placed from the group's corner (a layer has none: its children are on the
+                        // screen's own coordinates)
+                        double gx = type == "GroupItem" ? ((double?)it["Left"] ?? 0) * f.Scale : 0, gy = type == "GroupItem" ? ((double?)it["Top"] ?? 0) * f.Scale : 0;
+                        Items((it["Childrens"] ?? it["Items"]) as JArray, f.With(f.OX + gx, f.OY + gy, f.Scale, cond, null, Math.Max(0, Math.Min(100, (double?)it["Opacity"] ?? 100)) / 100));
                         return;
                     case "WidgetItem":
                         Widget(it, f, cond, binds);
@@ -661,10 +664,18 @@ namespace User.FXProRpmSync
                             attrs.SetWrapMode(WrapMode.TileFlipXY);
                             g.DrawImage(src, new System.Drawing.Rectangle(0, 0, dst.Width, dst.Height), 0, 0, src.Width, src.Height, GraphicsUnit.Pixel, attrs);
                         }
+                        // turned a right angle in SimHub (about its centre: the Mercedes AMG's right arrow is its left one at
+                        // 180, its lap summary's up and down arrows one picture at 90 and 270): the picture turned the same
+                        // way (a square box, or 180, keeps its place); other angles stay as they are
+                        int turn = (((int)Math.Round((double?)it["Rotation"] ?? 0) % 360) + 360) % 360;
+                        if (turn == 180 || ((turn == 90 || turn == 270) && dst.Width == dst.Height))
+                            dst.RotateFlip(turn == 90 ? RotateFlipType.Rotate90FlipNone : turn == 180 ? RotateFlipType.Rotate180FlipNone : RotateFlipType.Rotate270FlipNone);
+                        else if (turn != 0) Report.Note($"picture \"{name}\" is turned {turn} degrees in SimHub: imported unturned");
                         using (var o = new MemoryStream())
                         {
                             dst.Save(o, ImageFormat.Png);
-                            key = name + "@" + dst.Width + "x" + dst.Height;
+                            // (a turned copy is another picture: the Mercedes AMG's up and down arrows are one picture at 90 and 270)
+                            key = name + (turn == 0 || !(turn == 180 || dst.Width == dst.Height) ? "" : "@" + turn) + "@" + dst.Width + "x" + dst.Height;
                             if (def.Images == null) def.Images = new Dictionary<string, string>();
                             def.Images[key] = Convert.ToBase64String(o.ToArray());
                         }
@@ -743,6 +754,9 @@ namespace User.FXProRpmSync
                 // flipped by the driver (SimHub's next / previous screen commands on the widget): the dash's pages
                 int next = (int?)it["NextScreenCommand"] ?? 0, prev = (int?)it["PreviousScreenCommand"] ?? 0;
                 bool flipped = next != 0 || prev != 0;
+                // (the same widget file with as many screens follows that set too, on other commands: a copy of the dash's
+                // widgets in its start-up screen, the Mercedes AMG's, flipped with an older pair of commands)
+                bool Same(Pager x) => x.Count == screens.Count && ((x.Next == next && x.Prev == prev) || string.Equals(x.File, file, StringComparison.OrdinalIgnoreCase));
                 if (screenBind != null && screens.Count > 1)
                 {
                     // screen chosen by a formula: every screen, each shown while the formula gives its index
@@ -750,15 +764,15 @@ namespace User.FXProRpmSync
                         Items(screens[i]["Items"] as JArray, inner.With(inner.OX, inner.OY, inner.Scale, new[] { Equals(screenBind, i) }));
                     Report.Note($"widget \"{file}\": {screens.Count} screens, switched by its formula");
                 }
-                else if (flipped && screens.Count > 1 && (pagers.Any(x => x.Next == next && x.Prev == prev && x.Count == screens.Count) || pagers.Count < DashPages.MaxSets))
+                else if (flipped && screens.Count > 1 && (pagers.Any(Same) || pagers.Count < DashPages.MaxSets))
                 {
                     // a set of pages per pair of SimHub screen commands; another widget on the same commands with as many
                     // screens follows the same set, as SimHub would flip both
-                    var pager = pagers.FirstOrDefault(x => x.Next == next && x.Prev == prev && x.Count == screens.Count);
+                    var pager = pagers.FirstOrDefault(Same);
                     bool first = pager == null;
                     if (first)
                     {
-                        pager = new Pager { Next = next, Prev = prev, Count = screens.Count, Name = ((string)it["Name"] ?? Path.GetFileNameWithoutExtension(file)).Trim(), Names = new List<string>() };
+                        pager = new Pager { Next = next, Prev = prev, Count = screens.Count, File = file, Name = ((string)it["Name"] ?? Path.GetFileNameWithoutExtension(file)).Trim(), Names = new List<string>() };
                         pagers.Add(pager);
                     }
                     int id = pagers.IndexOf(pager);
@@ -935,7 +949,10 @@ namespace User.FXProRpmSync
                 string textBind = lb?.Bind ?? Formula(binds, "Text");
                 string format = lb?.Format ?? "text";
                 var fs = lb != null ? null : (string)binds?["Text"]?["FormatString"];
-                if (textBind == null) BuiltIn(type, ref textBind, ref format, ref sample);
+                // a plain TextItem given one of SimHub's time behaviours (Behavior ...TimespanText.Imp.LastLapTime) shows that
+                // time as the built-in item of that name does; its Text is only the designer's sample
+                var behaviour = Regex.Match((string)it["Behavior"]?["$type"] ?? "", @"\.TimespanText\.Imp\.(\w+),");
+                if (textBind == null) BuiltIn(behaviour.Success ? behaviour.Groups[1].Value : type, ref textBind, ref format, ref sample);
                 else if (!string.IsNullOrEmpty(fs)) format = TimeSpanFormat(fs) ? "time:" + fs : fs;
                 else if (Regex.IsMatch(textBind, @"^ncalc:\[[^\]]*(LapTime|BestLap|LastLap|Laptime)[^\]]*\]$", RegexOptions.IgnoreCase)) format = "laptime"; // a bare lap time, shown m:ss.fff
 
@@ -1010,7 +1027,10 @@ namespace User.FXProRpmSync
                 bool js = (int?)fo["Interpreter"] == 1;
                 if (mode != 2 && mode != 4 && mode != 1) return null;
                 if (js) Report.JsFormulas++; else Report.NcalcFormulas++;
-                return (js ? "js:" : "ncalc:") + expr.Trim();
+                // a script's PreExpression runs before it in SimHub (FX-Pro Fuel's sector times: "const sectorIndex = 1;"):
+                // put in front of its body, or what it declares is "not defined"
+                var pre = js ? ((string)fo["PreExpression"] ?? "").Trim() : "";
+                return (js ? "js:" : "ncalc:") + (pre.Length > 0 ? pre + "\r\n" : "") + expr.Trim();
             }
 
             /// <summary>SimHub colour gradients (binding mode 4): the value's colour between start/middle/end colours.</summary>

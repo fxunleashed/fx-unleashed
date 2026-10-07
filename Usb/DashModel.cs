@@ -39,7 +39,8 @@ namespace User.FXProRpmSync
         public string Author;
         public string Description;
         public List<DashElement> Elements = new List<DashElement>();
-        /// <summary>Pictures used by image elements, by name: base64 PNG. Keeps a dash one self-contained file.</summary>
+        /// <summary>Pictures used by image elements, by name: base64 PNG (or JPEG; any format the system reads: a GIF gives its
+        /// first frame). Keeps a dash one self-contained file.</summary>
         public Dictionary<string, string> Images;
         /// <summary>Where it came from (e.g. "SimHub: LMGT3 Ford Mustang GT3 / MAIN"), for imports.</summary>
         public string Source;
@@ -285,6 +286,9 @@ namespace User.FXProRpmSync
         // image: a name in DashDefinition.Images; drawn with at most MaxColors colours (fewer = faster to draw)
         public string Image;
         public int MaxColors = 8;
+        /// <summary>Size of the picture's pixels when it's drawn with rectangles (no RAM drive): 1 = as is, 4 = squares of 4 x 4
+        /// (a photo is a sixteenth of the rectangles). Pictures drawn from the screen's RAM keep every pixel and colour.</summary>
+        public int Block = 1;
 
         // deltabar
         public int Segments = 7;         // per side

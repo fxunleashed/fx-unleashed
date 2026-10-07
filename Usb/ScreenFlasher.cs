@@ -11,7 +11,7 @@ namespace User.FXProRpmSync
     {
         public DateTime When;
         public string ImageId;
-        public string Mode;      // "ramfs" (RAM drive on) or "stock"
+        public string Mode;      // "ramfs" (RAM drive on), "stock" or "full" (the whole stock image, support only)
         public string Result;    // "sent" (no answer yet), "ok" (Update Successed), "failed"
     }
 
@@ -166,12 +166,40 @@ namespace User.FXProRpmSync
         /// Uploads image block 0. `screenAt`: the speed the screen listens at (512000 normally; 9600 for a screen without
         /// pages, 115200 for one left at its saved speed). `progress(text, fraction)` is called from this thread. After the
         /// last packet the screen is held (the wheel's own output kept away from it) until `holdUntil` is set or 3 minutes
-        /// pass, while it checks the image.
+        /// pass, while it checks the image. `full`: `block` is that record's whole image instead (support only, ~11 minutes;
+        /// FXProDashes screen-images.md, as tools/usb/screen-flash.ps1 stock), checked byte for byte again right before it goes out.
         /// </summary>
-        public static void Upload(string path, byte[] block, int screenAt, Action<string, double> progress, WaitHandle holdUntil)
+        public static void Upload(string path, byte[] block, int screenAt, Action<string, double> progress, WaitHandle holdUntil, ScreenImage full = null)
         {
-            if (block.Length != ScreenImage.Block0) throw new ArgumentException("not an image block 0");
+            if (full != null)
+            {
+                var why = full.CheckFull(block);
+                if (why != null) throw new System.IO.InvalidDataException("the screen image isn't the recorded one: " + why);
+            }
+            else if (block.Length != ScreenImage.Block0) throw new ArgumentException("not an image block 0");
             if (!Speeds.Contains(screenAt)) throw new ArgumentException("512000, 115200 or 9600");
+            // ~11 minutes for a whole image: Windows mustn't sleep halfway (an interrupted upload leaves no dash)
+            if (full != null) SetThreadExecutionState(EsContinuous | EsSystemRequired);
+            InProgress = full != null ? "Writing the screen's whole image" : "Updating the screen";
+            try { Send(path, block, screenAt, progress, holdUntil, full != null); }
+            finally
+            {
+                InProgress = null;
+                if (full != null) SetThreadExecutionState(EsContinuous);
+            }
+        }
+
+        /// <summary>
+        /// Set while an upload runs. Static, so it outlives the plugin instance: SimHub recreates every plugin on a game
+        /// change, and the new instance's USB mode must keep off the wheel until the old instance's upload is done.
+        /// </summary>
+        public static volatile string InProgress;
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern uint SetThreadExecutionState(uint flags);
+        private const uint EsContinuous = 0x80000000, EsSystemRequired = 0x00000001;
+
+        private static void Send(string path, byte[] block, int screenAt, Action<string, double> progress, WaitHandle holdUntil, bool full)
+        {
             // At 115200 the wheel's UART (11.5 KB/s) is slower than USB: a 4 KB packet needs ~360 ms on the wire, and the
             // wheel's 5000-byte buffer holds one, so pause 450 ms. At 9600 only the command goes slowly; the data goes at
             // 512000 (whmi-wri switches the screen to the speed it names).
@@ -202,9 +230,11 @@ namespace User.FXProRpmSync
                         host.Cmd(cmd); host.Flush();
                     }
                     progress("The screen is getting ready", 0);
+                    if (full) Log($"whole image: {block.Length} bytes, {packets} packets, screen at {screenAt}, data at {dataBaud}, pause {pause} ms");
                     Thread.Sleep(1500);
 
                     var chunk = new byte[61];
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
                     for (int p = 0; p < packets; p++)
                     {
                         int start = p * Packet, len = Math.Min(Packet, block.Length - start);
@@ -215,9 +245,17 @@ namespace User.FXProRpmSync
                             c.ScreenBytes(chunk, n);
                         }
                         Thread.Sleep(p == 0 ? firstPause : pause);
-                        progress($"Sending {p + 1} of {packets}", (p + 1.0) / packets);
+                        double done = (p + 1.0) / packets;
+                        if (full)
+                        {
+                            double left = sw.Elapsed.TotalSeconds / done - sw.Elapsed.TotalSeconds;
+                            progress($"Sending {p + 1} of {packets} ({done * 100:0}%), about {Math.Ceiling(left / 60):0} min left", done);
+                            if ((p + 1) % 256 == 0 || p == packets - 1) Log($"whole image: packet {p + 1}/{packets}, {sw.Elapsed.TotalSeconds:0} s");
+                        }
+                        else progress($"Sending {p + 1} of {packets}", done);
                     }
                     progress("Sent. The screen is checking its image: watch it for \"Update Successed\"", 1);
+                    if (full) Log("whole image: all sent, holding the screen while it checks");
                     holdUntil.WaitOne(TimeSpan.FromMinutes(3));
                 }
                 finally
@@ -276,6 +314,8 @@ namespace User.FXProRpmSync
             last.Result = result;
             if (!(result == "ok" && last.Mode == "ramfs")) s.ScreenRamDrive = false;
         }
+
+        private static void Log(string text) { try { SimHub.Logging.Current.Info("[FXProRpmSync] screen: " + text); } catch { } }
 
         public static void Record(UsbSettings s, ScreenImage img, string mode, string result)
         {

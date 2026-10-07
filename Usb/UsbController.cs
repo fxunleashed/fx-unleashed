@@ -755,6 +755,9 @@ namespace User.FXProRpmSync
 
         public IDisposable Lend(string reason)
         {
+            if (ScreenFlasher.InProgress != null)
+                throw new InvalidOperationException("The screen is being updated (" + ScreenFlasher.InProgress + "). Wait until it's done.");
+            if (lentFor != null) throw new InvalidOperationException("The wheel is busy (" + lentFor + "). Try again when that's done.");
             lentIdle = false;
             lentFor = reason;
             wake.Set();
@@ -786,11 +789,14 @@ namespace User.FXProRpmSync
             {
                 try
                 {
-                    if (lentFor != null)
+                    // ScreenFlasher.InProgress: a screen upload started by this plugin, or by the one SimHub replaced on a game
+                    // change (plugins are recreated; the upload's thread keeps going), must never get our screen output mixed in
+                    var lent = lentFor ?? ScreenFlasher.InProgress;
+                    if (lent != null)
                     {
                         Deactivate();
                         State = "Busy";
-                        Detail = lentFor;
+                        Detail = lent;
                         lentIdle = true;
                         wake.WaitOne(500);
                         continue;
@@ -1120,10 +1126,12 @@ namespace User.FXProRpmSync
             var errors = new List<string>();
             if (item != null)
             {
-                want = item.Kind == SaverKind.Logo ? null : IdleScreens.DashFor(item, DashLibrary.Load(errors));
+                // an animated GIF plays when the screen has the RAM drive (a saver that draws itself, like the painted ones);
+                // without, it's its first frame as a picture dash
+                want = item.Kind == SaverKind.Logo ? null : IdleScreens.DashFor(item, DashLibrary.Load(errors), s.ScreenRamDrive && model == WheelModel.FxPro);
                 if (want == null)
                 {
-                    saver = IdleScreens.Animated(item, s.LastSession) ?? new ScreenSaver();
+                    saver = IdleScreens.Animated(item, s.LastSession, s.PadLeft, s.PadTop) ?? new ScreenSaver();
                     loadingTitle = item.Name;
                     PrepareSaverTiles();
                     if (pendingTiles != null) DrawLoading();
@@ -1151,7 +1159,9 @@ namespace User.FXProRpmSync
             ScriptsFolder = dash.ScriptsFolder;
             DashProblems = renderer.Check();
             loadingTitle = dash.Name;
-            PrepareTiles(item == null);
+            // a picture screensaver is drawn from the RAM like a dash (all its colours: with rectangles it was a few), the
+            // clock and library savers of plain shapes are not
+            PrepareTiles(item == null || IdleScreens.DrawnFromRam(dash));
             if (pendingTiles != null) DrawLoading();
             else renderer.DrawAll();
             lastDash = clock.Elapsed.TotalSeconds;
@@ -1409,7 +1419,10 @@ namespace User.FXProRpmSync
         {
             pendingTiles = null; loadingTotal = 0; loadingKeep = null; backgroundTiles = null; backgroundTotal = 0;
             if (!S.ScreenRamDrive || model != WheelModel.FxPro || renderer == null || !realDash) { RamStatus = null; return; }
-            if (!S.DashUsesRam(dash?.Id))
+            // a dash whose pictures can't all be on the drive at once (a big photo): the upload would push everything else
+            // out and still fail, so it's drawn with rectangles from the start
+            bool fits = DashRam.Bytes(new[] { dash }) <= ScreenRam.Budget;
+            if (!S.DashUsesRam(dash?.Id) || !fits)
             {
                 // this dash is set to skip the screen's RAM: drawn with rectangles, nothing of it uploaded. The rest of the
                 // rotation still goes up in the background, for the dashes that do use the RAM.
@@ -1417,7 +1430,8 @@ namespace User.FXProRpmSync
                 var others = RotationFiles(loadingKeep, 0, clock.Elapsed.TotalSeconds, 1);
                 if (others.Count > 0) { backgroundTiles = others; backgroundTotal = others.Count; }
                 nextBackground = clock.Elapsed.TotalSeconds + 1;
-                RamStatus = "This dash is drawn without the screen's RAM (set on the Dashes page).";
+                RamStatus = fits ? "This dash is drawn without the screen's RAM (set on the Dashes page)."
+                                 : "This dash's pictures are too big for the screen's RAM: drawn with rectangles.";
                 return;
             }
             // our token in the marker word (also when the drive was just switched on): it tells a later reconnect that

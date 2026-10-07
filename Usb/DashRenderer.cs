@@ -271,7 +271,14 @@ namespace User.FXProRpmSync
                     var u = Rectangle.Union(r, m.R);
                     if (Clip(u) == u && u.Width * u.Height <= 1.6 * n.R.Width * n.R.Height) r = u;
                 }
-                if (dynamic.Any(m => m.Index < n.Index && m.R.IntersectsWith(r) && (m.Kind == "bar" || m.Kind == "deltabar"))) continue;
+                // (a bar on another page of the dash never is: FX-Pro Fuel's radar bars denied the tyres beside them on the
+                // Tyres page their pictures, 4,500 rectangles each at every flip)
+                // (nor one hidden under an opaque shape that always shows with this one: FX-Pro Fuel's radar pop-up covers the
+                // Lift & Coast bar with its black screen, and its arrows over that bar got no pictures, 9 KB each)
+                if (dynamic.Any(m => m.Index < n.Index && m.R.IntersectsWith(r) && (m.Kind == "bar" || m.Kind == "deltabar") && !DashPages.Apart(m.E, n.E)
+                                     && !dynamic.Any(s => s.Index > m.Index && s.Index < n.Index && s.E.Type == "rect" && s.E.Opacity >= 100 && string.IsNullOrEmpty(s.E.ColorBind)
+                                                      && s.E.Visible != null && s.E.Visible.All(n.E.Visible.Contains)
+                                                      && s.R.Contains(Rectangle.Intersect(m.R, r))))) continue;
                 // a shape a few smooth rectangles draw (a frame, a small box, a little arrow) needs no picture: it shows just
                 // as fast and exact, and takes no room on the drive (a file there is its bytes and an entry). (Only shapes
                 // that could have one: anti-aliased, a shape that can't takes more rectangles than drawn plain.)
@@ -370,6 +377,11 @@ namespace User.FXProRpmSync
                 }
                 else
                 {
+                    // (a shape inside a shape of its own overlay, shown whenever it is: a bordered box drawn as its border's
+                    // rectangle and its fill inset in it; the outer one's area is put back when both go: a second, inner
+                    // copy of the same pixels was ~7 KB of the RAM drive for a lap summary's panel)
+                    if (dynamic.Any(m => m.Index < n.Index && m.Kind == "shape" && m.E.Visible != null && m.E.Visible.Count > 0
+                                         && m.E.Visible.All(n.E.Visible.Contains) && m.R.Contains(n.R))) continue;
                     var outline = Outline(n);
                     if (outline.Count != 1) continue; // (a frame with nothing inside: put back along its border only)
                     a = Clip(outline[0]);
@@ -1141,13 +1153,57 @@ namespace User.FXProRpmSync
                     if (IsShape(e) && !e.IsDynamic)
                     {
                         DrawShape(g, e, new Point(e.X, e.Y), DashColors.Parse(e.Color, Color.White));
-                        if (e.Type == "image" && !full) Quantize(bmp, Clip(new Rectangle(e.X, e.Y, e.W, e.H)), e.MaxColors);
+                        if (e.Type == "image" && !full)
+                        {
+                            var area = Clip(new Rectangle(e.X, e.Y, e.W, e.H));
+                            Pixelate(bmp, area, new Point(e.X, e.Y), e.Block);
+                            Quantize(bmp, area, e.MaxColors);
+                        }
                     }
             }
             return bmp;
         }
 
         private static bool IsShape(DashElement e) => e.Type == "rect" || e.Type == "ellipse" || e.Type == "box" || e.Type == "gradient" || e.Type == "image";
+
+        /// <summary>
+        /// A picture drawn with rectangles in squares of `block` x `block` pixels (cells counted from `origin`, each the
+        /// average of its pixels, transparency counted): a photo is a block-squared part of the rectangles. Not for the
+        /// RAM drive, which keeps every pixel.
+        /// </summary>
+        private static void Pixelate(Bitmap bmp, Rectangle area, Point origin, int block)
+        {
+            if (block <= 1 || area.Width <= 0 || area.Height <= 0) return;
+            var data = bmp.LockBits(area, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+            try
+            {
+                int w = data.Width, h = data.Height;
+                var px = new int[w * h];
+                for (int y = 0; y < h; y++)
+                    System.Runtime.InteropServices.Marshal.Copy(data.Scan0 + y * data.Stride, px, y * w, w);
+                // cells are aligned to the picture's own corner, not to the part of it that's on screen
+                int x0 = -(((area.X - origin.X) % block + block) % block), y0 = -(((area.Y - origin.Y) % block + block) % block);
+                for (int cy = y0; cy < h; cy += block)
+                    for (int cx = x0; cx < w; cx += block)
+                    {
+                        int xa = Math.Max(0, cx), xb = Math.Min(w, cx + block), ya = Math.Max(0, cy), yb = Math.Min(h, cy + block);
+                        long sa = 0, sr = 0, sg = 0, sb = 0;
+                        int n = (xb - xa) * (yb - ya);
+                        for (int y = ya; y < yb; y++)
+                            for (int x = xa; x < xb; x++)
+                            {
+                                int p = px[y * w + x], a = (p >> 24) & 255;
+                                sa += a; sr += ((p >> 16) & 255) * a; sg += ((p >> 8) & 255) * a; sb += (p & 255) * a;
+                            }
+                        int avg = unchecked((int)((sa == 0 ? 0 : (uint)(sa / n) << 24 | (uint)(sr / sa) << 16 | (uint)(sg / sa) << 8 | (uint)(sb / sa))));
+                        for (int y = ya; y < yb; y++)
+                            for (int x = xa; x < xb; x++) px[y * w + x] = avg;
+                    }
+                for (int y = 0; y < h; y++)
+                    System.Runtime.InteropServices.Marshal.Copy(px, y * w, data.Scan0 + y * data.Stride, w);
+            }
+            finally { bmp.UnlockBits(data); }
+        }
 
         /// <summary>Reduces an area of the bitmap to its `max` most common colours (fewer colours = fewer fills).</summary>
         private static void Quantize(Bitmap bmp, Rectangle area, int max)
@@ -1232,7 +1288,11 @@ namespace User.FXProRpmSync
                     g.Clear(Color.Transparent);
                     DrawShape(g, e, Point.Empty, colour);
                 }
-                if (e.Type == "image" && !smooth) Quantize(bmp, new Rectangle(0, 0, w, h), e.MaxColors);
+                if (e.Type == "image" && !smooth)
+                {
+                    Pixelate(bmp, new Rectangle(0, 0, w, h), Point.Empty, e.Block);
+                    Quantize(bmp, new Rectangle(0, 0, w, h), e.MaxColors);
+                }
                 var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
                 var argb = new int[w * h];
                 for (int y = 0; y < h; y++) System.Runtime.InteropServices.Marshal.Copy(data.Scan0 + y * data.Stride, argb, y * w, w);
@@ -1498,7 +1558,10 @@ namespace User.FXProRpmSync
                         if (oldPx != null)
                             foreach (var m in dynamic)
                                 if (m.Index > n.Index && SolidText(m) && !Covered(m.R) && n.R.Contains(m.TextAt.Value)) keep.Add(m);
-                        var skip = SolidShapesAbove(n.Index);
+                        // only shapes already on the screen as they stay: one drawn this update goes on top right after
+                        // anyway, and filling around it showed the old screen there meanwhile (a page flip: the new
+                        // background in ~140 strips around its ticks, the old page's colour between them)
+                        var skip = SolidShapesAbove(n.Index, onScreenOnly: true);
                         skip.AddRange(keep.Select(m => m.TextAt.Value));
                         // a picture with its own file on the screen, nothing over it: one command
                         // a picture is drawn whole: fine under solid shapes still to be drawn this update (they go on top
@@ -1800,12 +1863,13 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>Shapes after element `index` that show now and have no transparent pixel: nothing under them is seen.</summary>
-        private List<Rectangle> SolidShapesAbove(int index)
+        private List<Rectangle> SolidShapesAbove(int index, bool onScreenOnly = false)
         {
             var list = new List<Rectangle>();
             foreach (var m in dynamic)
             {
                 if (m.Index <= index || m.Kind != "shape" || !m.Visible || Covered(m.R)) continue;
+                if (onScreenOnly && !(m.Shown && m.Sent == m.Key)) continue;
                 EnsurePx(m);
                 if (m.PxOpaque == null) m.PxOpaque = m.PxSolid == null ? !m.Px.Contains(Transparent) : m.PxSolid.All(x => x);
                 if (m.PxOpaque == true) list.Add(Clip(m.R));
