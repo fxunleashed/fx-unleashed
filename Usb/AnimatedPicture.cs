@@ -32,6 +32,9 @@ namespace User.FXProRpmSync
         public double Size = 1;
         /// <summary>Most steps a second to keep; 0 = as many as fit in the screen's memory.</summary>
         public double MaxStepsPerSecond;
+        /// <summary>1 (lowest) - 5 (high), see <see cref="AnimatedPicture.QualityName"/>: lower makes smaller files and has the
+        /// screen draw less each step, at the cost of a softer picture.</summary>
+        public int Quality = AnimatedPicture.DefaultQuality;
     }
 
     /// <summary>What an animated GIF is, for the import window.</summary>
@@ -84,6 +87,9 @@ namespace User.FXProRpmSync
         /// <summary>Fewer frames were kept because they didn't fit in the screen's memory (as opposed to the person's smoothness limit).</summary>
         public bool MemoryLimited;
 
+        /// <summary>The quality level it was made at (<see cref="QualityName"/>; 0 in older files).</summary>
+        public int Quality;
+
         [JsonIgnore] public bool Oversized => FramesTaken < FramesTotal;
 
         /// <summary>How long one trip through the animation takes, in seconds.</summary>
@@ -112,7 +118,21 @@ namespace User.FXProRpmSync
 
         // ---------------------------------------------------------------- importing
 
-        private const int Quality = 72;
+        /// <summary>The quality choices: JPEG quality of each picture, and how far a colour must move (0-255) before the pixel is
+        /// drawn again (the screen has 5/6/5 bits; GIFs are often dithered, so the smallest changes are mostly noise). Lower
+        /// levels give smaller files (more frames fit the memory) and smaller patches (less for the screen to draw a step).</summary>
+        private static readonly int[] JpegQualities = { 30, 45, 60, 72, 86 };
+        private static readonly int[] Tolerances = { 26, 18, 11, 6, 4 };
+        private static readonly string[] QualityNames = { "Lowest", "Low", "Medium", "Good", "High" };
+        /// <summary>The level an import uses unless asked otherwise (what the first version always used).</summary>
+        public const int DefaultQuality = 4;
+        public const int QualityLevels = 5;
+
+        private static int Level(int quality) => Math.Max(1, Math.Min(QualityLevels, quality));
+        public static string QualityName(int quality) => QualityNames[Level(quality) - 1];
+        /// <summary>The JPEG quality (1-100) a level encodes at.</summary>
+        public static int JpegQuality(int quality) => JpegQualities[Level(quality) - 1];
+
         /// <summary>A pixel counts as changed when a colour differs by more than this (0-255; the screen has 5/6/5 bits).</summary>
         private const int Threshold = 6;
         private const int MaxCandidates = 120;
@@ -145,15 +165,17 @@ namespace User.FXProRpmSync
                 double fit = Math.Min(Math.Min(areaW / gif.Width, areaH / gif.Height), MaxUpscale) * Math.Max(0.05, Math.Min(1, o.Size));
 
                 AnimatedPicture best = null;
+                int level = Level(o.Quality), tolerance = Tolerances[level - 1], jpeg = JpegQualities[level - 1];
                 // the picture's own size first; if even its first frame is too much for the budget, smaller and smaller
                 foreach (double shrink in new[] { 1, 0.85, 0.7, 0.55, 0.4, 0.3 })
                 {
                     int w = Math.Max(8, (int)Math.Round(gif.Width * fit * shrink)), h = Math.Max(8, (int)Math.Round(gif.Height * fit * shrink));
                     var cands = Decode(gif, dim, total, delays, w, h, o.MaxStepsPerSecond);
-                    foreach (int q in new[] { Quality, 60, 48 })
+                    // the chosen quality, then (if the first picture alone is too much) coarser ones before a smaller size
+                    foreach (int q in new[] { jpeg, Math.Max(20, jpeg - 12), Math.Max(15, jpeg - 24) }.Distinct())
                     {
-                        best = Fit(cands, total, w, h, q, budget, maxFiles, name);
-                        if (best != null) goto found;
+                        best = Fit(cands, total, w, h, q, tolerance, budget, maxFiles, name);
+                        if (best != null) { best.Quality = level; goto found; }
                     }
                 }
                 return null;
@@ -201,15 +223,16 @@ namespace User.FXProRpmSync
         /// <summary>
         /// The biggest picture that plays at the GIF's speed: at most SmoothSteps steps a second (or the GIF's own, if fewer),
         /// the screen able to draw them by its model, and not so many frames that the memory cuts them. Slow (a few trial
-        /// imports): not on the UI thread. `picture` is the one made at that size (no still picture in it yet).
+        /// imports): not on the UI thread. `picture` is the one made at that size (no still picture in it yet). `quality` is the
+        /// level the person chose; the size is what is worked out for it.
         /// </summary>
-        public static GifOptions BestFit(string path, GifInfo info, out AnimatedPicture picture, int budget = Budget)
+        public static GifOptions BestFit(string path, GifInfo info, out AnimatedPicture picture, int budget = Budget, int quality = DefaultQuality)
         {
             double target = Math.Min(info.StepsPerSecond, SmoothSteps);
             // every step of the window's size slider (5% each): the search is a halving one, a handful of trial imports
             double[] sizes = Enumerable.Range(0, 16).Select(i => Math.Round(1.0 - 0.05 * i, 2)).ToArray();
             var tried = new Dictionary<int, AnimatedPicture>();
-            GifOptions At(int i) => new GifOptions { Size = sizes[i], MaxStepsPerSecond = target >= info.StepsPerSecond - 0.01 ? 0 : target };
+            GifOptions At(int i) => new GifOptions { Size = sizes[i], MaxStepsPerSecond = target >= info.StepsPerSecond - 0.01 ? 0 : target, Quality = Level(quality) };
             AnimatedPicture Try(int i)
             {
                 if (!tried.TryGetValue(i, out var pic)) tried[i] = pic = FromGif(path, info.Name, budget, MaxFiles, At(i), needStill: false);
@@ -292,20 +315,20 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>The most frames that fit the budget at this quality (null: not even the first picture does).</summary>
-        private static AnimatedPicture Fit(List<Candidate> c, int total, int w, int h, int q, int budget, int maxFiles, string name)
+        private static AnimatedPicture Fit(List<Candidate> c, int total, int w, int h, int q, int tolerance, int budget, int maxFiles, string name)
         {
             var cache = new Dictionary<string, Encoded>();
             bool Fits(AnimatedPicture p) => p.RamBytes <= budget && Files(p) <= maxFiles;
-            var all = Build(c, c.Count, total, w, h, q, cache, name);
+            var all = Build(c, c.Count, total, w, h, q, tolerance, cache, name);
             if (Fits(all)) return all;
-            var best = Build(c, 1, total, w, h, q, cache, name);
+            var best = Build(c, 1, total, w, h, q, tolerance, cache, name);
             if (!Fits(best)) return null;
             best.MemoryLimited = true;
             int lo = 1, hi = c.Count - 1; // c.Count frames don't fit, one does
             while (lo < hi)
             {
                 int mid = (lo + hi + 1) / 2;
-                var p = Build(c, mid, total, w, h, q, cache, name);
+                var p = Build(c, mid, total, w, h, q, tolerance, cache, name);
                 if (Fits(p)) { lo = mid; best = p; best.MemoryLimited = true; } else hi = mid - 1;
             }
             return best;
@@ -318,7 +341,7 @@ namespace User.FXProRpmSync
         /// n evenly spaced candidates as an animation: the first as a whole picture, each next as what changes from the one
         /// before (a frame that changes nothing just stays longer), and what changes from the last back to the first.
         /// </summary>
-        private static AnimatedPicture Build(List<Candidate> c, int n, int total, int w, int h, int q, Dictionary<string, Encoded> cache, string name)
+        private static AnimatedPicture Build(List<Candidate> c, int n, int total, int w, int h, int q, int tolerance, Dictionary<string, Encoded> cache, string name)
         {
             var sel = Enumerable.Range(0, n).Select(j => (int)Math.Round(j * (double)c.Count / n)).ToArray();
             // how long each kept frame shows: its own time and that of the frames left out after it
@@ -333,13 +356,13 @@ namespace User.FXProRpmSync
             pic.Frames.Add(first);
             for (int j = 1; j < n; j++)
             {
-                var rects = Changes(shown, c[sel[j]].Bgr, w, h);
+                var rects = Changes(shown, c[sel[j]].Bgr, w, h, tolerance);
                 if (rects.Count == 0) { pic.Frames[pic.Frames.Count - 1].Ms += dwell[j]; continue; }
                 var f = new AnimFrame { Ms = dwell[j] };
                 foreach (var r in rects) { f.Tiles.Add(Tile(c[sel[j]], r, w, q, cache)); Copy(c[sel[j]].Bgr, shown, r, w); }
                 pic.Frames.Add(f);
             }
-            var back = Changes(shown, c[sel[0]].Bgr, w, h);
+            var back = Changes(shown, c[sel[0]].Bgr, w, h, tolerance);
             if (back.Count > 0)
             {
                 pic.Wrap = new AnimFrame();
@@ -395,7 +418,7 @@ namespace User.FXProRpmSync
         /// The rectangles that cover what differs between two frames: the box around it all, cut into a few boxes where a wide
         /// enough empty band runs through it (two blinking lights far apart are two small pictures, not one big one).
         /// </summary>
-        internal static List<Rectangle> Changes(byte[] shown, byte[] next, int w, int h)
+        internal static List<Rectangle> Changes(byte[] shown, byte[] next, int w, int h, int threshold = Threshold)
         {
             var mask = new bool[w * h];
             int minX = w, minY = h, maxX = -1, maxY = -1;
@@ -403,7 +426,7 @@ namespace User.FXProRpmSync
                 for (int x = 0; x < w; x++)
                 {
                     int o = (y * w + x) * 3;
-                    if (Math.Abs(shown[o] - next[o]) > Threshold || Math.Abs(shown[o + 1] - next[o + 1]) > Threshold || Math.Abs(shown[o + 2] - next[o + 2]) > Threshold)
+                    if (Math.Abs(shown[o] - next[o]) > threshold || Math.Abs(shown[o + 1] - next[o + 1]) > threshold || Math.Abs(shown[o + 2] - next[o + 2]) > threshold)
                     {
                         mask[y * w + x] = true;
                         if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;

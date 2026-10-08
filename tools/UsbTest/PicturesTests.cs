@@ -306,6 +306,53 @@ static class PicturesTests
         var bestP = AnimatedPicture.BestFit(partial, AnimatedPicture.Inspect(partial), out var pp);
         Check("gif choices: a clip the screen draws easily stays full size", bestP.Size >= 0.7 && pp != null, $"{bestP.Size:0%}, load {pp?.ScreenLoad:0.00}");
 
+        // quality: a lower level makes smaller pictures and has the screen redraw less each step
+        AnimatedPicture AtQuality(string gif, int level) => AnimatedPicture.FromGif(gif, "q", options: new GifOptions { Quality = level }, needStill: false);
+        var qLow = AtQuality(busy, 1); var qGood = AtQuality(busy, AnimatedPicture.DefaultQuality); var qHigh = AtQuality(busy, 5);
+        Check("gif choices: the default level is what the importer always used (JPEG 72)", new GifOptions().Quality == AnimatedPicture.DefaultQuality && AnimatedPicture.JpegQuality(AnimatedPicture.DefaultQuality) == 72 && qGood.RamBytes == full.RamBytes,
+              $"{qGood.RamBytes} vs {full.RamBytes}");
+        Check("gif choices: a lower level makes smaller pictures", qLow.RamBytes < qGood.RamBytes && qGood.RamBytes < qHigh.RamBytes, $"{qLow.RamBytes}, {qGood.RamBytes}, {qHigh.RamBytes} B");
+        Check("gif choices: the level is kept with the picture", qLow.Quality == 1 && qHigh.Quality == 5 && qGood.Quality == AnimatedPicture.DefaultQuality);
+        Check("gif choices: levels outside 1-5 are the nearest one", AnimatedPicture.QualityName(0) == "Lowest" && AnimatedPicture.QualityName(9) == "High" && AtQuality(busy, 99).RamBytes == qHigh.RamBytes);
+        // the part of it that makes the screen draw less: a small change in colour is not drawn again (GIF dither and noise)
+        var still = new byte[40 * 40 * 3]; var nudged = (byte[])still.Clone();
+        for (int y = 10; y < 30; y++) for (int x = 10; x < 30; x++) nudged[(y * 40 + x) * 3 + 1] = 10; // one colour channel 10 steps up
+        Check("gif choices: a small change is drawn at the finest level and not at the coarsest",
+              AnimatedPicture.Changes(still, nudged, 40, 40, 6).Count == 1 && AnimatedPicture.Changes(still, nudged, 40, 40, 12).Count == 0 && AnimatedPicture.Changes(still, nudged, 40, 40).Count == 1);
+        var pLow = AtQuality(partial, 1); var pHigh = AtQuality(partial, 5);
+        Check("gif choices: the lower level never has the screen draw more", pLow.ScreenLoad <= pHigh.ScreenLoad + 1e-9 && pLow.RamBytes < pHigh.RamBytes, $"load {pLow.ScreenLoad:0.000} vs {pHigh.ScreenLoad:0.000}, {pLow.RamBytes} vs {pHigh.RamBytes} B");
+        var bestLow = AnimatedPicture.BestFit(busy, info, out var lowPicture, AnimatedPicture.Budget, 1);
+        Check("gif choices: best fit works for the level chosen (never smaller at a lower one)", bestLow.Quality == 1 && bestLow.Size >= best.Size && lowPicture != null && lowPicture.Quality == 1, $"{bestLow.Size:0%} vs {best.Size:0%}");
+
+        // the window's preview plays the result through the real player on a preview screen: it counts and logs nothing, and gives
+        // its pictures back (every trial would otherwise stay in the registry for as long as SimHub runs)
+        // (a size and level no other test plays: the same pictures played elsewhere would rightly stay)
+        var trial = AnimatedPicture.FromGif(partial, "t", options: new GifOptions { Size = 0.62, Quality = 3 }, needStill: false);
+        long drawn = GifSaver.StepsDrawn, skipped = GifSaver.StepsSkipped;
+        var player = new GifSaver(trial) { UseTiles = true, Quiet = true };
+        var names = player.Tiles.FrameTiles.Where(t => t.Name != null).Select(t => t.Name).Distinct().ToList();
+        Check("gif preview: its pictures are registered for the preview screen", names.Count > 0 && names.All(n => ScreenTiles.Registry.ContainsKey(n)));
+        int shown = 0;
+        using (var scr = new PreviewScreen())
+        {
+            player.Start();
+            for (double t = 0; t < 3; t += 0.02) { player.Step(scr, t); shown = Math.Max(shown, player.Current); }
+            Check("gif preview: it plays through the animation", shown >= trial.Frames.Count - 2, $"reached step {shown} of {trial.Frames.Count}");
+            int lit = 0; var px = scr.Get(new Rectangle(0, 0, DashRenderer.Width, DashRenderer.Height));
+            foreach (int c in px) if (c != 0) lit++;
+            Check("gif preview: and draws it on the screen (not a black one)", lit > 5000, $"{lit} lit pixels");
+        }
+        Check("gif preview: it counts and logs nothing", GifSaver.StepsDrawn == drawn && GifSaver.StepsSkipped == skipped);
+        var twin = Newtonsoft.Json.JsonConvert.DeserializeObject<AnimatedPicture>(Newtonsoft.Json.JsonConvert.SerializeObject(trial)); // the same pictures, played elsewhere
+        _ = new GifSaver(twin).Tiles;
+        GifSaver.Forget(trial);
+        Check("gif preview: a picture another animation plays stays when the trial is forgotten", names.All(n => ScreenTiles.Registry.ContainsKey(n)));
+        GifSaver.Forget(twin);
+        Check("gif preview: and goes with the last one that played it", names.All(n => !ScreenTiles.Registry.ContainsKey(n)));
+        bool quiet = true;
+        try { GifSaver.Forget(new AnimatedPicture()); } catch { quiet = false; }
+        Check("gif preview: forgetting what was never built does nothing", quiet);
+
         // adding it: the still picture is made then, and the item says whether the memory limited it
         var added = IdleScreens.SaveAnimation(thin, busy);
         var back = GifSaver.Load(added);

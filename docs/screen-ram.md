@@ -77,15 +77,31 @@ draws it with `sets "ramv: X, Y, ram/NAME"` instead of thousands of `fill`s:
   cost: lower `cost` while it plays until it runs slow again.** The `ref_stop` / `ref_star` pair around big steps (`HoldArea`, was 40,000 px)
   is off by default: it was added untried and is the second suspect.
   **The import window** (`Ui/GifImportDialog.cs`, "Add a picture" on an animated GIF; a still picture or a one-frame GIF skips it):
-  the GIF's size / frames / length and first frame, **Size** (20-100% of the fit, `GifOptions.Size`) and **Smoothness** (most steps a
-  second to keep, `GifOptions.MaxStepsPerSecond`, 0 = every frame), a **Best fit** button (`AnimatedPicture.BestFit`: the biggest 5%
-  step of size that plays at the GIF's speed, i.e. `ScreenLoad` <= 0.95 by the screen model, at most `SmoothSteps` 10 steps a second or
-  the GIF's own, and not so memory-cut that it keeps under 80% of that), and "what you'll get" (verdict, frames kept, steps a second
-  against the GIF's, memory used). Every change works the import out again in the background after 450 ms (`FromGif(..., needStill:
+  **left**, the wheel's screen (800 x 480, to scale: `Ui/GifStage.cs`) with the GIF on it where the saver puts it (centred in the
+  790 x 460 inside the padding, `S.PadLeft/PadTop`; a dotted box marks that area and the picture's own edge) and at the size it will
+  have, and under it the verdict, frames kept, steps a second against the GIF's, memory used; **right**, the GIF's size / frames /
+  length and three choices: **Size** (20-100% of the fit, `GifOptions.Size`), **Smoothness** (most steps a
+  second to keep, `GifOptions.MaxStepsPerSecond`, 0 = every frame) and **Quality** (below), and a **Best fit** button
+  (`AnimatedPicture.BestFit`: the biggest 5%
+  step of size that plays at the GIF's speed at the quality chosen, i.e. `ScreenLoad` <= 0.95 by the screen model, at most `SmoothSteps`
+  10 steps a second or the GIF's own, and not so memory-cut that it keeps under 80% of that).
+  **The preview plays the result, not the GIF**: `GifStage` runs the real `GifSaver` (`Quiet`: no counters, no log) against the same
+  `PreviewScreen` the settings page draws with, in real time, so the JPEG quality, the frames left out and the steps the screen model
+  would skip (too heavy a size) are all in what you see; the pictures are decoded once on a pool thread first so it doesn't stutter,
+  and `GifSaver.Forget` gives back what each trial built (the player's cache and `ScreenTiles.Registry`; a picture another animation
+  plays stays). Moving Size shows the new footprint at once (the GIF's first frame stands in, the animation stops) and the animation
+  follows when the import is done; Smoothness / Quality keep the old animation playing until the new one is ready. With picture
+  memory off it shows the first frame only, as the wheel will.
+  **Quality** (`GifOptions.Quality`, 1 Lowest ... 5 High, default 4 = what the importer always used): one level sets the JPEG quality
+  (30 / 45 / 60 / 72 / 86) and how far a colour must move before a pixel is drawn again (26 / 18 / 11 / 6 / 4 of 255; a GIF's dither
+  and noise are mostly such small moves). Lower means smaller files (more frames fit the 200 KB) and smaller patches (less for the
+  screen to draw a step: it lowers `ScreenLoad`), at the cost of a softer picture; the screen model counts pixels drawn, not JPEG
+  decode time, so the file size only helps through the memory (and the upload after a power-on). Kept in the file (`AnimatedPicture.Quality`).
+  Every change works the import out again in the background after 450 ms (`FromGif(..., needStill:
   false)`: the first-frame still is made when it's added); Add saves exactly that picture (`IdleScreens.SaveAnimation`). The card says
   "Oversized: took X/Y" only when the memory cut the frames (`SaverItem.MemoryLimited`; null on older items = fewer frames means that);
   frames left out by the Smoothness choice say "(your smoothness choice)". Driven in tests by `UsbTest OUT gifdialog-add FILE.gif`;
-  `UsbTest OUT gifdialog FILE.gif [noram]` renders it. The estimates are only as good as `MicrosecondsPerPixel`. Long GIFs: at most 120 evenly spaced candidates (and as
+  `UsbTest OUT gifdialog FILE.gif [noram] [size=PERCENT] [quality=1-5]` renders it (after the best fit, then with that size / level set). The estimates are only as good as `MicrosecondsPerPixel`. Long GIFs: at most 120 evenly spaced candidates (and as
   many as fit in ~100 MB). Without the RAM drive an animation shows its first frame as a picture dash (`AnimatedPicture.Still`).
   Measured with the harness: 150 frames of 400 x 240 where every pixel changes keeps 7 (28 KB each at full size, 0.9 s steps);
   a clip that changes a small part keeps all of its frames. Not in the designer (a GIF there gives its first frame).

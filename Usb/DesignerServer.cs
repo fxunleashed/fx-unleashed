@@ -17,7 +17,8 @@ namespace User.FXProRpmSync
     {
         object WheelStatus();
         /// <summary>Shows a dash on the wheel (live data while a game runs, else the demo lap) until Stop or ~60 s idle.</summary>
-        void ShowOnWheel(DashDefinition dash, int left, int top, int page, int overlay);
+        /// <summary>`pages`: the page shown in each set (null = flip `page` of every set).</summary>
+        void ShowOnWheel(DashDefinition dash, int left, int top, int page, int overlay, int[] pages = null);
         void StopWheelPreview();
         /// <summary>Shows these LED colours (38, "#RRGGBB", null/"" = off) for `seconds`, over whatever the lights show.</summary>
         void TestLeds(string[] colours, int brightness, double seconds);
@@ -236,19 +237,19 @@ namespace User.FXProRpmSync
             ("GET", "/api/schema", "the dash format: element types, fields, formats, limits"),
             ("GET", "/api/bindings", "data keys a dash can bind to"),
             ("GET", "/api/fonts?sample=TEXT", "screen fonts (id, height, characters, sample width)"),
-            ("GET", "/api/fonts/metrics", "every font's height and ASCII advance widths (for measuring text yourself)"),
+            ("GET", "/api/fonts/metrics", "every font's height and ASCII advance widths (for measuring text yourself), and `looks`: the Windows font, size, width and baseline that draw it closest to the screen"),
             ("GET", "/api/fonts/suggest?w=W&h=H&text=TEXT[&height=PX]", "best font for a box"),
             ("GET", "/api/dashes", "dashes in the library (built-in and saved)"),
             ("GET", "/api/dashes/{id}", "one dash (JSON)"),
             ("PUT", "/api/dashes/{id}", "save the body as a dash (Id taken from the path)"),
             ("DELETE", "/api/dashes/{id}", "delete a saved dash"),
             ("POST", "/api/check[?left=L&top=T]", "body = dash: layout problems and draw cost"),
-            ("POST", "/api/render[?mode=preview|demo|live&seconds=N&left=L&top=T&page=N&overlay=K&tiles=1]", "body = dash: PNG as the wheel shows it (page N, overlay K shown, drawn from RAM pictures)"),
+            ("POST", "/api/render[?mode=preview|demo|live&seconds=N&left=L&top=T&page=N&pages=A,B,C,D&overlay=K&tiles=1]", "body = dash: PNG as the wheel shows it (page N of every set, or page A of set 1, B of set 2...; overlay K shown, drawn from RAM pictures)"),
             ("GET", "/api/simhub", "installed SimHub dashes"),
             ("GET", "/api/simhub/screens?name=NAME", "screens of a SimHub dash"),
             ("POST", "/api/import", "body = {name|path, screen?, images?, colors?, maxSeconds?, fitWidth?, fitHeight?}: convert a SimHub dash -> {dash, report, check}"),
             ("GET", "/api/wheel", "wheel status (plugin only)"),
-            ("POST", "/api/wheel/show[?left=L&top=T&page=N&overlay=K]", "body = dash: show it on the wheel now, on page N, with overlay K shown (plugin only)"),
+            ("POST", "/api/wheel/show[?left=L&top=T&page=N&pages=A,B,C,D&overlay=K]", "body = dash: show it on the wheel now, on page N (or page A of set 1, B of set 2...), with overlay K shown (plugin only)"),
             ("POST", "/api/overlays", "body = dash: its overlays (sets of conditions elements share): index, name, elements, conditions, parent"),
             ("POST", "/api/pictures", "body = dash: what it keeps on the screen's RAM drive for shapes that come and go (bytes, variants)"),
             ("POST", "/api/take-turns", "body = dash: values and bars half under an overlay hide while it shows; returns changes and the elements"),
@@ -305,7 +306,12 @@ namespace User.FXProRpmSync
             if (path == "/api/schema") return Json(DashTools.Schema());
             if (path == "/api/bindings") return Json(DashTools.Bindings());
             if (path == "/api/fonts") return Json(DashTools.Fonts(r.Q("sample")));
-            if (path == "/api/fonts/metrics") return Json(new { heights = FontMetrics.Fonts.Select(f => f[0]), widths = FontMetrics.Fonts.Select(f => f.Skip(1)), first = 32 });
+            if (path == "/api/fonts/metrics") return Json(new
+            {
+                heights = FontMetrics.Fonts.Select(f => f[0]), widths = FontMetrics.Fonts.Select(f => f.Skip(1)), first = 32,
+                // how to draw each font's letters with a Windows font so they look and sit like the screen's (FontLooks)
+                looks = FontLooks.Fonts.Select(l => l == null ? null : new { css = l.Css, weight = l.Weight, stretch = l.Stretch, size = l.Size, sx = l.Sx, baseline = l.Baseline, dx = l.Dx }),
+            });
             if (path == "/api/fonts/suggest") return Json(DashTools.SuggestFont(r.QI("w", 100), r.QI("h", 30), r.Q("text", "0"), r.QD("height", 0)));
 
             if (path == "/api/dashes" && r.Method == "GET") return Json(DashTools.Dashes());
@@ -380,7 +386,7 @@ namespace User.FXProRpmSync
                 var mode = r.Q("mode", "preview");
                 var live = mode == "live" ? host?.LiveValues() : null;
                 if (mode == "live" && live == null) mode = "demo";
-                var png = DashTools.Render(DashTools.Parse(r.Body), mode, r.QD("seconds", 20), r.QI("left", 0), r.QI("top", 0), live, tiles: r.QI("tiles", 0) == 1, page: r.QI("page", 0), overlay: r.QI("overlay", -1));
+                var png = DashTools.Render(DashTools.Parse(r.Body), mode, r.QD("seconds", 20), r.QI("left", 0), r.QI("top", 0), live, tiles: r.QI("tiles", 0) == 1, page: r.QI("page", 0), overlay: r.QI("overlay", -1), pages: DashPages.ParseList(r.Q("pages")));
                 return new Response { Type = "image/png", Body = png };
             }
             if (path == "/api/simhub") return Json(DashTools.SimHubDashes());
@@ -404,7 +410,7 @@ namespace User.FXProRpmSync
             if (path == "/api/wheel/show")
             {
                 if (host == null) return Json(new { error = "the wheel is only available when the designer runs in SimHub" }, 400);
-                host.ShowOnWheel(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20), r.QI("page", 0), r.QI("overlay", -1));
+                host.ShowOnWheel(DashTools.Parse(r.Body), r.QI("left", 10), r.QI("top", 20), r.QI("page", 0), r.QI("overlay", -1), DashPages.ParseList(r.Q("pages")));
                 return Json(new { shown = true, status = host.WheelStatus() });
             }
             if (path == "/api/wheel/stop") { host?.StopWheelPreview(); return Json(new { stopped = true }); }

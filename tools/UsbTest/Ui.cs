@@ -341,7 +341,7 @@ static class UiTest
 
     /// <summary>The "Add an animated GIF" window for a GIF, offscreen: gif-dialog.png in `dir`, once its best fit is worked out
     /// (UsbTest OUT gifdialog FILE.gif [noram]).</summary>
-    public static void RunGifDialog(string dir, string gifPath, bool ramOn)
+    public static void RunGifDialog(string dir, string gifPath, bool ramOn, int sizePercent = 0, int quality = 0)
     {
         var t = new System.Threading.Thread(() =>
         {
@@ -350,20 +350,26 @@ static class UiTest
             var d = new GifImportDialog(gifPath, info, ramOn);
             d.Window.Left = -3000; d.Window.Top = 0; d.Window.ShowActivated = false; d.Window.ShowInTaskbar = false;
             d.Window.Show();
-            var frame = new DispatcherFrame();
-            var tm = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-            tm.Tick += (a, b) => { tm.Stop(); frame.Continue = false; };
-            tm.Start();
-            Dispatcher.PushFrame(frame);
+            Pump(10);
+            // a choice made after the best fit
+            if (sizePercent > 0 || quality > 0)
+            {
+                if (sizePercent > 0) d.SizeSlider.Value = sizePercent;
+                if (quality > 0) d.QualitySlider.Value = quality;
+                Pump(12);
+            }
             // the window as it looks: its dark background and its whole height
+            Console.WriteLine($"preview: playing {d.Stage.Playing}, redrawn {d.Stage.Updates} times");
             var content = (FrameworkElement)d.Window.Content;
-            content.Measure(new Size(640, double.PositiveInfinity)); content.Arrange(new Rect(0, 0, 640, content.DesiredSize.Height)); content.UpdateLayout();
-            var bmp = new RenderTargetBitmap(640, (int)content.DesiredSize.Height + 4, 96, 96, PixelFormats.Pbgra32);
+            content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            int width = (int)Math.Ceiling(content.DesiredSize.Width);
+            content.Arrange(new Rect(0, 0, width, content.DesiredSize.Height)); content.UpdateLayout();
+            var bmp = new RenderTargetBitmap(width, (int)content.DesiredSize.Height + 4, 96, 96, PixelFormats.Pbgra32);
             var dv = new DrawingVisual();
             using (var dc = dv.RenderOpen())
             {
-                dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0A, 0x0B, 0x0D)), null, new Rect(0, 0, 640, bmp.Height));
-                dc.DrawRectangle(new VisualBrush(content) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, 0, 640, content.DesiredSize.Height));
+                dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x0A, 0x0B, 0x0D)), null, new Rect(0, 0, width, bmp.Height));
+                dc.DrawRectangle(new VisualBrush(content) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, 0, width, content.DesiredSize.Height));
             }
             bmp.Render(dv);
             var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(bmp));
@@ -413,7 +419,8 @@ static class UiTest
             Pump(10);
             var add = FindButton(d.Window, "Add");
             Console.WriteLine("Add button found: " + (add != null) + ", enabled after the best fit: " + (add?.IsEnabled == true));
-            if (add == null || !add.IsEnabled) return;
+            Console.WriteLine($"preview plays: {d.Stage.Playing}, redrawn {d.Stage.Updates} times");
+            if (add == null || !add.IsEnabled || !d.Stage.Playing || d.Stage.Updates < 3) return;
             ((System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(add)
                 .GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)).Invoke();
             Pump(8);
@@ -433,6 +440,30 @@ static class UiTest
             Pump(1);
             Console.WriteLine("Cancel: closed " + !d2.Window.IsVisible + ", nothing added " + (d2.Result == null));
             if (d2.Window.IsVisible || d2.Result != null) code = 1;
+
+            // the choices: a new size shows at once (the first frame stands in at the new footprint) and the animation follows;
+            // a new quality keeps the old animation playing until the new one is ready
+            var d3 = new GifImportDialog(gifPath, info, true);
+            d3.Window.Left = -3000; d3.Window.ShowActivated = false; d3.Window.ShowInTaskbar = false;
+            d3.Window.Show();
+            Pump(10);
+            var before = d3.Latest;
+            d3.SizeSlider.Value = 40;
+            bool stoodIn = !d3.Stage.Playing; // straight away, before anything is worked out
+            Pump(10);
+            var small = d3.Latest;
+            bool sized = small != null && small != before && small.Width == info.ShownWidth(0.4) && d3.Stage.Playing;
+            d3.QualitySlider.Value = 1;
+            Pump(0.15);
+            bool kept = d3.Stage.Playing; // the old one goes on while the new one is made
+            Pump(10);
+            var rough = d3.Latest;
+            bool fine = rough != null && rough != small && rough.Quality == 1 && rough.Width == small.Width && rough.RamBytes < small.RamBytes && d3.Stage.Playing;
+            Console.WriteLine($"choices: size stands in at once {stoodIn}, then plays at {small?.Width} px {sized}; quality keeps playing {kept}, then {rough?.RamBytes} < {small?.RamBytes} B {fine}");
+            if (!stoodIn || !sized || !kept || !fine) code = 1;
+            d3.Window.Close();
+            Console.WriteLine("window closed: preview let go " + !d3.Stage.Playing);
+            if (d3.Stage.Playing) code = 1;
         });
         t.SetApartmentState(System.Threading.ApartmentState.STA);
         t.Start();

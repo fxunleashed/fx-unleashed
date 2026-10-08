@@ -51,6 +51,8 @@ namespace User.FXProRpmSync
             public List<ScreenTile> Wrap;
             /// <summary>By step: it draws the whole picture, so it can be drawn without the steps before it.</summary>
             public List<bool> Full = new List<bool>();
+            /// <summary>The names this one added to <see cref="ScreenTiles.Registry"/> (others already had them): what Forget takes out.</summary>
+            public List<string> Owned = new List<string>();
         }
 
         private static readonly Dictionary<string, Tuple<DateTime, AnimatedPicture>> files = new Dictionary<string, Tuple<DateTime, AnimatedPicture>>();
@@ -123,7 +125,7 @@ namespace User.FXProRpmSync
                     if (t.Jpeg == null) { tile.Colour = t.Colour; return tile; }
                     tile.Jpeg = Convert.FromBase64String(t.Jpeg);
                     tile.Name = ScreenTiles.NameFor(tile.Jpeg);
-                    ScreenTiles.Registry[tile.Name] = tile.Jpeg; // previews and the mirror draw from it
+                    if (ScreenTiles.Registry.TryAdd(tile.Name, tile.Jpeg)) b.Owned.Add(tile.Name); // previews and the mirror draw from it
                     b.Tiles.FrameTiles.Add(tile);
                     return tile;
                 }
@@ -134,6 +136,32 @@ namespace User.FXProRpmSync
                 return built[p] = b;
             }
         }
+
+        /// <summary>
+        /// Lets go of what was built for an animation that is no longer played (the import window's trial pictures: there are
+        /// many, and the cache and the registry would keep every one for as long as SimHub runs). Pictures another saver
+        /// registered first stay.
+        /// </summary>
+        internal static void Forget(AnimatedPicture p)
+        {
+            lock (built)
+            {
+                if (!built.TryGetValue(p, out var b)) return;
+                built.Remove(p);
+                // a picture another animation still plays (same bytes, so the same name) stays in the registry, and that
+                // animation lets it go when its turn comes
+                var users = new Dictionary<string, Built>();
+                foreach (var o in built.Values) foreach (var t in o.Tiles.FrameTiles) users[t.Name] = o;
+                foreach (var name in b.Owned)
+                {
+                    if (users.TryGetValue(name, out var heir)) heir.Owned.Add(name);
+                    else ScreenTiles.Registry.TryRemove(name, out _);
+                }
+            }
+        }
+
+        /// <summary>A preview, not the wheel: nothing is counted or logged.</summary>
+        internal bool Quiet { get; set; }
 
         public void Start()
         {
@@ -186,7 +214,7 @@ namespace User.FXProRpmSync
                 if (behind >= 2 && b.Full[target])
                 {
                     tiles = b.Steps[target]; // whole picture: nothing before it is needed
-                    skippedSince += behind - 1; StepsSkipped += behind - 1;
+                    if (!Quiet) { skippedSince += behind - 1; StepsSkipped += behind - 1; }
                     current = target; nextAt = end;
                 }
                 else
@@ -196,11 +224,11 @@ namespace User.FXProRpmSync
                     current = next; nextAt += Dwell(current);
                 }
                 busyUntil = Math.Max(busyUntil, now) + Draw(screen, tiles) / 1000.0;
-                drawnSince++; StepsDrawn++;
+                if (!Quiet) { drawnSince++; StepsDrawn++; }
             }
             // way behind on cheap patches (more than a loop): start the clock again from here rather than racing through them
             if (now - nextAt > Math.Max(1.0, loopSeconds)) nextAt = now + Dwell(current);
-            Report(now);
+            if (!Quiet) Report(now);
         }
 
         /// <summary>How long one trip through the animation takes (its steps' times).</summary>

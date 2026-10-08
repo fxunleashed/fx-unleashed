@@ -579,15 +579,26 @@ namespace User.FXProRpmSync
         public bool PreviewActive => previewDash != null && DateTime.UtcNow.Ticks < Interlocked.Read(ref previewUntilTicks);
 
         /// <summary>Shows a dash from the designer on the wheel (live data while a game runs, else the demo lap).</summary>
-        public void SetPreviewDash(DashDefinition d, int left, int top, int page = -1, int overlay = -1)
+        /// <param name="pages">The page shown in each set (the designer picks them one by one); null = flip `page` of every set.</param>
+        public void SetPreviewDash(DashDefinition d, int left, int top, int page = -1, int overlay = -1, int[] pages = null)
         {
             previewForce = overlay >= 0 ? new OverlayShowcase(d).ForceFor(overlay) : null;
             previewLeft = left; previewTop = top;
+            string key = Newtonsoft.Json.JsonConvert.SerializeObject(d).GetHashCode() + "|" + left + "|" + top;
             // a different page of the same dash: just flipped, not drawn again from scratch
-            if (previewDash != null && page >= 0 && page != this.page && Newtonsoft.Json.JsonConvert.SerializeObject(d).GetHashCode() + "|" + left + "|" + top == previewKey)
-                Interlocked.Exchange(ref pageSteps, page - this.page);
+            if (previewDash != null && key == previewKey)
+            {
+                if (pages != null)
+                    for (int set = 0; set < DashPages.MaxSets; set++)
+                    {
+                        int want = set < pages.Length ? pages[set] : 0;
+                        if (want >= 0 && want != DashPageIn(set)) Interlocked.Exchange(ref setSteps[set], want - DashPageIn(set));
+                    }
+                else if (page >= 0 && page != this.page) Interlocked.Exchange(ref pageSteps, page - this.page);
+            }
             previewPage = page;
-            previewKey = Newtonsoft.Json.JsonConvert.SerializeObject(d).GetHashCode() + "|" + left + "|" + top;
+            previewPages = pages;
+            previewKey = key;
             previewDash = d;
             Interlocked.Exchange(ref previewUntilTicks, DateTime.UtcNow.AddSeconds(60).Ticks);
             wake.Set();
@@ -604,6 +615,8 @@ namespace User.FXProRpmSync
         /// <summary>The page shown in sets 2-4 (index 0 = set 2); the loop alone writes it.</summary>
         private readonly int[] setPages = new int[DashPages.MaxSets - 1];
         private volatile int previewPage = -1;
+        /// <summary>The designer's page per set, or null (previewPage flips every set).</summary>
+        private volatile int[] previewPages;
         /// <summary>The designer's overlay picker: the values that bring that overlay up on the wheel, or null.</summary>
         private volatile Dictionary<string, bool> previewForce;
 
@@ -1181,9 +1194,11 @@ namespace User.FXProRpmSync
                 want = pd ?? DashLibrary.Load(errors).FirstOrDefault(d => d.Id == id) ?? BuiltInDashes.MustangGt3();
             }
             dash = want;
-            page = pd != null && previewPage >= 0 ? Math.Min(previewPage, dash.PageCount - 1) : SavedPage(s, dash);
+            var pp = pd != null ? previewPages : null;
+            int Wanted(int set) => set < pp.Length && pp[set] >= 0 && pp[set] < dash.PageCountOf(set) ? pp[set] : 0;
+            page = pp != null ? Wanted(0) : pd != null && previewPage >= 0 ? Math.Min(previewPage, dash.PageCount - 1) : SavedPage(s, dash);
             for (int set = 1; set < DashPages.MaxSets; set++)
-                setPages[set - 1] = pd != null && previewPage >= 0 ? previewPage % dash.PageCountOf(set) : SavedPage(s, dash, set);
+                setPages[set - 1] = pp != null ? Wanted(set) : pd != null && previewPage >= 0 ? previewPage % dash.PageCountOf(set) : SavedPage(s, dash, set);
             Interlocked.Exchange(ref pageSteps, 0);
             for (int set = 0; set < DashPages.MaxSets; set++) Interlocked.Exchange(ref setSteps[set], 0);
             var room = DashRenderer.Room(dash);

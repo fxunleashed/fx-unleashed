@@ -191,7 +191,13 @@ static class UsbTestMain
         if (args.Length > 1 && args[1] == "wheel") { UiTest.RunWheel(dir); return 0; }
         if (args.Length > 1 && args[1] == "rampill") { UiTest.RunRamPill(dir); return 0; }
         if (args.Length > 2 && args[1] == "gifdialog-add") return UiTest.RunGifDialogAdd(dir, args[2]);
-        if (args.Length > 2 && args[1] == "gifdialog") { UiTest.RunGifDialog(dir, args[2], !(args.Length > 3 && args[3] == "noram")); return 0; }
+        if (args.Length > 2 && args[1] == "gifdialog")
+        {
+            // gifdialog FILE.gif [noram] [size=PERCENT] [quality=1-5]: the window after its best fit, then with that size / level set
+            int Arg(string key) { var a = args.Skip(3).FirstOrDefault(x => x.StartsWith(key + "=")); return a == null ? 0 : int.Parse(a.Substring(key.Length + 1)); }
+            UiTest.RunGifDialog(dir, args[2], !args.Skip(3).Contains("noram"), Arg("size"), Arg("quality"));
+            return 0;
+        }
         if (args.Length > 1 && args[1] == "checks") { UiTest.RunChecks(args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 1 && args[1] == "stills") { UiTest.RunStills(dir, args.Length > 2 ? args[2] : null); return 0; }
         if (args.Length > 2 && args[1] == "repairlights")

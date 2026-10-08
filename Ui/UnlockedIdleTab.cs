@@ -291,7 +291,7 @@ namespace User.FXProRpmSync
                 if (gif != null)
                 {
                     Cursor = null;
-                    item = GifImportDialog.Show(Window.GetWindow(this), path, gif, S.ScreenRamDrive);
+                    item = GifImportDialog.Show(Window.GetWindow(this), path, gif, S.ScreenRamDrive, S.PadLeft, S.PadTop);
                     if (item == null) return; // cancelled
                 }
                 else item = await System.Threading.Tasks.Task.Run(() => IdleScreens.ImportImage(path));

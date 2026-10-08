@@ -281,9 +281,11 @@ namespace User.FXProRpmSync
         /// A PNG of the dash as the wheel would show it. mode "preview": values show their PreviewText/samples and
         /// SimHub-only conditions count as met (like a designer); "demo": `seconds` of the simulated lap.
         /// </summary>
-        public static byte[] Render(DashDefinition d, string mode = "preview", double seconds = 20, int left = 0, int top = 0, DashValues values = null, bool tiles = false, int page = 0, int overlay = -1)
+        public static byte[] Render(DashDefinition d, string mode = "preview", double seconds = 20, int left = 0, int top = 0, DashValues values = null, bool tiles = false, int page = 0, int overlay = -1, int[] pages = null)
         {
             page = Math.Max(0, Math.Min(d.FlipCount - 1, page));
+            // `pages`: the page shown in each set (the designer picks them one by one); else flip `page` of every set
+            void ShowPages(DashValues v) { if (pages == null) DashPages.ShowFlip(v, d, page); else DashPages.Show(v, d, pages); }
             // an overlay shown (the designer's overlay picker): its conditions true, as OverlayShowcase brings it up
             var force = new OverlayShowcase(d).ForceFor(overlay);
             DashValues Shown(DashValues v) { if (force != null) foreach (var kv in force) v.Set(kv.Key, kv.Value); return v; }
@@ -292,13 +294,13 @@ namespace User.FXProRpmSync
                 var r = new DashRenderer(p, d, left, top);
                 if (tiles) { r.EnableTiles(); r.UseTiles(true); } // as on a wheel with the RAM drive: full-colour pictures
                 r.DrawAll();
-                if (values != null) { DashPages.ShowFlip(values, d, page); r.Update(Shown(values), 0); }
+                if (values != null) { ShowPages(values); r.Update(Shown(values), 0); }
                 else if (mode == "demo")
                 {
                     var demo = new UsbDemo(d) { BudgetMs = null };
-                    for (double t = 0.1; t <= seconds; t += 0.1) { var v = demo.Step(0.1); DashPages.ShowFlip(v, d, page); r.Update(Shown(v), t); }
+                    for (double t = 0.1; t <= seconds; t += 0.1) { var v = demo.Step(0.1); ShowPages(v); r.Update(Shown(v), t); }
                 }
-                else { var pv = new DashValues { Preview = true, Running = true }; DashPages.ShowFlip(pv, d, page); r.Update(Shown(pv), 0); }
+                else { var pv = new DashValues { Preview = true, Running = true }; ShowPages(pv); r.Update(Shown(pv), 0); }
                 return p.Png();
             }
         }

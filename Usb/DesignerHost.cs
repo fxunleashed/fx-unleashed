@@ -39,10 +39,10 @@ namespace User.FXProRpmSync
             };
         }
 
-        public void ShowOnWheel(DashDefinition dash, int left, int top, int page, int overlay)
+        public void ShowOnWheel(DashDefinition dash, int left, int top, int page, int overlay, int[] pages = null)
         {
             var u = Usb ?? throw new Exception("USB mode isn't running");
-            u.SetPreviewDash(dash, left, top, page, overlay);
+            u.SetPreviewDash(dash, left, top, page, overlay, pages);
         }
 
         public void StopWheelPreview() => Usb?.StopPreview();

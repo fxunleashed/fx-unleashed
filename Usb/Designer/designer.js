@@ -29,6 +29,7 @@ const ICONS = {
   alignT: 'M3 4h18 M7 8v10h4V8z M14 8v6h4V8z', alignCV: 'M3 12h18 M7 6v12h4V6z M14 8v8h4V8z', alignB: 'M3 20h18 M7 6v10h4V6z M14 10v6h4v-6z',
   tLeft: 'M4 6h16 M4 10h10 M4 14h16 M4 18h10', tCenter: 'M4 6h16 M7 10h10 M4 14h16 M7 18h10', tRight: 'M4 6h16 M10 10h10 M4 14h16 M10 18h10',
   data: 'M12 3c5 0 8 1.3 8 3s-3 3-8 3-8-1.3-8-3 3-3 8-3z M4 6v6c0 1.7 3 3 8 3s8-1.3 8-3V6 M4 12v6c0 1.7 3 3 8 3s8-1.3 8-3v-6', wand: 'M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8 19 13 M17.8 6.2 19 5 M12.2 6.2 11 5 M15 9 3 21',
+  pages: 'M8 3h12v15H8z M5 6v15h11',
   cond: 'M9 11l3 3L22 4 M21 12v7H3V5h11', code: 'm16 18 6-6-6-6 M8 6l-6 6 6 6', info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 16v-4 M12 8h.01',
 };
 const icon = (name, cls = 'i') => `<svg class="${cls}" viewBox="0 0 24 24"><path d="${ICONS[name] || ''}"/></svg>`;
@@ -85,29 +86,47 @@ const PALETTE = ['#FFFFFF', '#D3D3D3', '#8A8F98', '#3A3F4A', '#1B1F3C', '#000000
 
 // ---------- state ----------
 let dash = null, sel = -1, hover = -1, dirty = false;
+// selection: `sel` is the element the inspector edits (the last one picked), `picked` every selected element (sel among them)
+let picked = new Set();
 let metrics = null, fonts = [], bindings = [], hostInfo = null, library = [];
 const undoStack = [], redoStack = [];
 const images = {};
 let zoom = 1, view = 'edit', clipboard = null;
 let pad = { l: 10, t: 20 };
-let page = 0; // the page shown (dashes with pages: Pages + "page:N" conditions)
 let overlay = -1, overlays = []; // the overlay shown in the previews (index in /api/overlays), the dash's overlays
 
 const isShape = t => ['rect', 'ellipse', 'box', 'gradient', 'image'].includes(t);
 const visList = e => !e.Visible ? [] : Array.isArray(e.Visible) ? e.Visible : [e.Visible];
 const isConditional = e => visList(e).length > 0;
-// pages: an element is on page N when its conditions hold "page:N"; without one it's on every page
-const pageOf = e => { for (const c of visList(e)) { const m = /^page:(\d+)$/i.exec(String(c).trim()); if (m) return Number(m[1]); } return null; };
-const pageCount = () => !dash ? 1 : Math.max(1, (dash.Pages || []).length, ...dash.Elements.map(e => (pageOf(e) ?? -1) + 1));
-const pageName = i => (dash && dash.Pages && dash.Pages[i]) || `Page ${i + 1}`;
-// more sets of pages (PageSets, "page2:N".."page4:N"): flipped on their own on the wheel; here the page selector shows
-// flip k = page k of every set (each wrapping on its own pages), as the server's render does; the pages editor edits set 1
-const setPages = e => visList(e).map(c => /^page([2-4]):(\d+)$/i.exec(String(c).trim())).filter(m => m).map(m => [Number(m[1]), Number(m[2])]);
-const setCount = k => !dash ? 1 : Math.max(1, ((dash.PageSets || [])[k - 2]?.Pages || []).length, ...dash.Elements.flatMap(e => setPages(e).filter(([s]) => s === k).map(([, p]) => p + 1)));
-const flipCount = () => Math.max(pageCount(), setCount(2), setCount(3), setCount(4));
-const hasSets = () => [2, 3, 4].some(k => setCount(k) > 1);
-const onPage = e => { const p = pageOf(e); if (p !== null && p !== page % pageCount()) return false; return setPages(e).every(([k, n]) => n === page % setCount(k)); };
-const otherConds = e => visList(e).filter(c => !/^page:\d+$/i.test(String(c).trim()));
+const setVis = (e, l) => { if (l.length) e.Visible = l.length === 1 ? l[0] : l; else { delete e.Visible; delete e.PreviewVisible; } };
+
+// ---------- pages ----------
+// A dash has up to four sets of pages, each flipped on its own on the wheel (Next page flips them all, Next page 1-4 one
+// set). Set 0 = Pages ("page:N" in an element's conditions), sets 1-3 = PageSets ("page2:N".."page4:N"). An element
+// without a page condition of a set shows on every page of that set. The designer shows one page of each set (`shown`).
+const MAX_SETS = 4;
+let shown = [0, 0, 0, 0];
+let addTo = null; // new elements go on: null = every page, else the set whose shown page they go on
+const condOf = (s, p) => (s === 0 ? 'page' : 'page' + (s + 1)) + ':' + p;
+const parsePage = c => { const m = /^\s*page([2-4])?\s*:\s*(\d+)\s*$/i.exec(String(c)); return m ? [m[1] ? Number(m[1]) - 1 : 0, Number(m[2])] : null; };
+const pageConds = e => visList(e).map(parsePage).filter(Boolean);
+const pageIn = (e, s) => { for (const [k, p] of pageConds(e)) if (k === s) return p; return null; };
+const pageOf = e => pageIn(e, 0);
+const setNames = s => !dash ? null : s === 0 ? dash.Pages : ((dash.PageSets || [])[s - 1] || {}).Pages;
+const countOf = s => !dash ? 1 : Math.max(1, (setNames(s) || []).length, ...dash.Elements.map(e => (pageIn(e, s) ?? -1) + 1));
+const pageCount = () => countOf(0);
+const setExists = s => s === 0 || !!(dash && (dash.PageSets || [])[s - 1]) || countOf(s) > 1;
+const setsUsed = () => { let n = 1; for (let s = 1; s < MAX_SETS; s++) if (setExists(s)) n = s + 1; return n; };
+const setTitle = s => s === 0 ? 'Pages' : (((dash.PageSets || [])[s - 1] || {}).Name || `Pages ${s + 1}`);
+const pageName = (i, s = 0) => (setNames(s) || [])[i] || `Page ${i + 1}`;
+const shownIn = s => clamp(shown[s] || 0, 0, countOf(s) - 1);
+const flipCount = () => Math.max(...Array.from({ length: MAX_SETS }, (_, s) => countOf(s)));
+const flippingSets = () => Array.from({ length: setsUsed() }, (_, s) => s).filter(s => countOf(s) > 1);
+const hasSets = () => flippingSets().some(s => s > 0);
+const onPage = e => pageConds(e).every(([s, p]) => p === shownIn(s));
+const otherConds = e => visList(e).filter(c => !parsePage(c));
+const pagesParam = () => Array.from({ length: MAX_SETS }, (_, s) => shownIn(s)).join(',');
+const pageLabel = e => pageConds(e).map(([s, p]) => (hasSets() ? setTitle(s) + ': ' : '') + pageName(p, s)).join(' · ');
 // with an overlay picked: what shows while it's up (its conditions, and its parents'; blinking and staged items too;
 // what takes turns with it hides)
 function overlayShows(e) {
@@ -129,6 +148,16 @@ function overlayShows(e) {
 const shownInPreview = e => onPage(e) && (overlay >= 0 ? overlayShows(e) : (otherConds(e).length === 0 || e.PreviewVisible !== false));
 const nameOf = e => e.Name || e.Text || e.Bind || e.Type;
 const cur = () => dash && dash.Elements[sel];
+const isPicked = i => picked.has(i);
+const pickedList = () => !dash ? [] : [...picked].filter(i => i >= 0 && i < dash.Elements.length).sort((a, b) => a - b);
+const multi = () => picked.size > 1;
+// set the selection without drawing (callers redraw): `primary` is the one the inspector edits
+function setPicked(list, primary) {
+  picked = new Set(list.filter(i => i >= 0 && dash && i < dash.Elements.length));
+  sel = primary !== undefined && primary >= 0 && picked.has(primary) ? primary : picked.size ? [...picked][picked.size - 1] : -1;
+  if (primary !== undefined && primary >= 0 && !picked.has(primary) && dash && primary < dash.Elements.length) { picked.add(primary); sel = primary; }
+}
+const selOnly = i => setPicked(i >= 0 ? [i] : []);
 
 function parseColor(s, fallback = 'rgba(255,255,255,1)') {
   if (!s) return fallback;
@@ -148,20 +177,128 @@ function fontHeight(f) { return metrics && metrics.heights[f] || 0; }
 function charWidth(f, ch) { const c = ch.charCodeAt(0); if (!metrics || !metrics.widths[f] || c < 32 || c > 126) return -1; return metrics.widths[f][c - 32]; }
 function textWidth(f, t) { let w = 0; for (const ch of String(t)) { const g = charWidth(f, ch); if (g < 0) return -1; w += g; } return w; }
 
+// ---------- fonts ----------
+// The screen has 128 fonts, each made for one of Simagic's own dashes (their names in the screen image: "992a" is a font of
+// the Comet 992 dash). The designer shows them by family (that dash, or Standard / Arial), size, width and what they
+// can draw, instead of bare numbers; the id stays in the dash file.
+const FONT_NAMES = ('S56 S150 S28 S48 S32 S24 s36 s30 S40 54me S16 S128 S16 s36 S20 S44 unit_30 unit_24 f175a f175b f175c f175d f175e f175f f175g 911_b 911_c 911_d 911_e 911_a1 '
+  + 'f122_a f122_b f122_c f122_d ess_a ess_b ess_c ess_d gt_a arial_a arial_b arial_c ir18_a 720s_a 720s_b 720s_c w12_a w12_b w12_c w12_d w12_e w12_f w12_g bmw1 bmw2 bmw3 bmw4 bmw5 '
+  + 'flags f123 f123a f123b f123c m4a m4b m4c m4c 296a 296b 992a 992b 992c 992d ir04a ir04b ir04c 488a 488b caddy1 caddy2 jsp320a jsp320b jsp320c jsp320d jsp320e onea onee one1 one3 '
+  + 'one4 one6 one6 isf23a isf23b isf23c isf23d 963a 963b 963c 963d 963e 963f 963g arx06a arx06b arx06c arx06c arx06e fmx2 fxm3 fxm1 f3a f3a f3b f3c f3d m4d 499a lmp2a lmp2b c8ra c8rb '
+  + 'c8rc c8rd c8re c8rf c8rg c8rh').split(' ');
+// font name -> family (the stock dash it belongs to, by the name SimPro shows; the raw prefix where that isn't clear)
+const FONT_FAMILIES = [[/^s\d/i, 'Standard'], [/^arial/, 'Arial'], [/^unit/, 'Units'], [/^flags/, 'Flags'], [/^720s/, '720Super'], [/^w12/, 'W12_3'], [/^992/, 'Comet 992'],
+  [/^911/, 'Comet GT3'], [/^caddy/, 'IMD-Caddy'], [/^jsp320/, 'LMP320'], [/^isf23/, 'ISF23'], [/^963/, 'LM 963'], [/^arx06/, 'LM06'], [/^499/, 'LMD-Hybrid'], [/^lmp2/, 'LMP207'],
+  [/^c8r/, 'GM-8Racing'], [/^488/, 'V8 F154 EVO'], [/^296/, 'Progettof171'], [/^bmw/, 'Motor Sportg82'], [/^f175/, 'Formula75'], [/^f122/, 'Formula22'], [/^f123/, 'Formula23'],
+  [/^ir18/, 'Racing18'], [/^one/, 'Simagic ONE'], [/^(fmx|fxm)/, 'FMX'], [/^ir04/, 'IR04'], [/^m4/, 'M4'], [/^f3/, 'F3'], [/^ess/, 'ESS'], [/^gt_/, 'GT'], [/^54me/, '54ME']];
+const STYLE_NAMES = { xwide: 'Extra wide', wide: 'Wide', regular: 'Regular', narrow: 'Narrow', mono: 'Fixed width' };
+const CHAR_NAMES = { text: 'Text', numbers: 'Numbers', gear: 'Gear digits', caps: 'Capitals', symbols: 'Symbols' };
+let fontInfo = [];
+function buildFontInfo() {
+  const seen = new Map();
+  fontInfo = metrics.heights.map((h, id) => {
+    const w = metrics.widths[id], adv = c => w[c.charCodeAt(0) - 32] ?? -1, has = c => adv(c) >= 0;
+    const n = w.filter(x => x >= 0).length;
+    const chars = n === 0 || !h ? 'none' : n >= 95 ? 'text' : has('A') && has('Z') && !has('a') && !has('0') ? 'caps'
+      : has('0') && has('9') && has('N') && has('R') ? 'gear' : has('0') && has('9') ? 'numbers' : 'symbols';
+    // width: of the digits (or capitals) against the height; every character as wide as the next = fixed width
+    const ref = [...'0123456789'].filter(has).length >= 5 ? '0123456789' : 'AHMNOR';
+    const ws = [...ref].filter(has).map(adv), rw = ws.length ? ws.reduce((a, b) => a + b, 0) / ws.length / h : 0.5;
+    const mono = chars === 'text' && adv('i') === adv('W') && adv('i') === adv('0');
+    const style = mono ? 'mono' : rw >= 0.9 ? 'xwide' : rw >= 0.64 ? 'wide' : rw >= 0.49 ? 'regular' : 'narrow';
+    const name = FONT_NAMES[id] || 'font' + id, fam = (FONT_FAMILIES.find(([re]) => re.test(name)) || [, name])[1];
+    const key = h + ':' + w.join(','), dupOf = seen.has(key) ? seen.get(key) : -1;
+    if (dupOf < 0) seen.set(key, id);
+    return { id, h, chars, style, family: fam, name, dupOf, usable: chars !== 'none' };
+  });
+}
+// "40 px Narrow" (+ what it draws when that isn't all text)
+function fontLabel(id) {
+  const i = fontInfo[id]; if (!i) return 'Font ' + id;
+  return `${i.h} px ${STYLE_NAMES[i.style]}${i.chars !== 'text' ? ' · ' + (CHAR_NAMES[i.chars] || '') : ''}`;
+}
+const fontSub = id => { const i = fontInfo[id]; return i ? `${i.family}${i.family === 'Standard' || i.family === 'Arial' ? '' : ' dash'} · #${id}` : '#' + id; };
+const canDraw = (id, text) => textWidth(id, text) >= 0;
+// the face the designer draws a font with (the screen's own letters aren't in the plugin): the closest width of Bahnschrift
+function faceFor(f) {
+  const st = (fontInfo[f] || {}).style;
+  return st === 'mono' ? '"Cascadia Mono", Consolas, monospace' : st === 'narrow' ? '"Bahnschrift Condensed", "Bahnschrift SemiCondensed", Bahnschrift, "Arial Narrow", sans-serif'
+    : st === 'regular' ? '"Bahnschrift SemiCondensed", Bahnschrift, "Segoe UI", sans-serif' : 'Bahnschrift, "Segoe UI", sans-serif';
+}
+// text in font f, each character in its real cell (the screen's advance widths): at x (left), y (top of the font's
+// height), `scale` times the real size; cells past maxW are left out (the screen wraps them onto a clipped line)
+function glyphCells(f, text, maxW = Infinity) {
+  const cells = []; let width = 0;
+  for (const ch of String(text).replace(/[^\x20-\x7e]/g, '')) { const cw = Math.max(0, charWidth(f, ch)); if (width + cw > maxW) break; cells.push([ch, cw]); width += cw; }
+  return { cells, width };
+}
+function drawGlyphs(g, f, cells, x, y, scale = 1) {
+  const fh = fontHeight(f); if (!fh) return;
+  // the screen's letters stand on a baseline near the top of the line: the Windows font matched to this screen font
+  // (FontLooks: face, size, width, baseline), each letter centred in its cell, as the plugin's exact preview draws them
+  const lk = metrics && metrics.looks && metrics.looks[f];
+  if (lk) {
+    g.font = `${lk.weight} ${lk.stretch !== 'normal' ? lk.stretch + ' ' : ''}${Math.max(2, lk.size * scale)}px ${lk.css}, sans-serif`;
+    if ('fontStretch' in g) g.fontStretch = lk.stretch === 'semi-condensed' ? 'semi-condensed' : lk.stretch === 'condensed' ? 'condensed' : 'normal';
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    for (const [ch, cw] of cells) {
+      g.save(); g.translate(x + (cw / 2 + lk.dx) * scale, y + lk.baseline * scale); g.scale(lk.sx, 1); g.fillText(ch, 0, 0); g.restore();
+      x += cw * scale;
+    }
+    if ('fontStretch' in g) g.fontStretch = 'normal';
+    return;
+  }
+  g.font = `${fh >= 90 ? 'bold ' : ''}${Math.max(4, fh * .78 * scale)}px ${faceFor(f)}`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const [ch, cw] of cells) {
+    const cx = x + cw * scale / 2, cy = y + fh * scale / 2;
+    // letters and digits fill their cell about as the screen's do: squeezed or widened a little
+    const mw = /[A-Za-z0-9]/.test(ch) ? g.measureText(ch).width : 0;
+    const sx = mw > 0 ? clamp(cw * scale * .84 / mw, .7, 1.45) : 1;
+    if (sx !== 1) { g.save(); g.translate(cx, cy); g.scale(sx, 1); g.fillText(ch, 0, 0); g.restore(); } else g.fillText(ch, cx, cy);
+    x += cw * scale;
+  }
+}
+// a small picture of `text` in font f in a w x h box (dashed), scaled to fit `cw` x `ch` css px: what fits, and what doesn't (red)
+function paintFontSample(cv, f, text, boxW, boxH, align = 'left') {
+  const dpr = window.devicePixelRatio || 1, cw = cv.clientWidth || Number(cv.getAttribute('width')) || 150, chh = cv.clientHeight || 36;
+  cv.width = Math.round(cw * dpr); cv.height = Math.round(chh * dpr);
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, cw, chh);
+  const fh = fontHeight(f); if (!fh) return;
+  const all = glyphCells(f, text), tw = all.width;
+  const bw = boxW || tw, bh = boxH || fh;
+  const scale = Math.min(1, (chh - 4) / Math.max(fh, bh), (cw - 4) / Math.max(bw, tw, 1));
+  const bx = 2, by = (chh - bh * scale) / 2;
+  if (boxW) { g.setLineDash([3, 2]); g.strokeStyle = 'rgba(255,255,255,.28)'; g.strokeRect(bx + .5, by + .5, bw * scale - 1, bh * scale - 1); g.setLineDash([]); }
+  const fit = glyphCells(f, text, bw);
+  const x0 = align === 'center' ? bx + (bw - fit.width) / 2 * scale : align === 'right' ? bx + (bw - fit.width) * scale : bx;
+  const ty = by + (bh - fh) / 2 * scale;
+  g.fillStyle = fh > bh ? '#ff5560' : '#eef0f3';
+  drawGlyphs(g, f, fit.cells, x0, ty, scale);
+  if (fit.cells.length < all.cells.length) { g.fillStyle = '#ff5560'; drawGlyphs(g, f, all.cells.slice(fit.cells.length), x0 + fit.width * scale, ty, scale); }
+}
+// the next bigger (dir 1) or smaller (-1) font for an element: same family first, then the same width, that can draw its text
+function stepFont(e, k, dir) {
+  const curF = e[k] ?? 14, ci = fontInfo[curF] || {}, h0 = fontHeight(curF), text = sampleText(e) || '0';
+  const ok = fontInfo.filter(i => i.usable && i.dupOf < 0 && i.id !== curF && canDraw(i.id, text) && (dir > 0 ? i.h > h0 : i.h < h0));
+  const near = l => l.sort((a, b) => dir > 0 ? a.h - b.h : b.h - a.h)[0];
+  return (near(ok.filter(i => i.family === ci.family)) || near(ok.filter(i => i.style === ci.style && i.chars === ci.chars)) || near(ok) || {}).id;
+}
+
 // ---------- history ----------
 const snapshot = () => JSON.stringify(dash);
 function begin() { undoStack.push(snapshot()); if (undoStack.length > 300) undoStack.shift(); redoStack.length = 0; updateUndo(); }
 function changed(opt = {}) {
   setDirty(true);
   if (!opt.keepLayers) renderLayers();
-  renderPages();
+  renderPages(); renderPagesPane();
   draw();
   if (opt.inspector) renderInspector();
   scheduleCheck(); scheduleWheel(); saveDraft(); updateHint();
 }
 function doUndo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(JSON.parse(undoStack.pop())); }
 function doRedo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(JSON.parse(redoStack.pop())); }
-function restore(d) { dash = d; loadImages(); sel = Math.min(sel, dash.Elements.length - 1); setDirty(true); renderAll(); scheduleCheck(); scheduleWheel(); updateUndo(); }
+function restore(d) { dash = d; loadImages(); setPicked(pickedList().filter(i => i < dash.Elements.length), sel < dash.Elements.length ? sel : -1); setDirty(true); renderAll(); scheduleCheck(); scheduleWheel(); updateUndo(); }
 function updateUndo() { $('btnUndo').disabled = !undoStack.length; $('btnRedo').disabled = !redoStack.length; }
 function setDirty(v) { dirty = v; $('dirty').classList.toggle('on', v); }
 function saveDraft() { try { localStorage.setItem('fxdash-draft', snapshot()); } catch (e) { } }
@@ -173,7 +310,7 @@ function load(d, opt = {}) {
   dash.Images = dash.Images || {};
   undoStack.length = 0; redoStack.length = 0; updateUndo();
   setDirty(!!opt.dirty);
-  sel = -1; hover = -1; overlay = -1; page = 0;
+  setPicked([]); hover = -1; overlay = -1; shown = [0, 0, 0, 0]; addTo = null;
   loadImages();
   renderAll();
   scheduleCheck(0); scheduleWheel();
@@ -184,83 +321,187 @@ function loadImages() {
   for (const [k, v] of Object.entries(dash.Images || {})) { const img = new Image(); img.onload = draw; img.src = 'data:' + imageMime(v) + ';base64,' + v; images[k] = img; }
 }
 const blankDash = () => ({ FormatVersion: 2, Id: 'my-dash', Name: 'My dash', Author: '', Description: '', Elements: [], Images: {} });
-function renderAll() { if (page >= flipCount()) page = 0; renderHeader(); renderPages(); renderLayers(); renderInspector(); draw(); updateHint(); }
-// ---------- pages: names, order, adding and removing (the elements' "page:N" follow) ----------
-function ensurePages() { if (!dash.Pages || dash.Pages.length < pageCount()) dash.Pages = Array.from({ length: pageCount() }, (_, i) => pageName(i)); }
-function remapPages(map) { // map: old index -> new index, or null (the element's page goes)
+function renderAll() {
+  if (addTo !== null && !setExists(addTo)) addTo = null;
+  renderHeader(); renderPages(); renderPagesPane(); renderLayers(); renderInspector(); draw(); updateHint();
+}
+
+// ---------- pages: names, order, adding and removing (the elements' page conditions follow) ----------
+// the names of set s, filled up to its page count (creating the set's PageSets entry, and those before it)
+function ensureNames(s) {
+  const n = countOf(s);
+  if (s === 0) { if (!dash.Pages || dash.Pages.length < n) dash.Pages = Array.from({ length: n }, (_, i) => pageName(i, 0)); return dash.Pages; }
+  dash.PageSets = dash.PageSets || [];
+  while (dash.PageSets.length < s) dash.PageSets.push({ Name: `Pages ${dash.PageSets.length + 2}`, Pages: [] });
+  const ps = dash.PageSets[s - 1];
+  if (!ps.Pages || ps.Pages.length < n) ps.Pages = Array.from({ length: n }, (_, i) => pageName(i, s));
+  return ps.Pages;
+}
+// set s's page conditions: map(old page) -> new page, or null (the condition goes: the element shows on every page)
+function remapPages(s, map) {
   for (const e of dash.Elements) {
-    const l = visList(e).map(String); let hit = false;
-    const out = [];
-    for (const c of l) {
-      const m = /^page:(\d+)$/i.exec(c.trim());
-      if (!m) { out.push(c); continue; }
-      hit = true; const to = map(Number(m[1]));
-      if (to !== null && to !== undefined) out.push('page:' + to);
+    let hit = false; const out = [];
+    for (const c of visList(e)) {
+      const pc = parsePage(c);
+      if (!pc || pc[0] !== s) { out.push(c); continue; }
+      hit = true; const to = map(pc[1]);
+      if (to !== null && to !== undefined) out.push(condOf(s, to));
     }
-    if (!hit) continue;
-    if (out.length) e.Visible = out.length === 1 ? out[0] : out; else { delete e.Visible; delete e.PreviewVisible; }
+    if (hit) setVis(e, out);
   }
 }
-function addPage() {
-  begin(); ensurePages();
-  if (dash.Pages.length === 0) dash.Pages = ['Page 1'];
-  dash.Pages.push('Page ' + (dash.Pages.length + 1));
-  page = dash.Pages.length - 1;
-  changed({ inspector: true });
-  toast(dash.Pages.length === 2 ? 'Two pages: what you had shows on every page. Put elements on a page with Show when, Page' : 'Page added: put elements on it with Show when, Page', 'ok', 4200);
+// set `from`'s conditions become set `to`'s (after a set before it went)
+function renumberSet(from, to) {
+  for (const e of dash.Elements) {
+    const l = visList(e); if (!l.some(c => { const p = parsePage(c); return p && p[0] === from; })) continue;
+    setVis(e, l.map(c => { const p = parsePage(c); return p && p[0] === from ? condOf(to, p[1]) : c; }));
+  }
 }
-function renamePage(i, name) { begin(); ensurePages(); dash.Pages[i] = name.trim() || ('Page ' + (i + 1)); changed({ keepLayers: false }); }
-function movePage(i, dir) {
-  const j = i + dir; ensurePages(); if (j < 0 || j >= dash.Pages.length) return;
+function addPage(s = 0) {
   begin();
-  [dash.Pages[i], dash.Pages[j]] = [dash.Pages[j], dash.Pages[i]];
-  remapPages(k => k === i ? j : k === j ? i : k);
-  if (page === i) page = j; else if (page === j) page = i;
+  const names = ensureNames(s);
+  if (names.length === 0) names.push('Page 1');
+  names.push('Page ' + (names.length + 1));
+  shown[s] = names.length - 1;
+  changed({ inspector: true });
+  if (names.length === 2) toast('Two pages: what you had shows on every page. Put elements on a page from the Pages tab, Page in the inspector, or right-click', 'ok', 4800);
+  switchTab('pages', true);
+}
+async function addSet() {
+  const s = setsUsed(); if (s >= MAX_SETS) return;
+  const r = await ask({ title: 'Add a set of pages', icon: 'layers', ok: 'Add the set',
+    text: 'A set of pages flips on its own: one part of the dash (fuel, lap times, tyres) with its own Next page button on the wheel. Next page flips every set at once.',
+    fields: [{ label: 'What it shows', value: s === 1 ? 'Lap times' : 'Pages ' + (s + 1) }] });
+  if (!r) return;
+  begin();
+  for (let k = 1; k < s; k++) ensureNames(k);
+  dash.PageSets = dash.PageSets || [];
+  dash.PageSets.push({ Name: r[0] || 'Pages ' + (s + 1), Pages: ['Page 1', 'Page 2'] });
+  shown[s] = 0;
+  changed({ inspector: true });
+  toast(`"${setTitle(s)}" added: put elements on its pages, the rest of the dash stays as it is`, 'ok', 4200);
+}
+function removeSetNow(s) { // set s (1-3) goes; its elements show on every page of it (the caller removed them if wanted)
+  remapPages(s, () => null);
+  dash.PageSets.splice(s - 1, 1);
+  for (let k = s + 1; k < MAX_SETS; k++) renumberSet(k, k - 1);
+  shown.splice(s, 1); shown.push(0);
+  if (addTo === s) addTo = null; else if (addTo > s) addTo--;
+  if (!dash.PageSets.length) delete dash.PageSets;
+}
+async function removeSet(s) {
+  const on = dash.Elements.filter(e => pageIn(e, s) !== null).length;
+  let keep = true;
+  if (on) {
+    const r = await ask({ title: `Remove "${setTitle(s)}"?`, icon: 'trash', danger: true, ok: 'Remove the set',
+      text: `${on} element${on === 1 ? ' is' : 's are'} on its pages. Remove ${on === 1 ? 'it' : 'them'} too, or keep ${on === 1 ? 'it' : 'them'} showing all the time.`,
+      fields: [{ k: 'keep', label: 'Keep them, showing all the time', type: 'check', value: false }] });
+    if (!r) return; keep = !!r[0];
+  }
+  begin();
+  if (!keep) dash.Elements = dash.Elements.filter(e => pageIn(e, s) === null);
+  removeSetNow(s);
+  setPicked(pickedList().filter(i => i < dash.Elements.length), sel < dash.Elements.length ? sel : -1);
   changed({ inspector: true });
 }
-async function deletePage(i) {
-  ensurePages();
-  const on = dash.Elements.filter(e => pageOf(e) === i).length;
+function renameSet(s, name) { if (s === 0) return; begin(); ensureNames(s); dash.PageSets[s - 1].Name = name.trim() || `Pages ${s + 1}`; changed({}); }
+function renamePage(s, i, name) { begin(); ensureNames(s)[i] = name.trim() || ('Page ' + (i + 1)); changed({}); }
+function movePage(s, i, dir) {
+  const names = ensureNames(s), j = i + dir; if (j < 0 || j >= names.length) return;
+  begin();
+  [names[i], names[j]] = [names[j], names[i]];
+  remapPages(s, k => k === i ? j : k === j ? i : k);
+  if (shown[s] === i) shown[s] = j; else if (shown[s] === j) shown[s] = i;
+  changed({ inspector: true });
+}
+async function deletePage(s, i) {
+  ensureNames(s);
+  const on = dash.Elements.filter(e => pageIn(e, s) === i).length;
   let keep = false;
   if (on) {
-    const r = await ask({ title: `Remove "${pageName(i)}"?`, icon: 'trash', danger: true, ok: 'Remove the page',
+    const r = await ask({ title: `Remove "${pageName(i, s)}"?`, icon: 'trash', danger: true, ok: 'Remove the page',
       text: `${on} element${on === 1 ? ' is' : 's are'} on this page. Remove ${on === 1 ? 'it' : 'them'} with the page, or keep ${on === 1 ? 'it' : 'them'} on every page instead.`,
       fields: [{ k: 'keep', label: 'Keep them, on every page', type: 'check' }] });
     if (!r) return; keep = !!r[0];
   }
   begin();
-  if (!keep) dash.Elements = dash.Elements.filter(e => pageOf(e) !== i);
-  dash.Pages.splice(i, 1);
-  remapPages(k => k === i ? null : k > i ? k - 1 : k);
-  if (dash.Pages.length < 2) { delete dash.Pages; remapPages(() => null); }
-  page = clamp(page > i ? page - 1 : page, 0, Math.max(0, pageCount() - 1));
-  sel = Math.min(sel, dash.Elements.length - 1);
+  if (!keep) dash.Elements = dash.Elements.filter(e => pageIn(e, s) !== i);
+  const names = ensureNames(s);
+  names.splice(i, 1);
+  remapPages(s, k => k === i ? null : k > i ? k - 1 : k);
+  // one page left is no pages: its elements show all the time (a set of one page goes)
+  if (names.length < 2) { if (s === 0) { delete dash.Pages; remapPages(0, () => null); } else removeSetNow(s); }
+  shown[s] = clamp(shown[s] > i ? shown[s] - 1 : shown[s], 0, Math.max(0, countOf(s) - 1));
+  setPicked(pickedList().filter(x => x < dash.Elements.length), sel < dash.Elements.length ? sel : -1);
   changed({ inspector: true });
 }
-function putOnPage(e, p) { // p: a page index, or null for every page
-  const l = otherConds(e);
-  if (p !== null) l.unshift('page:' + p);
-  if (l.length) e.Visible = l.length === 1 ? l[0] : l; else { delete e.Visible; delete e.PreviewVisible; }
+// element e on page p of set s (null = every page of that set)
+function putOnPage(e, s, p) {
+  const l = visList(e).filter(c => { const pc = parsePage(c); return !pc || pc[0] !== s; });
+  if (p !== null && p !== undefined) l.unshift(condOf(s, p));
+  setVis(e, l);
 }
-function pagesEditor() {
-  const n = pageCount();
-  if (n < 2) return `<div class="note">One page. Add a page to let the driver flip part of the dash (a strip, a panel) with a wheel button, like a SimHub widget's screens.</div><button class="btn" data-pg="add">${icon('plus')}Add a page</button>`;
-  return `<div class="pages-ed">${Array.from({ length: n }, (_, i) => `<div class="pg-row ${i === page ? 'on' : ''}">
-      <button class="pg-num" data-pg="go" data-i="${i}" title="Show this page">${i + 1}</button>
-      <input class="in" data-pg="name" data-i="${i}" value="${esc(pageName(i))}" spellcheck="false" title="The page's name (the settings page and SimHub's UsbDashPage property show it)">
-      <span class="pg-n" title="Elements on this page only">${dash.Elements.filter(e => pageOf(e) === i).length}</span>
-      <button class="btn icon ghost" data-pg="up" data-i="${i}" title="Move up" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button>
-      <button class="btn icon ghost" data-pg="down" data-i="${i}" title="Move down" ${i === n - 1 ? 'disabled' : ''}>${icon('down')}</button>
-      <button class="btn icon ghost" data-pg="del" data-i="${i}" title="Remove this page">${icon('trash')}</button></div>`).join('')}
-    <button class="btn" data-pg="add">${icon('plus')}Add a page</button></div>
-    <div class="note">The driver flips pages with a wheel button (plugin: Dashes tab, Next page / Previous page). Put elements on a page with <b>Show when → Page</b>, or right-click them; elements on no page show on every page. Keep pages to one area: a flip redraws only what changes.</div>`;
+// a new element goes on the page shown in the set picked under "New elements go on"
+function placeNew(e) { if (addTo !== null && countOf(addTo) > 1) putOnPage(e, addTo, shownIn(addTo)); }
+
+// the Pages tab
+function renderPagesPane() {
+  const box = $('pagesPane'); if (!box || !dash) return;
+  const used = setsUsed(), one = used === 1 && pageCount() < 2;
+  $('pageTabCount').textContent = one ? '' : String(Array.from({ length: used }, (_, s) => countOf(s) > 1 ? countOf(s) : 0).reduce((a, b) => a + b, 0));
+  if (one) {
+    box.innerHTML = `<div class="pg-intro">${icon('layers')}<b>One page</b><span>Pages let the driver flip part of the dash (a panel, a strip, the whole screen) with a wheel button, like a SimHub widget's screens.</span>
+      <button class="btn primary" data-pg="add" data-s="0">${icon('plus')}Add a page</button></div>`;
+    wirePagesPane(box); return;
+  }
+  const target = `<div class="f"><label>New elements</label><select class="in" id="addTo"><option value="">Go on every page</option>${flippingSets().map(s => `<option value="${s}" ${addTo === s ? 'selected' : ''}>Go on the page shown${hasSets() ? ' in ' + esc(setTitle(s)) : ''}</option>`).join('')}</select></div>`;
+  const sets = Array.from({ length: used }, (_, s) => {
+    const n = countOf(s), names = Array.from({ length: n }, (_, i) => pageName(i, s));
+    const rows = n < 2 ? `<div class="note">One page: add one to make this part flip.</div>` : names.map((nm, i) => `<div class="pg-row ${i === shownIn(s) ? 'on' : ''}">
+      <button class="pg-num" data-pg="go" data-s="${s}" data-i="${i}" title="Show this page">${i + 1}</button>
+      <input class="in" data-pg="name" data-s="${s}" data-i="${i}" value="${esc(nm)}" spellcheck="false" title="The page's name (the settings page and SimHub's UsbDashPage property show it)">
+      <button class="pg-n" data-pg="pick" data-s="${s}" data-i="${i}" title="Elements on this page only: click to select them">${dash.Elements.filter(e => pageIn(e, s) === i).length}</button>
+      <button class="btn icon ghost" data-pg="up" data-s="${s}" data-i="${i}" title="Move up" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button>
+      <button class="btn icon ghost" data-pg="down" data-s="${s}" data-i="${i}" title="Move down" ${i === n - 1 ? 'disabled' : ''}>${icon('down')}</button>
+      <button class="btn icon ghost" data-pg="del" data-s="${s}" data-i="${i}" title="Remove this page">${icon('trash')}</button></div>`).join('');
+    return `<section class="pset">
+      <header>${s === 0 ? `<b>${used > 1 ? 'Pages' : 'Pages'}</b>` : `<input class="in" data-pg="setname" data-s="${s}" value="${esc(setTitle(s))}" spellcheck="false" title="What this set of pages shows">`}
+        <span class="pset-btn" title="The SimHub action / wheel button that flips only this set">Next page ${s + 1}</span>
+        ${s > 0 ? `<button class="btn icon ghost" data-pg="delset" data-s="${s}" title="Remove this set of pages">${icon('trash')}</button>` : ''}</header>
+      <div class="pages-ed">${rows}</div>
+      <button class="btn small" data-pg="add" data-s="${s}">${icon('plus')}Add a page</button></section>`;
+  }).join('');
+  box.innerHTML = target + sets +
+    (used < MAX_SETS ? `<button class="btn" data-pg="addset" style="width:100%;justify-content:center">${icon('plus')}Add a set of pages</button>` : '') +
+    `<div class="note" style="margin-top:10px">Put elements on a page with <b>Page</b> in the inspector or a right-click (several selected at once too); elements on no page show on every page. Next page flips every set; a set flips alone with its own button. Keep a page to one area: a flip redraws only what changes.</div>`;
+  wirePagesPane(box);
 }
-function wirePagesEditor(root) {
+function wirePagesPane(root) {
+  hydrateIcons(root);
   root.querySelectorAll('[data-pg]').forEach(b => {
-    const i = Number(b.dataset.i), a = b.dataset.pg;
-    if (a === 'name') { b.onchange = () => renamePage(i, b.value); b.onkeydown = ev => { if (ev.key === 'Enter') b.blur(); }; return; }
-    b.onclick = () => ({ add: addPage, go: () => setPage(i), up: () => movePage(i, -1), down: () => movePage(i, 1), del: () => deletePage(i) })[a]();
+    const s = Number(b.dataset.s || 0), i = Number(b.dataset.i), a = b.dataset.pg;
+    if (a === 'name' || a === 'setname') {
+      b.onchange = () => a === 'name' ? renamePage(s, i, b.value) : renameSet(s, b.value);
+      b.onkeydown = ev => { if (ev.key === 'Enter') b.blur(); };
+      return;
+    }
+    b.onclick = () => ({
+      add: () => addPage(s), addset: addSet, delset: () => removeSet(s), go: () => setShown(s, i), up: () => movePage(s, i, -1), down: () => movePage(s, i, 1), del: () => deletePage(s, i),
+      pick: () => { setShown(s, i); const l = dash.Elements.map((e, x) => pageIn(e, s) === i ? x : -1).filter(x => x >= 0); if (l.length) { setPicked(l); renderLayers(); renderInspector(); draw(); } },
+    })[a]();
   });
+  const at = root.querySelector('#addTo');
+  if (at) at.onchange = () => { addTo = at.value === '' ? null : Number(at.value); updateAddTarget(); };
+  updateAddTarget();
+}
+// the Add tab says where new elements go
+function updateAddTarget() {
+  const el = $('addTarget'); if (!el || !dash) return;
+  const on = addTo !== null && countOf(addTo) > 1;
+  el.hidden = flipCount() < 2;
+  el.innerHTML = on ? `${icon('layers')}<span>New elements go on <b>${esc(pageName(shownIn(addTo), addTo))}</b>${hasSets() ? ' (' + esc(setTitle(addTo)) + ')' : ''}</span><button data-act2="pages">Change</button>`
+    : `${icon('layers')}<span>New elements go on <b>every page</b></span><button data-act2="pages">Change</button>`;
+  const b = el.querySelector('button'); if (b) b.onclick = () => switchTab('pages');
 }
 
 // ---------- overlays: the dash's pop-ups, warnings and screens that show on a condition ----------
@@ -305,20 +546,23 @@ function setOverlay(i) {
 
 function renderPages() {
   const seg = $('pageSeg'); if (!seg) return;
-  const n = flipCount();
-  seg.hidden = n < 2;
-  if (n < 2) { seg.innerHTML = ''; return; }
-  // with more sets of pages: a button per flip, its title the page of each set it shows
-  const flipTitle = i => [pageName(i % pageCount()), ...[2, 3, 4].filter(k => setCount(k) > 1).map(k => ((dash.PageSets || [])[k - 2]?.Pages || [])[i % setCount(k)] || `Page ${i % setCount(k) + 1}`)].join(' + ');
-  seg.innerHTML = Array.from({ length: n }, (_, i) => hasSets()
-    ? `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Shows ${esc(flipTitle(i))} (Next page flips every set; Next page 1-4 one set each)">${i + 1}</button>`
-    : `<button data-page="${i}" class="${i === page ? 'on' : ''}" title="Show ${esc(pageName(i))} (the driver flips pages with a wheel button)">${esc(pageName(i))}</button>`).join('');
-  seg.querySelectorAll('[data-page]').forEach(b => b.onclick = () => setPage(Number(b.dataset.page)));
+  const sets = dash ? flippingSets() : [];
+  seg.hidden = !sets.length;
+  if (!sets.length) { seg.innerHTML = ''; return; }
+  // one set: its pages by name; more: a small group per set, pages by number (names in the tooltips)
+  seg.innerHTML = sets.map(s => {
+    const n = countOf(s), names = sets.length === 1;
+    return `<div class="pgset">${names ? '' : `<small title="${esc(setTitle(s))}">${esc(setTitle(s))}</small>`}${Array.from({ length: n }, (_, i) =>
+      `<button data-s="${s}" data-page="${i}" class="${i === shownIn(s) ? 'on' : ''}" title="Show ${esc(pageName(i, s))}${names ? ' (the driver flips pages with a wheel button)' : ' (' + esc(setTitle(s)) + ' flips on its own: Next page ' + (s + 1) + ')'}">${names ? esc(pageName(i, s)) : i + 1}</button>`).join('')}</div>`;
+  }).join('');
+  seg.querySelectorAll('[data-page]').forEach(b => b.onclick = () => setShown(Number(b.dataset.s), Number(b.dataset.page)));
 }
-function setPage(i) {
-  page = clamp(i, 0, flipCount() - 1);
-  renderPages(); renderLayers(); draw(); refreshExact(); scheduleWheel();
+function setShown(s, i) {
+  shown[s] = clamp(i, 0, countOf(s) - 1);
+  renderPages(); renderPagesPane(); renderLayers(); draw(); refreshExact(); scheduleWheel(); updateAddTarget();
 }
+// flip k as the wheel's Next page does from the first pages: page k of every set, each wrapping round its own pages
+function showFlip(k) { for (let s = 0; s < MAX_SETS; s++) shown[s] = k % countOf(s); renderPages(); renderPagesPane(); renderLayers(); }
 function renderHeader() { $('dashName').value = dash.Name || ''; $('dashId').textContent = dash.Id ? dash.Id + '.json' : ''; }
 function updateHint() { $('hint').style.opacity = dash && dash.Elements.length ? 0 : 1; }
 
@@ -415,17 +659,12 @@ function drawElement(e) {
 function drawText(e, text, colour) {
   const f = e.Font ?? 14, fh = fontHeight(f);
   if (!fh) return;
-  text = String(text).replace(/[^\x20-\x7e]/g, '');
-  const cells = []; let width = 0;
-  for (const ch of text) { const cw = Math.max(0, charWidth(f, ch)); if (width + cw > e.W) break; cells.push([ch, cw]); width += cw; }
-  let x = e.Align === 'center' ? e.X + (e.W - width) / 2 : e.Align === 'right' ? e.X + e.W - width : e.X;
-  const y = e.Y + (e.H - fh) / 2;
+  const { cells, width } = glyphCells(f, text, e.W);
+  const x = e.Align === 'center' ? e.X + (e.W - width) / 2 : e.Align === 'right' ? e.X + e.W - width : e.X;
   ctx.save();
   ctx.beginPath(); ctx.rect(e.X, e.Y, e.W, e.H); ctx.clip();
   ctx.fillStyle = parseColor(colour || '#ffffff');
-  ctx.font = `${fh >= 90 ? 'bold ' : ''}${Math.max(6, fh * .78)}px Bahnschrift, "Segoe UI", sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  for (const [ch, cw] of cells) { ctx.fillText(ch, x + cw / 2, y + fh / 2); x += cw; }
+  drawGlyphs(ctx, f, cells, x, e.Y + (e.H - fh) / 2);
   ctx.restore();
 }
 
@@ -438,21 +677,30 @@ function bounds(e) {
 
 // ---------- overlay ----------
 function place(el, r) { el.style.left = r.x * zoom + 'px'; el.style.top = r.y * zoom + 'px'; el.style.width = Math.max(1, r.w * zoom) + 'px'; el.style.height = Math.max(1, r.h * zoom) + 'px'; }
+const unionOf = rs => { rs = rs.filter(Boolean); if (!rs.length) return null; const x0 = Math.min(...rs.map(r => r.x)), y0 = Math.min(...rs.map(r => r.y)); return { x: x0, y: y0, w: Math.max(...rs.map(r => r.x + r.w)) - x0, h: Math.max(...rs.map(r => r.y + r.h)) - y0 }; };
+const pickedBounds = () => unionOf(pickedList().map(i => bounds(dash.Elements[i])));
+let pickEls = [];
 function placeOverlay() {
   const scr = $('screen');
   scr.style.width = W * zoom + 'px'; scr.style.height = H * zoom + 'px';
   place($('safe'), { x: pad.l, y: pad.t, w: W - pad.l, h: H - pad.t });
-  const hb = $('hoverbox'), hv = hover !== sel && dash && dash.Elements[hover];
+  const hb = $('hoverbox'), hv = !isPicked(hover) && dash && dash.Elements[hover];
   hb.classList.toggle('on', !!hv && view === 'edit');
   if (hv) place(hb, bounds(hv));
+  // several selected: a thin frame round each, and the selection box (no handles) round them all
+  const list = multi() && view === 'edit' ? pickedList() : [];
+  while (pickEls.length < list.length) { const d = document.createElement('div'); d.className = 'pickbox'; $('overlay').appendChild(d); pickEls.push(d); }
+  pickEls.forEach((d, k) => { d.classList.toggle('on', k < list.length); if (k < list.length) place(d, bounds(dash.Elements[list[k]])); });
   const sb = $('selbox'), s = cur();
   const was = sb.classList.contains('on');
   sb.classList.toggle('on', !!s && view === 'edit');
   if (!was && s) { sb.style.animation = 'none'; void sb.offsetWidth; sb.style.animation = ''; }
-  sb.classList.toggle('nohandles', !!s && s.Type === 'deltabar');
-  if (s) place(sb, bounds(s));
+  sb.classList.toggle('nohandles', !!s && (s.Type === 'deltabar' || multi()));
+  sb.classList.toggle('group', multi());
+  if (s) place(sb, multi() ? pickedBounds() : bounds(s));
 }
 function flashAt(r) {
+  if (!r) return;
   const f = document.createElement('div'); f.className = 'flash'; place(f, r);
   $('overlay').appendChild(f); setTimeout(() => f.remove(), 1000);
 }
@@ -478,27 +726,45 @@ function fitZoom() {
 // ---------- mouse on the canvas ----------
 const screenEl = $('screen');
 function pos(ev) { const b = screenEl.getBoundingClientRect(); return { x: (ev.clientX - b.left) / zoom, y: (ev.clientY - b.top) / zoom }; }
-function hitTest(p) {
-  if (!dash) return -1;
+const pickable = (e, i) => e.Type === 'popup' ? i === sel : (shownInPreview(e) || isPicked(i));
+// every element under a point, front first (what a click there can select: the front one, then the ones behind)
+function hitsAt(p) {
+  if (!dash) return [];
+  const out = [];
   for (let i = dash.Elements.length - 1; i >= 0; i--) {
     const e = dash.Elements[i];
-    if (e.Type === 'popup' ? i !== sel : (!shownInPreview(e) && i !== sel)) continue;
+    if (!pickable(e, i)) continue;
     const r = bounds(e);
-    if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) return i;
+    if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) out.push(i);
   }
-  return -1;
+  // a dim covers the whole screen: behind everything else here
+  return [...out.filter(i => dash.Elements[i].Type !== 'dim'), ...out.filter(i => dash.Elements[i].Type === 'dim')];
 }
+function hitTest(p) { const h = hitsAt(p); return h.length ? h[0] : -1; }
 
 let drag = null;
 screenEl.addEventListener('mousedown', ev => {
   if (!dash || view !== 'edit' || ev.button !== 0) return;
   hideMenus();
-  const p = pos(ev), h = ev.target.dataset.h;
-  const s = cur();
-  if (h && s) { begin(); drag = { mode: 'resize', h, start: p, cx: ev.clientX, cy: ev.clientY, orig: { ...s }, ratio: (s.W || 1) / (s.H || 1) }; $('selbox').classList.add('dragging'); ev.preventDefault(); return; }
-  const hit = hitTest(p);
-  select(hit);
-  if (hit >= 0) { begin(); const e = dash.Elements[hit]; drag = { mode: 'move', start: p, cx: ev.clientX, cy: ev.clientY, orig: { X: e.X || 0, Y: e.Y || 0, SegmentX: e.SegmentX ? [...e.SegmentX] : null } }; $('selbox').classList.add('dragging'); }
+  const p = pos(ev), h = ev.target.dataset.h, s = cur();
+  if (h && s && !multi()) { begin(); drag = { mode: 'resize', h, start: p, cx: ev.clientX, cy: ev.clientY, orig: { ...s }, ratio: (s.W || 1) / (s.H || 1) }; $('selbox').classList.add('dragging'); ev.preventDefault(); return; }
+  const hits = hitsAt(p), add = ev.shiftKey || ev.ctrlKey || ev.metaKey;
+  // Alt+click: straight to the element behind the selected one
+  const hit = ev.altKey && hits.length > 1 && hits.includes(sel) ? hits[(hits.indexOf(sel) + 1) % hits.length] : hits.length ? hits[0] : -1;
+  if (hit < 0) {
+    // empty screen: drag a box round elements to select the ones inside it (Shift / Ctrl adds them to the selection)
+    drag = { mode: 'marquee', start: p, cx: ev.clientX, cy: ev.clientY, base: add ? pickedList() : [] };
+    ev.preventDefault(); return;
+  }
+  if (add) { select(hit, { toggle: true }); ev.preventDefault(); return; }
+  // a click on what's already selected keeps the selection (to drag it all); the mouse coming up without a drag then
+  // selects the element behind it (click again to go deeper), or just that one out of several
+  const already = isPicked(hit);
+  if (!already) select(hit);
+  begin();
+  const orig = {}; for (const i of pickedList()) { const e = dash.Elements[i]; orig[i] = { X: e.X || 0, Y: e.Y || 0, SegmentX: e.SegmentX ? [...e.SegmentX] : null }; }
+  drag = { mode: 'move', start: p, cx: ev.clientX, cy: ev.clientY, orig, r0: pickedBounds(), already, hit, hits };
+  $('selbox').classList.add('dragging');
   ev.preventDefault();
 });
 screenEl.addEventListener('mousemove', ev => {
@@ -508,23 +774,25 @@ screenEl.addEventListener('mousemove', ev => {
   const h = hitTest(p);
   if (h !== hover) { hover = h; placeOverlay(); highlightLayer(h); }
   screenEl.style.cursor = h >= 0 ? 'move' : 'default';
+  screenEl.title = h >= 0 && hitsAt(p).length > 1 ? 'Click again (or Alt+click) to select what\'s behind; right-click lists everything here' : '';
 });
 screenEl.addEventListener('mouseleave', () => { $('coords').textContent = '— , —'; if (hover !== -1) { hover = -1; placeOverlay(); highlightLayer(-1); } });
 screenEl.addEventListener('dblclick', ev => {
-  const e = cur(); if (!e) return;
+  const e = cur(); if (!e || multi()) return;
   const inp = document.querySelector(e.Type === 'label' ? '#inspector [data-k="Text"]' : e.Type === 'value' ? '#inspector .bindbtn' : '#inspector .insp-head input');
   if (inp) { inp.focus(); if (inp.select) inp.select(); if (inp.click && inp.classList.contains('bindbtn')) inp.click(); }
 });
 screenEl.addEventListener('contextmenu', ev => {
   ev.preventDefault(); if (!dash || view !== 'edit') return;
-  const hit = hitTest(pos(ev)); if (hit >= 0) select(hit);
-  openContext(ev.clientX, ev.clientY);
+  const p = pos(ev), hits = hitsAt(p);
+  if (hits.length && !isPicked(hits[0]) && !hits.some(isPicked)) select(hits[0]);
+  openContext(ev.clientX, ev.clientY, hits);
 });
 
-function snapLines(skip) {
+function snapLines() {
   const xs = [0, W, W / 2, pad.l, pad.l + (W - pad.l) / 2], ys = [0, H, H / 2, pad.t, pad.t + (H - pad.t) / 2];
   dash.Elements.forEach((e, i) => {
-    if (i === skip || e.Type === 'popup' || !shownInPreview(e)) return;
+    if (isPicked(i) || e.Type === 'popup' || e.Type === 'dim' || !shownInPreview(e)) return;
     const r = bounds(e);
     xs.push(r.x, r.x + r.w / 2, r.x + r.w); ys.push(r.y, r.y + r.h / 2, r.y + r.h);
   });
@@ -535,25 +803,41 @@ function snap1(values, lines, tol) {
   for (const v of values) for (const l of lines) { const d = l - v; if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, line: l }; }
   return best;
 }
+// a box drawn round elements takes those wholly inside it (not the big backgrounds it only touches)
+const contains = (a, b) => b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h;
 
 window.addEventListener('mousemove', ev => {
   if (!drag || !dash) return;
-  const p = pos(ev), e = cur(); if (!e) return;
+  const p = pos(ev);
   // a click isn't a drag: nothing moves (or gets an undo step) until the mouse has gone 3 screen px
   if (!drag.moved && Math.hypot(ev.clientX - drag.cx, ev.clientY - drag.cy) < 3) return;
+  drag.moved = true;
+  if (drag.mode === 'marquee') {
+    const r = { x: Math.min(p.x, drag.start.x), y: Math.min(p.y, drag.start.y), w: Math.abs(p.x - drag.start.x), h: Math.abs(p.y - drag.start.y) };
+    if (!drag.box) { drag.box = document.createElement('div'); drag.box.className = 'marquee'; $('overlay').appendChild(drag.box); }
+    place(drag.box, r);
+    const inside = dash.Elements.map((e, i) => i).filter(i => { const e = dash.Elements[i]; return e.Type !== 'dim' && e.Type !== 'popup' && shownInPreview(e) && contains(r, bounds(e)); });
+    setPicked([...new Set([...drag.base, ...inside])]);
+    placeOverlay(); renderLayers();
+    return;
+  }
   let dx = Math.round(p.x - drag.start.x), dy = Math.round(p.y - drag.start.y);
-  const tol = 6 / zoom, lines = ev.altKey ? { xs: [], ys: [] } : snapLines(sel);
+  const tol = 6 / zoom, lines = ev.altKey ? { xs: [], ys: [] } : snapLines();
   const gx = [], gy = [];
   if (drag.mode === 'move') {
-    const r0 = bounds({ ...e, X: drag.orig.X, Y: drag.orig.Y, SegmentX: drag.orig.SegmentX });
+    const r0 = drag.r0;
     if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
     const sx = snap1([r0.x + dx, r0.x + dx + r0.w / 2, r0.x + dx + r0.w], lines.xs, tol);
     const sy = snap1([r0.y + dy, r0.y + dy + r0.h / 2, r0.y + dy + r0.h], lines.ys, tol);
     if (sx) { dx += Math.round(sx.d); gx.push(sx.line); }
     if (sy) { dy += Math.round(sy.d); gy.push(sy.line); }
-    e.X = drag.orig.X + dx; e.Y = drag.orig.Y + dy;
-    if (drag.orig.SegmentX) e.SegmentX = drag.orig.SegmentX.map(v => v + dx);
+    for (const [i, o] of Object.entries(drag.orig)) {
+      const e = dash.Elements[i]; if (!e) continue;
+      e.X = o.X + dx; e.Y = o.Y + dy;
+      if (o.SegmentX) e.SegmentX = o.SegmentX.map(v => v + dx);
+    }
   } else {
+    const e = cur(); if (!e) return;
     const o = drag.orig, hd = drag.h;
     let x0 = o.X, y0 = o.Y, x1 = o.X + o.W, y1 = o.Y + o.H;
     if (hd.includes('w')) { x0 += dx; const s = snap1([x0], lines.xs, tol); if (s) { x0 += Math.round(s.d); gx.push(s.line); } }
@@ -564,24 +848,52 @@ window.addEventListener('mousemove', ev => {
     e.X = Math.min(x0, x1); e.Y = Math.min(y0, y1); e.W = Math.max(1, Math.abs(x1 - x0)); e.H = Math.max(1, Math.abs(y1 - y0));
   }
   showGuides(gx, gy);
-  const r = bounds(e);
+  const r = multi() ? pickedBounds() : bounds(cur());
   $('selsize').textContent = drag.mode === 'move' ? `${r.x}, ${r.y}` : `${r.w} × ${r.h}`;
-  drag.moved = true;
   draw(); updateGeometry();
 });
 window.addEventListener('mouseup', () => {
   if (!drag) return;
+  const d = drag; drag = null;
   $('selbox').classList.remove('dragging'); showGuides([], []);
-  if (drag.moved) changed({ keepLayers: true }); else undoStack.pop();
-  drag = null; updateUndo();
+  if (d.mode === 'marquee') {
+    if (d.box) d.box.remove();
+    if (!d.moved) { if (!d.base.length) select(-1); return; }
+    renderLayers(); renderInspector(); draw();
+    return;
+  }
+  if (d.moved) { changed({ keepLayers: true, inspector: multi() }); updateUndo(); return; }
+  undoStack.pop(); updateUndo();
+  if (d.mode !== 'move' || !d.already) return;
+  // a click on what was already selected: one of several -> just that one; the only one -> the one behind it
+  if (multi()) select(d.hit, { force: true });
+  else if (d.hits.length > 1) {
+    const next = d.hits[(d.hits.indexOf(sel) + 1) % d.hits.length];
+    select(next, { flash: true });
+    toast(`${nameOf(dash.Elements[next])}${d.hits.indexOf(next) === 0 ? ' (the front one again)' : ': behind'}`, 'ok', 1200);
+  }
 });
 
 // ---------- selection & editing ----------
+// select(i): just that one (-1 = nothing); {toggle}: add it to the selection or take it out; {range}: from the last
+// picked to it, in the Layers order
 function select(i, opt = {}) {
-  if (i === sel && !opt.force) return;
-  sel = i;
+  if (opt.toggle && i >= 0) {
+    if (isPicked(i)) { picked.delete(i); if (sel === i) sel = picked.size ? [...picked][picked.size - 1] : -1; }
+    else { picked.add(i); sel = i; }
+  } else if (opt.range && i >= 0 && sel >= 0) {
+    const a = Math.min(sel, i), b = Math.max(sel, i), vis = new Set(layerOrder());
+    setPicked([...pickedList(), ...Array.from({ length: b - a + 1 }, (_, k) => a + k).filter(k => vis.has(k))], i);
+  } else {
+    if (i === sel && picked.size === (i >= 0 ? 1 : 0) && !opt.force) return;
+    selOnly(i);
+  }
   renderLayers(); renderInspector(); draw();
   if (i >= 0 && opt.flash) flashAt(bounds(dash.Elements[i]));
+}
+function selectAll() {
+  const l = dash.Elements.map((e, i) => i).filter(i => { const e = dash.Elements[i]; return e.Type !== 'popup' && shownInPreview(e); });
+  setPicked(l, l.includes(sel) ? sel : undefined); renderLayers(); renderInspector(); draw();
 }
 function uniqueName(base) { let n = 1; const names = new Set(dash.Elements.map(e => e.Name)); while (names.has(base + n)) n++; return base + n; }
 
@@ -592,8 +904,9 @@ function addElement(type, at) {
   const x = Math.round(clamp((at ? at.x : W / 2) - w / 2, 0, W - w)), y = Math.round(clamp((at ? at.y : H / 2) - h / 2, 0, H - h));
   begin();
   const e = { Type: type, Name: uniqueName(type), X: x, Y: y, ...d };
+  placeNew(e);
   dash.Elements.push(e);
-  sel = dash.Elements.length - 1;
+  selOnly(dash.Elements.length - 1);
   changed({ inspector: true });
   flashAt(bounds(e));
   switchTab('layers', true);
@@ -630,26 +943,42 @@ async function addImage(file) {
     const k = Math.min(1, 300 / pic.w, 200 / pic.h), w = Math.round(pic.w * k), h = Math.round(pic.h * k);
     const at = pendingImageAt || { x: W / 2, y: H / 2 };
     const e = { Type: 'image', Name: uniqueName('image'), Image: name, X: Math.round(clamp(at.x - w / 2, 0, W - w)), Y: Math.round(clamp(at.y - h / 2, 0, H - h)), W: w, H: h, MaxColors: 6, Block: 1 };
-    dash.Elements.push(e); sel = dash.Elements.length - 1;
+    placeNew(e);
+    dash.Elements.push(e); selOnly(dash.Elements.length - 1);
     changed({ inspector: true }); flashAt(bounds(e));
     if (pic.gif) toast('A GIF gives its first frame: the screen draws stills', 'ok', 3500);
   };
   img.src = 'data:' + imageMime(pic.b64) + ';base64,' + pic.b64;
 }
+// copies of elements, each just above its original (or all on top, for a paste), offset by `off` px, selected
+function insertCopies(list, off, atEnd) {
+  const out = [];
+  for (const src of list) {
+    const c = JSON.parse(JSON.stringify(src));
+    c.Name = uniqueName((src.Name || src.Type).replace(/\d+$/, '')); c.X = (c.X || 0) + off; c.Y = (c.Y || 0) + off;
+    if (c.SegmentX) c.SegmentX = c.SegmentX.map(v => v + off);
+    out.push(c);
+  }
+  if (atEnd) { const at = dash.Elements.length; dash.Elements.push(...out); return out.map((_, k) => at + k); }
+  // duplicates: right after the last picked one, in their order
+  const after = Math.max(...pickedList()) + 1;
+  dash.Elements.splice(after, 0, ...out);
+  return out.map((_, k) => after + k);
+}
 function duplicate() {
-  const e = cur(); if (!e) return;
+  const l = pickedList(); if (!l.length) return;
   begin();
-  const c = JSON.parse(JSON.stringify(e));
-  c.Name = uniqueName((e.Name || e.Type).replace(/\d+$/, '')); c.X = (c.X || 0) + 12; c.Y = (c.Y || 0) + 12;
-  if (c.SegmentX) c.SegmentX = c.SegmentX.map(v => v + 12);
-  dash.Elements.splice(sel + 1, 0, c); sel++;
-  changed({ inspector: true }); flashAt(bounds(c));
+  const idx = insertCopies(l.map(i => dash.Elements[i]), 12, false);
+  setPicked(idx, idx[idx.length - 1]);
+  changed({ inspector: true }); flashAt(pickedBounds());
 }
 function removeSel() {
-  if (sel < 0) return;
+  const l = pickedList(); if (!l.length) return;
   begin();
-  const name = nameOf(cur());
-  dash.Elements.splice(sel, 1); sel = Math.min(sel, dash.Elements.length - 1);
+  const name = l.length === 1 ? nameOf(dash.Elements[l[0]]) : l.length + ' elements';
+  const drop = new Set(l), first = l[0];
+  dash.Elements = dash.Elements.filter((e, i) => !drop.has(i));
+  selOnly(Math.min(first, dash.Elements.length - 1));
   changed({ inspector: true });
   toast(`Deleted ${name}`, 'ok', 1800);
 }
@@ -657,26 +986,58 @@ function moveTo(from, to) {
   if (from === to || from < 0 || to < 0 || to >= dash.Elements.length) return;
   begin();
   const [e] = dash.Elements.splice(from, 1); dash.Elements.splice(to, 0, e);
-  sel = to; changed({ inspector: true });
+  selOnly(to); changed({ inspector: true });
 }
-function copySel() { const e = cur(); if (!e) return; clipboard = JSON.stringify(e); toast('Copied ' + nameOf(e), 'ok', 1400); }
+// the selection to the front (end of the list) or back, keeping its own order
+function stackPicked(front) {
+  const l = pickedList(); if (!l.length) return;
+  if (l.length === 1) { moveTo(l[0], front ? dash.Elements.length - 1 : 0); return; }
+  begin();
+  const set = new Set(l), mine = l.map(i => dash.Elements[i]), rest = dash.Elements.filter((e, i) => !set.has(i)), primary = dash.Elements[sel];
+  dash.Elements = front ? [...rest, ...mine] : [...mine, ...rest];
+  setPicked(mine.map(e => dash.Elements.indexOf(e)), dash.Elements.indexOf(primary));
+  changed({ inspector: true });
+}
+function copySel() {
+  const l = pickedList(); if (!l.length) return;
+  clipboard = JSON.stringify(l.map(i => dash.Elements[i]));
+  toast(l.length === 1 ? 'Copied ' + nameOf(dash.Elements[l[0]]) : `Copied ${l.length} elements`, 'ok', 1400);
+}
 function paste() {
   if (!clipboard) return;
+  let list = JSON.parse(clipboard); if (!Array.isArray(list)) list = [list];
   begin();
-  const c = JSON.parse(clipboard); c.Name = uniqueName((c.Name || c.Type).replace(/\d+$/, '')); c.X = (c.X || 0) + 16; c.Y = (c.Y || 0) + 16;
-  if (c.SegmentX) c.SegmentX = c.SegmentX.map(v => v + 16);
-  dash.Elements.push(c); sel = dash.Elements.length - 1;
-  changed({ inspector: true }); flashAt(bounds(c));
+  const idx = insertCopies(list, 16, true);
+  idx.forEach(i => placeNew(dash.Elements[i]));
+  setPicked(idx, idx[idx.length - 1]);
+  changed({ inspector: true }); flashAt(pickedBounds());
 }
+function shiftEl(e, dx, dy) { e.X = (e.X || 0) + dx; e.Y = (e.Y || 0) + dy; if (e.SegmentX) e.SegmentX = e.SegmentX.map(v => v + dx); }
+// one element: to the wheel's visible area; several: to each other (the box round them all)
 function align(kind) {
-  const e = cur(); if (!e) return;
-  const r = bounds(e); begin();
-  const L = pad.l, T = pad.t, R = W, B = H;
-  let dx = 0, dy = 0;
-  if (kind === 'l') dx = L - r.x; if (kind === 'ch') dx = Math.round(L + (R - L - r.w) / 2) - r.x; if (kind === 'r') dx = R - r.w - r.x;
-  if (kind === 't') dy = T - r.y; if (kind === 'cv') dy = Math.round(T + (B - T - r.h) / 2) - r.y; if (kind === 'b') dy = B - r.h - r.y;
-  e.X = (e.X || 0) + dx; e.Y = (e.Y || 0) + dy; if (e.SegmentX) e.SegmentX = e.SegmentX.map(v => v + dx);
-  changed({ keepLayers: true }); updateGeometry();
+  const l = pickedList(); if (!l.length) return;
+  begin();
+  const box = l.length > 1 ? pickedBounds() : { x: pad.l, y: pad.t, w: W - pad.l, h: H - pad.t };
+  for (const i of l) {
+    const e = dash.Elements[i], r = bounds(e);
+    let dx = 0, dy = 0;
+    if (kind === 'l') dx = box.x - r.x; if (kind === 'ch') dx = Math.round(box.x + (box.w - r.w) / 2) - r.x; if (kind === 'r') dx = box.x + box.w - r.w - r.x;
+    if (kind === 't') dy = box.y - r.y; if (kind === 'cv') dy = Math.round(box.y + (box.h - r.h) / 2) - r.y; if (kind === 'b') dy = box.y + box.h - r.h - r.y;
+    shiftEl(e, dx, dy);
+  }
+  changed({ keepLayers: true }); updateGeometry(); placeOverlay();
+}
+// three or more: the same gap between each, across (h) or down (v)
+function distribute(axis) {
+  const l = pickedList(); if (l.length < 3) return;
+  begin();
+  const k = axis === 'h' ? ['x', 'w'] : ['y', 'h'];
+  const items = l.map(i => ({ e: dash.Elements[i], r: bounds(dash.Elements[i]) })).sort((a, b) => a.r[k[0]] - b.r[k[0]]);
+  const start = items[0].r[k[0]], end = Math.max(...items.map(t => t.r[k[0]] + t.r[k[1]]));
+  const gap = (end - start - items.reduce((a, t) => a + t.r[k[1]], 0)) / (items.length - 1);
+  let at = start;
+  for (const t of items) { const d = Math.round(at) - t.r[k[0]]; shiftEl(t.e, axis === 'h' ? d : 0, axis === 'h' ? 0 : d); at += t.r[k[1]] + gap; }
+  changed({ keepLayers: true }); placeOverlay();
 }
 
 // ---------- keyboard ----------
@@ -684,10 +1045,12 @@ window.addEventListener('keydown', ev => {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
   const k = ev.key.toLowerCase();
   if (ev.ctrlKey && k === 's') { ev.preventDefault(); save(); return; }
-  if (ev.key === 'Escape') { if (closeTop()) return; if (!typing && sel >= 0) select(-1); return; }
+  if (ev.ctrlKey && k === 'f') { ev.preventDefault(); switchTab('layers', true); const s = $('layerSearch'); s.focus(); s.select(); return; }
+  if (ev.key === 'Escape') { if (closeTop()) return; if (typing && document.activeElement.id === 'layerSearch') { document.activeElement.blur(); return; } if (!typing && sel >= 0) select(-1); return; }
   if (typing) return;
   if (ev.ctrlKey && k === 'z') { ev.preventDefault(); ev.shiftKey ? doRedo() : doUndo(); return; }
   if (ev.ctrlKey && k === 'y') { ev.preventDefault(); doRedo(); return; }
+  if (ev.ctrlKey && k === 'a') { ev.preventDefault(); selectAll(); return; }
   if (ev.ctrlKey && k === 'c') { copySel(); return; }
   if (ev.ctrlKey && k === 'v') { paste(); return; }
   if (ev.ctrlKey && k === 'd') { ev.preventDefault(); duplicate(); return; }
@@ -696,38 +1059,58 @@ window.addEventListener('keydown', ev => {
   if (ev.key === '-') { setZoom(zoom - .1); return; }
   if (ev.key === '0') { fitZoom(); return; }
   if (ev.key === '1') { setView('edit'); return; } if (ev.key === '2') { setView('exact'); return; } if (ev.key === '3') { setView('demo'); return; }
-  const e = cur(); if (!e) return;
+  if (!picked.size) return;
   if (ev.key === 'Delete' || ev.key === 'Backspace') { removeSel(); return; }
-  if (ev.key === ']') { moveTo(sel, sel + 1); return; } if (ev.key === '[') { moveTo(sel, sel - 1); return; }
+  if (!multi()) { if (ev.key === ']') { moveTo(sel, sel + 1); return; } if (ev.key === '[') { moveTo(sel, sel - 1); return; } }
+  else { if (ev.key === ']') { stackPicked(true); return; } if (ev.key === '[') { stackPicked(false); return; } }
   const step = ev.shiftKey ? 10 : 1;
   const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
   if (mv) {
     ev.preventDefault(); begin();
-    e.X = (e.X || 0) + mv[0]; e.Y = (e.Y || 0) + mv[1]; if (e.SegmentX) e.SegmentX = e.SegmentX.map(v => v + mv[0]);
-    changed({ keepLayers: true }); updateGeometry();
+    for (const i of pickedList()) shiftEl(dash.Elements[i], mv[0], mv[1]);
+    changed({ keepLayers: true, inspector: multi() }); updateGeometry();
   }
 });
-const KEYS = [['Move', '← ↑ → ↓'], ['Move 10 px', 'Shift + arrows'], ['Duplicate', 'Ctrl D'], ['Copy / paste', 'Ctrl C / V'], ['Delete', 'Del'], ['Undo / redo', 'Ctrl Z / Y'],
+const KEYS = [['Move', '← ↑ → ↓'], ['Move 10 px', 'Shift + arrows'], ['Select several', 'Shift / Ctrl + click, or drag a box'], ['Select all on screen', 'Ctrl A'],
+  ['Select what\'s behind', 'Click again, or Alt + click'], ['Search layers', 'Ctrl F'], ['Duplicate', 'Ctrl D'], ['Copy / paste', 'Ctrl C / V'], ['Delete', 'Del'], ['Undo / redo', 'Ctrl Z / Y'],
   ['Forward / back', '] / ['], ['Deselect / close', 'Esc'], ['Save', 'Ctrl S'], ['Zoom', '+ / - / 0'], ['Edit / Exact / Demo', '1 / 2 / 3'], ['These shortcuts', '?']];
 
 // ---------- context menu ----------
-function openContext(x, y) {
-  const m = $('ctxMenu'), e = cur();
-  m.innerHTML = e ? `<button data-c="dup">${icon('copy')}Duplicate<kbd>Ctrl D</kbd></button><button data-c="copy">${icon('copy')}Copy<kbd>Ctrl C</kbd></button>` +
+// the page items: for each set that flips, "every page" and each page; ticks show where the selection is
+function pageMenu(l) {
+  const sets = flippingSets(); if (!sets.length) return '';
+  return sets.map(s => {
+    const at = new Set(l.map(i => pageIn(dash.Elements[i], s)));
+    const on = v => at.size === 1 && at.has(v) ? 'on' : '';
+    return (hasSets() ? `<div class="ov-sec">${esc(setTitle(s))}</div>` : '')
+      + `<button data-c="pg:${s}:all" class="${on(null)}">${icon('layers')}On every page</button>`
+      + Array.from({ length: countOf(s) }, (_, i) => `<button data-c="pg:${s}:${i}" class="${on(i)}">${icon('layers')}Only on ${esc(pageName(i, s))}</button>`).join('');
+  }).join('') + '<hr>';
+}
+function openContext(x, y, hits = []) {
+  const m = $('ctxMenu'), l = pickedList(), n = l.length;
+  const here = hits.length > 1 ? `<div class="ov-sec">Here, front to back</div>` + hits.slice(0, 8).map(i => `<button data-c="sel:${i}" class="${isPicked(i) ? 'on' : ''}">${icon((TYPES[dash.Elements[i].Type] || {}).icon || 'rect')}<span class="ctx-nm">${esc(nameOf(dash.Elements[i]))}</span></button>`).join('') + '<hr>' : '';
+  m.innerHTML = here + (n ? (n > 1 ? `<div class="ov-sec">${n} elements selected</div>` : '') +
+    `<button data-c="dup">${icon('copy')}Duplicate<kbd>Ctrl D</kbd></button><button data-c="copy">${icon('copy')}Copy<kbd>Ctrl C</kbd></button>` +
     (clipboard ? `<button data-c="paste">${icon('plus')}Paste<kbd>Ctrl V</kbd></button>` : '') +
     `<hr><button data-c="front">${icon('front')}Bring to front</button><button data-c="back">${icon('back')}Send to back</button><hr>` +
-    (pageCount() > 1 ? `<button data-c="pgall" class="${pageOf(e) === null ? 'on' : ''}">${icon('layers')}On every page</button>` +
-      Array.from({ length: pageCount() }, (_, i) => `<button data-c="pg${i}" class="${pageOf(e) === i ? 'on' : ''}">${icon('layers')}Only on ${esc(pageName(i))}</button>`).join('') + '<hr>' : '') +
-    `<button data-c="del" class="danger">${icon('trash')}Delete<kbd>Del</kbd></button>`
-    : `<button data-c="paste" ${clipboard ? '' : 'disabled'}>${icon('plus')}Paste<kbd>Ctrl V</kbd></button>`;
-  m.style.left = Math.min(x, innerWidth - 230) + 'px'; m.style.top = Math.min(y, innerHeight - 260) + 'px';
+    pageMenu(l) +
+    `<button data-c="del" class="danger">${icon('trash')}Delete${n > 1 ? ' ' + n : ''}<kbd>Del</kbd></button>`
+    : `<button data-c="paste" ${clipboard ? '' : 'disabled'}>${icon('plus')}Paste<kbd>Ctrl V</kbd></button><button data-c="all">${icon('grid')}Select all<kbd>Ctrl A</kbd></button>`);
+  m.style.left = Math.min(x, innerWidth - 240) + 'px'; m.style.top = Math.max(8, Math.min(y, innerHeight - m.scrollHeight - 12)) + 'px';
   m.style.transformOrigin = 'top left';
   m.classList.add('open');
   m.querySelectorAll('button').forEach(b => b.onclick = () => {
     hideMenus();
     const c = b.dataset.c;
-    if (c.startsWith('pg')) { const el = cur(); if (!el) return; begin(); const p = c === 'pgall' ? null : Number(c.slice(2)); putOnPage(el, p); if (p !== null) page = p; changed({ inspector: true }); return; }
-    ({ dup: duplicate, copy: copySel, paste, del: removeSel, front: () => moveTo(sel, dash.Elements.length - 1), back: () => moveTo(sel, 0) })[c]();
+    if (c.startsWith('sel:')) { select(Number(c.slice(4)), { flash: true, force: true }); return; }
+    if (c.startsWith('pg:')) {
+      const [, s, v] = c.split(':'), set = Number(s), p = v === 'all' ? null : Number(v);
+      begin(); for (const i of pickedList()) putOnPage(dash.Elements[i], set, p);
+      if (p !== null) shown[set] = p;
+      changed({ inspector: true }); refreshExact(); return;
+    }
+    ({ dup: duplicate, copy: copySel, paste, del: removeSel, all: selectAll, front: () => stackPicked(true), back: () => stackPicked(false) })[c]();
   });
 }
 function hideMenus() { $('ctxMenu').classList.remove('open'); $('moreMenu').classList.remove('open'); const om = $('overlayMenu'); if (om) om.classList.remove('open'); closePop(); }
@@ -769,25 +1152,52 @@ function switchTab(name, quiet) {
 
 // ---------- layers ----------
 let issuesByName = {};
+let layerQuery = '', layerShownOnly = false;
+// what a search looks through: name, type, text, data, conditions, the pages it's on
+const layerText = e => [nameOf(e), e.Name, (TYPES[e.Type] || {}).name, e.Type, e.Text, e.Bind, e.ColorBind, e.Image, ...visList(e), pageLabel(e)].filter(Boolean).join('\n').toLowerCase();
+function layerMatches(e) {
+  if (layerShownOnly && !shownInPreview(e)) return false;
+  if (!layerQuery) return true;
+  const t = layerText(e);
+  return layerQuery.toLowerCase().split(/\s+/).filter(Boolean).every(w => t.includes(w));
+}
+// the elements the Layers list shows, top of the list (drawn last, in front) first
+const layerOrder = () => !dash ? [] : dash.Elements.map((e, i) => i).reverse().filter(i => layerMatches(dash.Elements[i]));
+const mark = (text, q) => {
+  const t = esc(text); if (!q) return t;
+  const words = q.split(/\s+/).filter(Boolean).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return words.length ? t.replace(new RegExp('(' + words.map(esc).join('|') + ')', 'gi'), '<mark>$1</mark>') : t;
+};
 function renderLayers() {
   const ul = $('layers'); if (!dash) return;
   $('layerCount').textContent = dash.Elements.length;
+  const order = layerOrder(), filtered = !!layerQuery || layerShownOnly;
+  const info = $('layerInfo');
+  if (info) {
+    const n = picked.size;
+    info.innerHTML = (filtered ? `<span>${order.length} of ${dash.Elements.length}</span>` : `<span>Top = in front · drag to reorder</span>`) +
+      (filtered && order.length ? `<button class="linkbtn" data-li="all">Select ${order.length === 1 ? 'it' : 'all ' + order.length}</button>` : '') +
+      (n > 1 ? `<button class="linkbtn" data-li="none">${n} selected · clear</button>` : '');
+    info.querySelectorAll('[data-li]').forEach(b => b.onclick = () => { if (b.dataset.li === 'all') setPicked(order, order[0]); else setPicked([]); renderLayers(); renderInspector(); draw(); });
+  }
   if (!dash.Elements.length) { ul.innerHTML = `<div class="empty">${icon('layers')}Nothing yet. Add elements from the Add tab.</div>`; return; }
-  // top of the list = drawn last (in front), like most design tools
-  const order = dash.Elements.map((e, i) => i).reverse();
+  if (!order.length) { ul.innerHTML = `<div class="empty">${icon('search')}Nothing matches${layerQuery ? ` "${esc(layerQuery)}"` : ''}.${layerShownOnly ? '<br>Only what the screen shows now is listed.' : ''}</div>`; return; }
   ul.innerHTML = order.map(i => {
     const e = dash.Elements[i], iss = issuesByName[e.Name];
-    const cond = isConditional(e);
-    return `<li class="layer ${i === sel ? 'sel' : ''} ${shownInPreview(e) ? '' : 'off'}" draggable="true" data-i="${i}">` +
+    const pl = pageLabel(e);
+    return `<li class="layer ${isPicked(i) ? 'sel' : ''} ${i === sel && multi() ? 'primary' : ''} ${shownInPreview(e) ? '' : 'off'}" draggable="true" data-i="${i}">` +
       `<span class="grip">${icon('grip')}</span><span class="ti">${icon((TYPES[e.Type] || {}).icon || 'rect')}</span>` +
-      `<span class="nm"><div>${esc(nameOf(e))}</div><small>${esc((TYPES[e.Type] || { name: e.Type }).name)}${pageOf(e) !== null ? ' · ' + esc(pageName(pageOf(e))) : ''}${otherConds(e).length ? ' · conditional' : ''}</small></span>` +
+      `<span class="nm"><div>${mark(nameOf(e), layerQuery)}</div><small>${esc((TYPES[e.Type] || { name: e.Type }).name)}${pl ? ' · ' + esc(pl) : ''}${otherConds(e).length ? ' · conditional' : ''}</small></span>` +
       (iss ? `<span class="flag ${iss.level === 'error' ? 'err' : ''}" title="${esc(iss.text)}">${icon('warn')}</span>` : '') +
       (otherConds(e).length ? `<button class="eye" data-eye="${i}" title="${e.PreviewVisible === false ? 'Hidden in previews: click to show' : 'Shown in previews: click to hide'}">${icon(e.PreviewVisible === false ? 'eyeoff' : 'eye')}</button>` : '') +
       `</li>`;
   }).join('');
   ul.querySelectorAll('.layer').forEach(li => {
     const i = Number(li.dataset.i);
-    li.onclick = ev => { if (ev.target.closest('.eye')) return; select(i, { flash: true }); };
+    li.onclick = ev => {
+      if (ev.target.closest('.eye')) return;
+      if (ev.shiftKey) select(i, { range: true }); else if (ev.ctrlKey || ev.metaKey) select(i, { toggle: true }); else select(i, { flash: true, force: multi() });
+    };
     li.onmouseenter = () => { hover = i; placeOverlay(); };
     li.onmouseleave = () => { hover = -1; placeOverlay(); };
     li.ondragstart = ev => { ev.dataTransfer.setData('text/fxlayer', String(i)); li.classList.add('dragging'); };
@@ -816,9 +1226,9 @@ function renderLayers() {
     if (e.PreviewVisible === false) delete e.PreviewVisible; else e.PreviewVisible = false;
     changed({ inspector: sel === Number(b.dataset.eye) });
   });
-  const s = ul.querySelector('.layer.sel'); if (s) s.scrollIntoView({ block: 'nearest' });
+  const s = ul.querySelector('.layer.primary') || ul.querySelector('.layer.sel'); if (s) s.scrollIntoView({ block: 'nearest' });
 }
-function highlightLayer(i) { document.querySelectorAll('.layer').forEach(li => li.style.background = Number(li.dataset.i) === i && i !== sel ? 'var(--raised)' : ''); }
+function highlightLayer(i) { document.querySelectorAll('.layer').forEach(li => li.style.background = Number(li.dataset.i) === i && !isPicked(i) ? 'var(--raised)' : ''); }
 
 // ---------- library ----------
 const thumbCache = {};
@@ -868,6 +1278,7 @@ function renderInspector() {
   if (!dash) { p.innerHTML = ''; return; }
   const e = cur();
   if (!e) { renderDashInspector(p); return; }
+  if (multi()) { renderMultiInspector(p); return; }
   const T = TYPES[e.Type] || { name: e.Type, icon: 'rect' };
   let html = `<div class="insp-head"><div class="ti">${icon(T.icon)}</div><div style="flex:1;min-width:0"><input data-k="Name" value="${esc(e.Name || '')}" placeholder="${esc(T.name)}" spellcheck="false"><small>${esc(T.name)}</small></div></div>`;
   html += `<div class="insp-actions"><button class="btn" data-a="dup" title="Duplicate (Ctrl D)">${icon('copy')}Duplicate</button><button class="btn" data-a="front" title="Bring to front">${icon('up')}</button><button class="btn" data-a="back" title="Send to back">${icon('down')}</button><button class="btn" data-a="del" title="Delete (Del)">${icon('trash')}</button></div>`;
@@ -883,7 +1294,7 @@ function renderInspector() {
   if (e.Type === 'label' || e.Type === 'value') {
     let t = '';
     if (e.Type === 'label') t += f('Text', textIn('Text', e.Text, 'Label text'));
-    t += f('Font', fontBtn(e));
+    t += f('Font', fontBtn(e), true);
     t += f('Align', `<div class="icongroup">${[['left', 'tLeft'], ['center', 'tCenter'], ['right', 'tRight']].map(([a, ic]) => `<button data-set="Align" data-v="${a}" class="${(e.Align || 'left') === a ? 'on' : ''}" title="${a}">${icon(ic)}</button>`).join('')}</div>`);
     t += f('Colour', colorIn('Color', e.Color));
     if (e.Type === 'value') {
@@ -933,7 +1344,7 @@ function renderInspector() {
     case 'deltabar': st += f('Slower', colorIn('PositiveColor', e.PositiveColor)) + f('Faster', colorIn('NegativeColor', e.NegativeColor)) + f('Off', colorIn('SegmentColor', e.SegmentColor)) +
       f('Segments', rangeIn('Segments', e.Segments || 7, 2, 15)) + f('Seg. width', rangeIn('SegmentWidth', e.SegmentWidth || 30, 2, 80, ' px')) + f('Spacing', rangeIn('Pitch', e.Pitch || 40, 4, 100, ' px')); break;
     case 'dim': st += f('Darker by', rangeIn('Opacity', e.Opacity ?? 50, 0, 95, '%')) + `<div class="note">While its conditions hold (Show when), the whole screen is this much darker: the wheel lowers its backlight, so nothing is redrawn. Not drawn on the canvas.</div>`; break;
-    case 'popup': st += f('Text', colorIn('Color', e.Color)) + f('Label font', fontBtn(e, 'Font')) + f('Value font', fontBtn(e, 'ValueFont')) + f('Corners', rangeIn('Radius', e.Radius || 0, 0, 60, ' px')) +
+    case 'popup': st += f('Text', colorIn('Color', e.Color)) + f('Label font', fontBtn(e, 'Font'), true) + f('Value font', fontBtn(e, 'ValueFont'), true) + f('Corners', rangeIn('Radius', e.Radius || 0, 0, 60, ' px')) +
       f('Shows for', rangeIn('Duration', e.Duration ?? 2, 1, 10, ' s')) + f('Watches', `<textarea class="in" rows="4" data-k="Watch" data-kind="json">${esc(JSON.stringify(e.Watch || [], null, 1))}</textarea>`, true) +
       `<div class="note">Each watch: {"Bind": "tcLevel", "Label": "TC", "Color": "#28598B", "Format": "int"}. The pop-up shows when one of them changes.</div>`; break;
   }
@@ -951,14 +1362,11 @@ function renderInspector() {
   // conditions
   const conds = visList(e);
   let c = '';
-  if (pageCount() > 1 || (dash.Pages && dash.Pages.length)) {
-    const n = Math.max(pageCount(), (dash.Pages || []).length), pg = pageOf(e);
-    c += f('Page', `<select class="in" id="elPage"><option value="">Every page</option>${Array.from({ length: n }, (_, i) => `<option value="${i}" ${pg === i ? 'selected' : ''}>${esc(pageName(i))}</option>`).join('')}</select>`);
-  }
+  c += pageFields([e]);
   c += `<div class="chips" id="condChips">${conds.map((b, i) => `<span class="chipb on" title="${esc(bindDesc(b))}">${esc(b)}<span class="x" data-rmcond="${i}">${icon('x')}</span></span>`).join('')}<button class="chipb" data-pop="bind" data-k="__cond">${icon('plus')}Add</button></div>`;
   c += `<div class="note">${conds.length ? 'Shown only while all of these are true (a number other than 0, or some text).' : 'Always shown. Add a condition to show it only sometimes (a warning, a pit screen).'}</div>`;
   if (otherConds(e).length) c += switchIn('__preview', e.PreviewVisible !== false, 'Show it in the designer and previews');
-  html += card('cond', 'Show when', 'cond', c, !conds.length);
+  html += card('cond', 'Show when', 'cond', c, !otherConds(e).length && !flippingSets().length);
 
   // advanced
   html += card('json', 'Advanced (JSON)', 'code', `<textarea class="in" rows="10" id="rawJson" spellcheck="false">${esc(JSON.stringify(e, null, 2))}</textarea><button class="btn" id="applyJson">${icon('ok')}Apply</button>`, true);
@@ -975,7 +1383,8 @@ function renderDashInspector(p) {
     f('Author', textIn('Author', dash.Author)) +
     f('About', `<textarea class="in" rows="3" data-k="Description" style="font-family:var(--body)">${esc(dash.Description || '')}</textarea>`, true) +
     (dash.Source ? `<div class="note">From ${esc(dash.Source)}</div>` : ''));
-  html += card('pages', 'Pages', 'layers', pagesEditor(), pageCount() < 2);
+  html += card('pages', 'Pages', 'layers', (flipCount() < 2 ? `<div class="note">One page.</div>` : flippingSets().map(s => f(setTitle(s), `<span class="note" style="color:var(--text2)">${countOf(s)} pages: ${esc(Array.from({ length: countOf(s) }, (_, i) => pageName(i, s)).join(', '))}</span>`)).join(''))
+    + `<button class="btn" id="goPages">${icon('layers')}${flipCount() < 2 ? 'Add pages' : 'Edit pages'}</button>`, flipCount() < 2);
   html += card('padding', 'Wheel padding', 'fit',
     f('From left', `<div class="range"><input type="range" id="padL" min="0" max="40" value="${pad.l}"><output>${pad.l} px</output></div>`) +
     f('From top', `<div class="range"><input type="range" id="padT" min="0" max="40" value="${pad.t}"><output>${pad.t} px</output></div>`) +
@@ -983,16 +1392,80 @@ function renderDashInspector(p) {
   html += `<div class="empty" style="padding:18px">${icon('sparkle')}Select an element on the screen or in Layers to change it.</div>`;
   p.innerHTML = html;
   wireInspector(p, dash);
-  wirePagesEditor(p);
+  $('goPages').onclick = () => switchTab('pages');
   const upd = () => { pad = { l: Number($('padL').value), t: Number($('padT').value) }; $('padL').nextElementSibling.textContent = pad.l + ' px'; $('padT').nextElementSibling.textContent = pad.t + ' px'; localStorage.setItem('fxdash-pad', JSON.stringify(pad)); draw(); scheduleCheck(); scheduleWheel(); };
   $('padL').oninput = upd; $('padT').oninput = upd;
   if (lastCheck) $('statTime').textContent = lastCheck.cost.StaticSeconds.toFixed(1) + ' s';
 }
 
+// Page: one picker per set of pages that flips (for one element or several: "(mixed)" when they differ)
+function pageFields(list) {
+  return flippingSets().map(s => {
+    const at = new Set(list.map(e => pageIn(e, s))), v = at.size === 1 ? [...at][0] : undefined;
+    return f(hasSets() ? setTitle(s) : 'Page', `<select class="in" data-pageset="${s}">${v === undefined ? '<option value="mixed" selected>(mixed)</option>' : ''}<option value="" ${v === null ? 'selected' : ''}>Every page</option>${Array.from({ length: countOf(s) }, (_, i) => `<option value="${i}" ${v === i ? 'selected' : ''}>${esc(pageName(i, s))}</option>`).join('')}</select>`);
+  }).join('');
+}
+function wirePageFields(root, list) {
+  root.querySelectorAll('[data-pageset]').forEach(sl => sl.onchange = () => {
+    if (sl.value === 'mixed') return;
+    const s = Number(sl.dataset.pageset), p = sl.value === '' ? null : Number(sl.value);
+    begin(); for (const e of list) putOnPage(e, s, p);
+    if (p !== null) shown[s] = p;
+    changed({ inspector: true }); refreshExact(); scheduleWheel();
+  });
+}
+// several elements selected: what they share
+function renderMultiInspector(p) {
+  const l = pickedList(), els = l.map(i => dash.Elements[i]), r = pickedBounds();
+  const types = [...new Set(els.map(e => (TYPES[e.Type] || { name: e.Type }).name))];
+  let html = `<div class="insp-head"><div class="ti">${icon('layers')}</div><div style="flex:1;min-width:0"><b style="font:600 15px var(--display)">${l.length} elements</b><small>${esc(types.join(', '))}</small></div></div>`;
+  html += `<div class="insp-actions"><button class="btn" data-a="dup" title="Duplicate (Ctrl D)">${icon('copy')}Duplicate</button><button class="btn" data-a="front" title="Bring to front (])">${icon('up')}</button><button class="btn" data-a="back" title="Send to back ([)">${icon('down')}</button><button class="btn" data-a="del" title="Delete (Del)">${icon('trash')}</button></div>`;
+  let lay = `<div class="num4" style="grid-template-columns:repeat(2,1fr)">${numIn('gX', r.x, 'X')}${numIn('gY', r.y, 'Y')}</div>`;
+  lay += `<div class="note">The box round them all: ${r.w} × ${r.h}. Drag them on the screen or use the arrow keys.</div>`;
+  lay += `<div class="row2"><div class="icongroup" style="flex:1">${[['l', 'alignL', 'left edges'], ['ch', 'alignCH', 'centres across'], ['r', 'alignR', 'right edges']].map(([a, ic, t]) => `<button data-align="${a}" title="Line up their ${t}">${icon(ic)}</button>`).join('')}</div>` +
+    `<div class="icongroup" style="flex:1">${[['t', 'alignT', 'tops'], ['cv', 'alignCV', 'middles'], ['b', 'alignB', 'bottoms']].map(([a, ic, t]) => `<button data-align="${a}" title="Line up their ${t}">${icon(ic)}</button>`).join('')}</div></div>`;
+  if (l.length > 2) lay += `<div class="row2"><button class="btn" data-dist="h" style="flex:1">Space evenly across</button><button class="btn" data-dist="v" style="flex:1">Space evenly down</button></div>`;
+  html += card('mlayout', 'Position & alignment', 'fit', lay);
+  const texts = els.filter(e => e.Type === 'label' || e.Type === 'value');
+  if (texts.length) {
+    const fontsAt = new Set(texts.map(e => e.Font ?? 14)), cols = new Set(texts.map(e => e.Color));
+    let t = f('Font', `<button class="fontbtn" id="mFont"><span class="fmeta"><b>${fontsAt.size === 1 ? esc(fontLabel([...fontsAt][0])) : 'Mixed fonts'}</b><small>Set one font for all ${texts.length}</small></span></button>`);
+    t += f('Colour', `<button class="swatch" id="mColor"><i style="--c:${cols.size === 1 ? parseColor([...cols][0]) : 'transparent'}"></i><code>${cols.size === 1 ? esc([...cols][0]) : 'mixed'}</code></button>`);
+    html += card('mtext', `Text (${texts.length})`, 'text', t);
+  }
+  const pf = pageFields(els);
+  if (pf) html += card('mpages', 'Pages', 'layers', pf);
+  html += card('mlist', 'Selected', 'layers', `<div class="mlist">${l.map(i => `<button data-only="${i}" class="${i === sel ? 'on' : ''}">${icon((TYPES[dash.Elements[i].Type] || {}).icon || 'rect')}<span>${esc(nameOf(dash.Elements[i]))}</span></button>`).join('')}</div><div class="note">Click one to edit it alone. Shift / Ctrl + click (screen or Layers) adds or takes out.</div>`);
+  p.innerHTML = html;
+  hydrateIcons(p);
+  p.querySelectorAll('.card > header').forEach(h => h.onclick = () => { const c = h.parentElement; c.classList.toggle('closed'); openCards[c.dataset.card] = !c.classList.contains('closed'); localStorage.setItem('fxdash-cards', JSON.stringify(openCards)); });
+  p.querySelectorAll('[data-a]').forEach(b => b.onclick = () => ({ dup: duplicate, del: removeSel, front: () => stackPicked(true), back: () => stackPicked(false) })[b.dataset.a]());
+  p.querySelectorAll('[data-align]').forEach(b => b.onclick = () => align(b.dataset.align));
+  p.querySelectorAll('[data-dist]').forEach(b => b.onclick = () => distribute(b.dataset.dist));
+  p.querySelectorAll('[data-only]').forEach(b => b.onclick = () => select(Number(b.dataset.only), { flash: true, force: true }));
+  ['gX', 'gY'].forEach(k => {
+    const inp = p.querySelector(`[data-k="${k}"]`); if (!inp) return;
+    inp.onchange = () => { const b = pickedBounds(), v = Number(inp.value) || 0; begin(); for (const i of pickedList()) shiftEl(dash.Elements[i], k === 'gX' ? v - b.x : 0, k === 'gY' ? v - b.y : 0); changed({ keepLayers: true, inspector: true }); };
+  });
+  p.querySelectorAll('[data-scrub]').forEach(sp => sp.removeAttribute('data-scrub'));
+  // one font / one colour for every text: the pop-ups edit a stand-in whose __multi elements get the same value
+  const widest = texts.map(sampleText).reduce((a, b) => String(b).length > String(a).length ? b : a, '');
+  const mf = p.querySelector('#mFont');
+  if (mf) mf.onclick = ev => { ev.stopPropagation(); openPop(mf, 'font', 'Font', { Type: 'label', Text: widest, W: Math.min(...texts.map(e => e.W || 0)), H: Math.min(...texts.map(e => e.H || 0)), Font: texts[0].Font ?? 14, __multi: texts }); };
+  const mc = p.querySelector('#mColor');
+  if (mc) mc.onclick = ev => { ev.stopPropagation(); openPop(mc, 'color', 'Color', { Color: texts[0].Color, __multi: texts }); };
+  wirePageFields(p, els);
+}
+
 function fontBtn(e, k = 'Font') {
-  const fid = e[k] ?? 14, fh = fontHeight(fid);
-  const fit = fitInfo(e, fid, k);
-  return `<button class="fontbtn" data-pop="font" data-k="${k}"><span class="big">${fid}</span><span>${fh} px tall</span><span class="fit ${fit.cls}">${fit.text}</span></button>`;
+  const fid = e[k] ?? 14, fit = fitInfo(e, fid, k);
+  return `<div class="fontctl"><button class="btn icon ghost" data-fstep="-1" data-k="${k}" title="Smaller (same family first)">${icon('minus')}</button>`
+    + `<button class="fontbtn" data-pop="font" data-k="${k}" title="Pick a font: the screen's fonts, measured with this text"><canvas class="fsample" data-k="${k}"></canvas>`
+    + `<span class="fmeta"><b>${esc(fontLabel(fid))}</b><small>${esc(fontSub(fid))}</small></span><span class="fit ${fit.cls}">${fit.text}</span></button>`
+    + `<button class="btn icon ghost" data-fstep="1" data-k="${k}" title="Bigger (same family first)">${icon('plus')}</button></div>`;
+}
+function paintFontButtons(root, target) {
+  root.querySelectorAll('canvas.fsample').forEach(cv => { const k = cv.dataset.k, t = String(sampleText(target) || 'Ag12').slice(0, 8) || 'Ag12'; paintFontSample(cv, target[k] ?? 14, t, 0, 0); });
 }
 function sampleText(e) { return e.Type === 'label' ? (e.Text || '') : (e.Samples && e.Samples.length ? e.Samples.reduce((a, b) => (String(b).length > String(a).length ? b : a)) : e.PreviewText || '888'); }
 function fitInfo(e, fid, k = 'Font') {
@@ -1057,19 +1530,17 @@ function wireInspector(root, target) {
   });
   root.querySelectorAll('[data-set]').forEach(b => b.onclick = () => { begin(); set(b.dataset.set, b.dataset.v); changed({ inspector: true, keepLayers: true }); });
   root.querySelectorAll('[data-align]').forEach(b => b.onclick = () => align(b.dataset.align));
-  root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => ({ dup: duplicate, del: removeSel, front: () => moveTo(sel, dash.Elements.length - 1), back: () => moveTo(sel, 0) })[b.dataset.a]());
+  root.querySelectorAll('[data-fstep]').forEach(b => b.onclick = () => {
+    const k = b.dataset.k, f = stepFont(target, k, Number(b.dataset.fstep));
+    if (f === undefined) { toast(Number(b.dataset.fstep) > 0 ? 'No bigger font draws this text' : 'No smaller font draws this text', 'warn', 1800); return; }
+    begin(); target[k] = f; changed({ inspector: true, keepLayers: true });
+  });
+  paintFontButtons(root, target);
+  root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => ({ dup: duplicate, del: removeSel, front: () => stackPicked(true), back: () => stackPicked(false) })[b.dataset.a]());
   root.querySelectorAll('[data-clear]').forEach(x => x.onclick = ev => { ev.stopPropagation(); begin(); delete target[x.dataset.clear]; changed({ inspector: true, keepLayers: true }); });
   root.querySelectorAll('[data-pop]').forEach(b => b.onclick = ev => { ev.stopPropagation(); openPop(b, b.dataset.pop, b.dataset.k, target); });
   root.querySelectorAll('[data-rmcond]').forEach(x => x.onclick = ev => { ev.stopPropagation(); begin(); const l = visList(target); l.splice(Number(x.dataset.rmcond), 1); if (l.length) target.Visible = l; else { delete target.Visible; delete target.PreviewVisible; } changed({ inspector: true }); });
-  const ep = root.querySelector('#elPage');
-  if (ep) ep.onchange = () => {
-    begin();
-    const l = otherConds(target);
-    if (ep.value !== '') l.unshift('page:' + ep.value);
-    if (l.length) target.Visible = l.length === 1 ? l[0] : l; else { delete target.Visible; delete target.PreviewVisible; }
-    if (ep.value !== '') setPage(Number(ep.value));
-    changed({ inspector: true });
-  };
+  if (target !== dash) wirePageFields(root, [target]);
   const pv = root.querySelector('[data-k="__preview"]');
   if (pv) pv.onchange = () => { begin(); if (pv.checked) delete target.PreviewVisible; else target.PreviewVisible = false; changed({}); };
   root.querySelectorAll('[data-rmtag]').forEach(x => x.onclick = () => { const [k, i] = x.dataset.rmtag.split(':'); begin(); target[k].splice(Number(i), 1); if (!target[k].length) delete target[k]; changed({ inspector: true, keepLayers: true }); });
@@ -1089,13 +1560,13 @@ function wireInspector(root, target) {
 function updateGeometry() {
   const e = cur(); if (!e) return;
   document.querySelectorAll('#inspector .num input').forEach(inp => { if (['X', 'Y', 'W', 'H'].includes(inp.dataset.k)) inp.value = e[inp.dataset.k] ?? 0; });
-  const fb = document.querySelectorAll('#inspector .fontbtn .fit');
+  const fb = document.querySelectorAll('#inspector .fontbtn[data-k] .fit');
   fb.forEach(el => { const k = el.closest('.fontbtn').dataset.k, i = fitInfo(e, e[k] ?? 14, k); el.className = 'fit ' + i.cls; el.textContent = i.text; });
 }
 
 // ---------- popovers: colour, binding, font ----------
 let popState = null;
-function closePop() { $('pop').classList.remove('open'); popState = null; }
+function closePop() { if (popState && popState.restore) popState.restore(); $('pop').classList.remove('open'); popState = null; }
 function positionPop(anchor) {
   const pop = $('pop'), r = anchor.getBoundingClientRect();
   pop.style.left = Math.max(8, Math.min(r.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)) + 'px';
@@ -1115,6 +1586,7 @@ function openPop(anchor, kind, k, target) {
 }
 function getK(target, k) { if (k.startsWith('Colors.')) return (target.Colors || [])[Number(k.split('.')[1])]; return target[k]; }
 function setK(target, k, v) {
+  if (target.__multi) for (const t of target.__multi) { if (v === undefined) delete t[k]; else t[k] = v; }
   if (k.startsWith('Colors.')) { target.Colors = target.Colors && target.Colors.length ? target.Colors : ['#1B1F3C', '#428AED']; target.Colors[Number(k.split('.')[1])] = v; return; }
   if (v === undefined) delete target[k]; else target[k] = v;
 }
@@ -1178,19 +1650,67 @@ function renderBindPop(pop, k, target) {
   $('bindUse').onclick = () => { const v = $('bindCustom').value.trim(); if (v) pick(v); };
   $('bindCustom').onkeydown = ev => { if (ev.key === 'Enter') $('bindUse').click(); };
 }
+let fontFits = true, fontFamily = '';
+try { fontFits = localStorage.getItem('fxdash-font-fits') !== '0'; } catch (e) { }
 function renderFontPop(pop, k, target) {
-  const curF = target[k] ?? 14, text = sampleText(target);
-  const rows = fonts.map(fnt => {
-    const w = textWidth(fnt.id, text), tall = fnt.height > (target.H || 0), wide = w < 0 || w > (target.W || 0);
-    const pct = w < 0 ? 100 : clamp(Math.round(w / Math.max(1, target.W) * 100), 2, 100);
-    return { fnt, w, bad: tall || wide, pct, why: w < 0 ? 'no glyphs for this text' : tall ? `${fnt.height} px, box ${target.H}` : wide ? `${w} px wide, box ${target.W}` : `${w} px wide` };
-  });
-  const best = rows.filter(r => !r.bad).sort((a, b) => b.fnt.height - a.fnt.height)[0];
-  pop.innerHTML = `<div class="fontlist"><div class="note" style="font-size:11.5px;color:var(--text3);margin:0 2px 8px">The screen's fonts, measured with "${esc(text)}" in a ${target.W} × ${target.H} box</div>` +
-    (best ? `<button class="btn primary" data-f="${best.fnt.id}" style="width:100%;justify-content:center;margin-bottom:8px">${icon('wand')}Use the biggest that fits: font ${best.fnt.id} (${best.fnt.height} px)</button>` : `<div class="note" style="color:#ff7580;margin:0 2px 8px">Nothing fits: make the box bigger or the text shorter.</div>`) +
-    '<div class="fontrows" style="max-height:340px;overflow-y:auto;margin:0 -4px;padding:0 4px">' + rows.map(r => `<button data-f="${r.fnt.id}" class="${r.fnt.id === curF ? 'cur' : ''}" title="${esc(r.why)}"><span class="big" style="font:700 13px var(--display);min-width:26px">${r.fnt.id}</span><span style="min-width:52px;color:var(--text2);font-size:12px">${r.fnt.height} px</span><span class="bar"><i class="${r.bad ? 'bad' : ''}" style="width:${r.pct}%"></i></span><span class="fit ${r.bad ? 'bad' : 'ok'}" style="font-size:10.5px;padding:1px 6px;border-radius:4px">${r.bad ? 'no' : 'fits'}</span></button>`).join('') + '</div></div>';
-  pop.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { begin(); target[k] = Number(b.dataset.f); closePop(); changed({ inspector: true, keepLayers: true }); });
-  setTimeout(() => { const c = pop.querySelector('.fontrows button.cur'), box = pop.querySelector('.fontrows'); if (c && box) box.scrollTop = c.offsetTop - box.offsetTop - box.clientHeight / 2 + c.offsetHeight / 2; }, 0);
+  const targets = target.__multi || [target];
+  const curF = target[k] ?? 14, boxW = target.W || 0, boxH = target.H || 0, align = target.Align || 'left';
+  let text = String(sampleText(target) || 'Ag 123'), kb = -1, rows = [];
+  // the screen shows each font as it would look while the mouse is over it; the font the element had comes back after
+  const orig = targets.map(t => t[k]);
+  const tryFont = id => { targets.forEach(t => t[k] = id); draw(); };
+  const undoTry = () => { targets.forEach((t, j) => { if (orig[j] === undefined) delete t[k]; else t[k] = orig[j]; }); draw(); };
+  popState.restore = undoTry;
+  const pick = id => { undoTry(); popState.restore = null; begin(); targets.forEach(t => t[k] = id); closePop(); changed({ inspector: true, keepLayers: true }); };
+  const used = [...new Set(dash.Elements.filter(e => !targets.includes(e)).flatMap(e => [e.Font, e.ValueFont]).filter(x => x !== undefined && x !== null))]
+    .map(id => fontInfo[id] && fontInfo[id].dupOf >= 0 ? fontInfo[id].dupOf : id).filter((id, i, a) => a.indexOf(id) === i && fontInfo[id]).sort((a, b) => fontHeight(b) - fontHeight(a));
+  pop.innerHTML = `<div class="fontpick">
+    <div class="fp-top"><label class="search"><span>${icon('text')}</span><input id="fpText" value="${esc(text)}" spellcheck="false" title="The text each font is measured with (the element's longest text)"></label><span class="fp-box" title="The element's box">${boxW} × ${boxH}</span></div>
+    <div class="chips fp-fams" id="fpFams"></div>
+    <div id="fpUsed"></div><div id="fpBest"></div>
+    <div class="fp-list" id="fpList"></div>
+    <div class="fp-foot"><label class="switch"><input type="checkbox" id="fpFits" ${fontFits ? 'checked' : ''}><i></i><span>Only what fits</span></label><span>Heights and widths are the wheel's own; letter shapes are close, not exact.</span></div></div>`;
+  const fits = i => i.h <= boxH && textWidth(i.id, text) <= boxW;
+  const list = () => {
+    const drawable = fontInfo.filter(i => i.usable && i.dupOf < 0 && canDraw(i.id, text));
+    // families with something that can draw the text (and fits, when only those are shown)
+    const pool = drawable.filter(i => !fontFits || fits(i) || i.id === curF);
+    const fams = [...new Set(pool.map(i => i.family))].sort((a, b) => (a === 'Standard' ? -1 : b === 'Standard' ? 1 : a.localeCompare(b)));
+    if (fontFamily && !fams.includes(fontFamily)) fontFamily = '';
+    $('fpFams').innerHTML = `<button class="chipb ${!fontFamily ? 'on' : ''}" data-fam="">All <small>${pool.length}</small></button>` + fams.map(fm => `<button class="chipb ${fontFamily === fm ? 'on' : ''}" data-fam="${esc(fm)}" title="${esc(fm === 'Standard' || fm === 'Arial' || fm === 'Units' || fm === 'Flags' ? fm + ' fonts' : 'Fonts of Simagic\'s ' + fm + ' dash')}">${esc(fm)} <small>${pool.filter(i => i.family === fm).length}</small></button>`).join('');
+    $('fpFams').querySelectorAll('[data-fam]').forEach(b => b.onclick = () => { fontFamily = b.dataset.fam; kb = -1; list(); });
+    $('fpUsed').innerHTML = used.length ? `<div class="fp-sec">In this dash</div><div class="chips">${used.slice(0, 8).map(id => `<button class="chipb ${id === curF ? 'on' : ''}" data-f="${id}" title="${esc(fontSub(id))}${canDraw(id, text) ? '' : ': can\'t draw this text'}" ${canDraw(id, text) ? '' : 'disabled'}>${esc(fontLabel(id))}</button>`).join('')}</div>` : '';
+    const best = drawable.filter(fits).sort((a, b) => b.h - a.h || (a.family === 'Standard' ? -1 : 1))[0];
+    $('fpBest').innerHTML = best ? `<button class="btn primary fp-bestbtn" data-f="${best.id}">${icon('wand')}Biggest that fits: ${esc(fontLabel(best.id))} <small>${esc(fontSub(best.id))}</small></button>`
+      : `<div class="note" style="color:#ff7580;margin:2px 2px 8px">Nothing fits: make the box bigger or the text shorter.</div>`;
+    rows = pool.filter(i => !fontFamily || i.family === fontFamily).sort((a, b) => b.h - a.h || a.id - b.id);
+    const curRow = fontInfo[curF] && fontInfo[curF].dupOf >= 0 ? fontInfo[curF].dupOf : curF;
+    $('fpList').innerHTML = rows.map((i, n) => {
+      const w = textWidth(i.id, text), tall = i.h > boxH, wide = w > boxW, why = tall ? `${i.h} px tall, box ${boxH}` : wide ? `${w} px wide, box ${boxW}` : `${w} of ${boxW} px wide`;
+      return `<button class="fp-row ${i.id === curRow ? 'cur' : ''} ${n === kb ? 'kb' : ''}" data-f="${i.id}" data-n="${n}" title="${esc(why)}"><canvas width="150" height="38"></canvas>`
+        + `<span class="fp-meta"><b>${i.h} px <em>${STYLE_NAMES[i.style]}</em></b><small>${esc(fontSub(i.id))}${i.chars !== 'text' ? ' · ' + CHAR_NAMES[i.chars] : ''}</small></span>`
+        + `<span class="fit ${tall || wide ? 'bad' : 'ok'}">${tall ? 'too tall' : wide ? 'too wide' : 'fits'}</span></button>`;
+    }).join('') || `<div class="empty" style="padding:14px">No font ${fontFits ? 'fits this box with' : 'can draw'} "${esc(text)}".${fontFits ? ' Untick "Only what fits" to see them all.' : ''}</div>`;
+    $('fpList').querySelectorAll('.fp-row').forEach(b => {
+      paintFontSample(b.querySelector('canvas'), Number(b.dataset.f), text, boxW, boxH, align);
+      b.onmouseenter = () => tryFont(Number(b.dataset.f));
+    });
+    $('fpList').onmouseleave = undoTry;
+    pop.querySelectorAll('[data-f]').forEach(b => b.onclick = () => pick(Number(b.dataset.f)));
+    positionPop(popState.anchor);
+  };
+  list();
+  setTimeout(() => { const c = pop.querySelector('.fp-row.cur'), box = $('fpList'); if (c && box) box.scrollTop = c.offsetTop - box.offsetTop - box.clientHeight / 2 + c.offsetHeight / 2; }, 0);
+  $('fpText').oninput = () => { text = $('fpText').value || ' '; kb = -1; list(); };
+  $('fpText').onkeydown = ev => {
+    if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp' && ev.key !== 'Enter') return;
+    ev.preventDefault();
+    if (ev.key === 'Enter') { if (rows[kb]) pick(rows[kb].id); return; }
+    kb = clamp(kb + (ev.key === 'ArrowDown' ? 1 : -1), 0, rows.length - 1);
+    $('fpList').querySelectorAll('.fp-row').forEach(b => b.classList.toggle('kb', Number(b.dataset.n) === kb));
+    const r = $('fpList').querySelector('.fp-row.kb'); if (r) { r.scrollIntoView({ block: 'nearest' }); tryFont(rows[kb].id); }
+  };
+  $('fpFits').onchange = () => { fontFits = $('fpFits').checked; try { localStorage.setItem('fxdash-font-fits', fontFits ? '1' : '0'); } catch (e) { } kb = -1; list(); };
 }
 
 // ---------- checks ----------
@@ -1376,7 +1896,7 @@ function overlaysSection() {
     const rows = r.Overlays.slice().sort((a, b) => (b.FlashingUpdates - a.FlashingUpdates) || (Math.max(b.ShowBytes, b.HideBytes) - Math.max(a.ShowBytes, a.HideBytes))).slice(0, 40).map(o => {
       const ov = byFirst(elementIndex(o.Overlay)); const name = ov ? ov.name : elementLabel(o.Overlay);
       const most = Math.max(o.ShowBytes, o.HideBytes), cls = o.FlashingUpdates ? 'err' : most > TRAFFIC_BUDGET ? 'warn' : '';
-      return `<div class="tr-row ov ${cls}" data-ov="${ov ? ov.index : -1}" data-pg="${o.Page}" title="Show this overlay${flipCount() > 1 ? ' on this page' : ''}"><span>${esc(name)}${flipCount() > 1 ? ` <em>${esc(hasSets() ? 'flip ' + (o.Page + 1) : pageName(o.Page))}</em>` : ''}</span><span class="n">${fmtRate(o.ShowBytes).replace('/s', '')}</span><span class="n">${fmtRate(o.HideBytes).replace('/s', '')}</span><span class="n">${o.FlashingUpdates ? o.FlashingUpdates + ' flash' : ''}</span></div>`;
+      return `<div class="tr-row ov ${cls}" data-ov="${ov ? ov.index : -1}" data-pg="${o.Page}" title="Show this overlay${flipCount() > 1 ? ' on this page' : ''}"><span>${esc(name)}${flipCount() > 1 ? ` <em>${esc(hasSets() ? 'flip ' + (o.Page + 1) : pageName(o.Page, 0))}</em>` : ''}</span><span class="n">${fmtRate(o.ShowBytes).replace('/s', '')}</span><span class="n">${fmtRate(o.HideBytes).replace('/s', '')}</span><span class="n">${o.FlashingUpdates ? o.FlashingUpdates + ' flash' : ''}</span></div>`;
     }).join('');
     body = head + `<div class="tr-row head ov"><span>Overlay</span><span class="n">Shows</span><span class="n">Goes</span><span class="n"></span></div>` + rows;
   }
@@ -1385,7 +1905,7 @@ function overlaysSection() {
 function wireOverlaysSection(box) {
   const c = box.querySelector('[data-act="checkoverlays"]'); if (c) c.onclick = checkOverlays;
   const t = box.querySelector('[data-act="taketurns"]'); if (t) t.onclick = takeTurns;
-  box.querySelectorAll('.tr-row.ov[data-ov]').forEach(el => { const i = Number(el.dataset.ov); if (i < 0) return; el.onclick = () => { if (flipCount() > 1) page = clamp(Number(el.dataset.pg), 0, flipCount() - 1); renderPages(); setOverlay(i); }; });
+  box.querySelectorAll('.tr-row.ov[data-ov]').forEach(el => { const i = Number(el.dataset.ov); if (i < 0) return; el.onclick = () => { if (flipCount() > 1) showFlip(Number(el.dataset.pg)); setOverlay(i); }; });
 }
 async function checkOverlays() {
   if (overlayCheckBusy || !dash) return;
@@ -1482,7 +2002,7 @@ async function refreshExact() {
   if (view === 'edit' || exactBusy) return;
   exactBusy = true;
   try {
-    const blob = await post(`/api/render?mode=${view === 'demo' ? 'demo' : 'preview'}&seconds=${demoT}&left=0&top=0&page=${page}&overlay=${overlay}`, dash);
+    const blob = await post(`/api/render?mode=${view === 'demo' ? 'demo' : 'preview'}&seconds=${demoT}&left=0&top=0&pages=${pagesParam()}&overlay=${overlay}`, dash);
     const img = $('exact'), old = img.src; img.src = URL.createObjectURL(blob); if (old) setTimeout(() => URL.revokeObjectURL(old), 1000);
   } catch (e) { toast('Preview failed: ' + e.message, 'err'); setView('edit'); }
   finally { exactBusy = false; }
@@ -1491,7 +2011,7 @@ async function refreshExact() {
 // ---------- wheel ----------
 let wheelOn = false, wheelTimer = null;
 function scheduleWheel() { if (!wheelOn) return; clearTimeout(wheelTimer); wheelTimer = setTimeout(pushWheel, 600); }
-async function pushWheel() { try { await post(`/api/wheel/show?left=${pad.l}&top=${pad.t}&page=${page}&overlay=${overlay}`, dash); } catch (e) { toast('Wheel: ' + e.message, 'err'); setWheel(false); } }
+async function pushWheel() { try { await post(`/api/wheel/show?left=${pad.l}&top=${pad.t}&pages=${pagesParam()}&overlay=${overlay}`, dash); } catch (e) { toast('Wheel: ' + e.message, 'err'); setWheel(false); } }
 async function setWheel(on) {
   wheelOn = on; $('btnWheel').classList.toggle('on', on); $('bezel').classList.toggle('wheel', on);
   if (on) { await pushWheel(); toast('On your wheel: it follows every change'); } else { try { await post('/api/wheel/stop', {}); } catch (e) { } }
@@ -1609,7 +2129,7 @@ async function runImport() {
 function doAct(a) {
   hideMenus();
   ({
-    saveas: () => saveAs(false), download, open: () => $('file').click(), keys: () => openModal('keysModal'), delete: deleteDash, addpage: addPage,
+    saveas: () => saveAs(false), download, open: () => $('file').click(), keys: () => openModal('keysModal'), delete: deleteDash, addpage: () => addPage(0),
     new: async () => { if (await confirmDiscard()) { load(blankDash()); history.replaceState(null, '', location.pathname); } }, import: openImport,
   })[a]();
 }
@@ -1635,6 +2155,10 @@ function wire() {
   $('stageScroll').addEventListener('mousedown', ev => { if (ev.target === $('stageScroll') || ev.target === $('bezel')) select(-1); });
   $('dashName').onchange = () => { begin(); dash.Name = $('dashName').value; changed({ keepLayers: true, inspector: sel < 0 }); };
   $('libSearch').oninput = renderLibrary;
+  $('layerSearch').oninput = () => { layerQuery = $('layerSearch').value.trim(); $('layerSearchClear').hidden = !layerQuery; renderLayers(); };
+  $('layerSearch').onkeydown = ev => { if (ev.key === 'Enter') { const o = layerOrder(); if (o.length) { setPicked(o, o[0]); renderLayers(); renderInspector(); draw(); } } };
+  $('layerSearchClear').onclick = () => { $('layerSearch').value = ''; layerQuery = ''; $('layerSearchClear').hidden = true; renderLayers(); $('layerSearch').focus(); };
+  $('layerShownOnly').onchange = () => { layerShownOnly = $('layerShownOnly').checked; renderLayers(); };
   $('file').onchange = async ev => { const fl = ev.target.files[0]; ev.target.value = ''; if (!fl || !(await confirmDiscard())) return; try { load(JSON.parse(await fl.text()), { dirty: true }); toast('Opened ' + fl.name); } catch (err) { toast('Not a dash file: ' + err.message, 'err'); } };
   $('imgfile').onchange = ev => { const fl = ev.target.files[0]; ev.target.value = ''; if (fl) addImage(fl); };
   $('simFilter').oninput = renderSimhub; $('impGo').onclick = runImport;
@@ -1650,6 +2174,7 @@ async function start() {
   try { pad = { ...pad, ...JSON.parse(localStorage.getItem('fxdash-pad') || '{}') }; } catch (e) { }
   [metrics, fonts, bindings] = await Promise.all([api('/api/fonts/metrics'), api('/api/fonts'), api('/api/bindings')]);
   fonts = fonts.filter(x => x.height > 0).sort((a, b) => a.height - b.height || a.id - b.id);
+  buildFontInfo();
   try { hostInfo = await api('/api/wheel'); } catch (e) { hostInfo = null; }
   const wheelOk = !!hostInfo && hostInfo.available !== false;
   $('btnWheel').disabled = !wheelOk;

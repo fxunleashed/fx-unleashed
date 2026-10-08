@@ -1796,8 +1796,11 @@ namespace User.FXProRpmSync
                 if (m.Index > n.Index && m.Shown && m.Visible && !(keepSolidText && SolidText(m)) &&
                     (IsText(m) && m.TextAt.HasValue ? Ink(m) : m.R).IntersectsWith(r))
                 {
-                    // a shape with no pixels there (the corner of an oval's box under a blinking arrow) wasn't drawn over
-                    if (m.Kind == "shape" && FillsIn(m, Rectangle.Intersect(r, m.R)) == 0) continue;
+                    // a shape with no pixels there (the corner of an oval's box under a blinking arrow) wasn't drawn over;
+                    // but one drawn from its picture is: the picture is a rectangle, its see-through pixels filled with
+                    // what's under it (a name's top row of letters under an arrow's picture: hidden by a full redraw, so
+                    // the picture goes back over it here too)
+                    if (m.Kind == "shape" && FillsIn(m, Rectangle.Intersect(r, m.R)) == 0 && !(tilesOn && HasPictures(m))) continue;
                     // a shape keeps where it was drawn over (the rest of it is still on the screen as it was)
                     bool partial = m.Kind == "shape" && (m.Sent == m.Key || !m.DamageAll);
                     var before = m.Sent == m.Key ? Rectangle.Empty : m.Damage;
@@ -2911,6 +2914,27 @@ namespace User.FXProRpmSync
             return bmp;
         }
 
+        private readonly Dictionary<int, Font> lookFonts = new Dictionary<int, Font>();
+        /// <summary>The Windows font a screen font is drawn with (FontLooks), or null when it isn't installed. "Bahnschrift
+        /// Bold Condensed" and the like aren't GDI families: their width family with Bold instead.</summary>
+        private Font LookFont(int font, FontLooks.Look look)
+        {
+            if (lookFonts.TryGetValue(font, out var f)) return f;
+            Font Make(string family, bool bold)
+            {
+                try
+                {
+                    var ff = new FontFamily(family);
+                    var style = bold ? FontStyle.Bold : FontStyle.Regular;
+                    return ff.IsStyleAvailable(style) ? new Font(ff, look.Size, style, GraphicsUnit.Pixel) : null;
+                }
+                catch (ArgumentException) { return null; }
+            }
+            f = Make(look.Gdi, look.Bold) ?? (look.Gdi.Contains(" Bold") ? Make(look.Gdi.Replace(" Bold", ""), true) : null);
+            lookFonts[font] = f;
+            return f;
+        }
+
         private void Xstr(string cmd)
         {
             int q = cmd.IndexOf('"');
@@ -2930,6 +2954,36 @@ namespace User.FXProRpmSync
             }
             int x = a[7] == 0 ? r.X : a[7] == 1 ? r.X + (r.Width - width) / 2 : r.Right - width;
             int y = a[8] == 0 ? r.Y : a[8] == 1 ? r.Y + (r.Height - h) / 2 : r.Bottom - h;
+            var look = font >= 0 && font < FontLooks.Fonts.Length ? FontLooks.Fonts[font] : null;
+            var lf = look != null ? LookFont(font, look) : null;
+            if (lf != null)
+            {
+                // the screen's letters stand on a baseline near the top of the line: a Windows font at the matched size,
+                // squeezed or widened to the screen font's width, each letter centred in its cell
+                var ff = lf.FontFamily;
+                float ascent = lf.Size * ff.GetCellAscent(lf.Style) / ff.GetEmHeight(lf.Style);
+                using (var br = new SolidBrush(DashRenderer.ToColor(a[5])))
+                using (var sf = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.NoClip })
+                {
+                    var hint = g.TextRenderingHint;
+                    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+                    // the screen's glyphs are one line tall and don't reach far past their cells: kept to the line and to
+                    // 2 px either side of the text (what DashRenderer.GlyphRuns counts as the text's pixels)
+                    g.SetClip(Rectangle.Intersect(r, new Rectangle(x - 2, y, width + 4, h)));
+                    foreach (var (c, w) in cells)
+                    {
+                        var st = g.Save();
+                        g.TranslateTransform((float)(x + w / 2.0 + look.Dx), y + look.Baseline - ascent);
+                        g.ScaleTransform((float)look.Sx, 1);
+                        g.DrawString(c.ToString(), lf, br, 0, 0, sf);
+                        g.Restore(st);
+                        x += w;
+                    }
+                    g.ResetClip();
+                    g.TextRenderingHint = hint;
+                }
+                return;
+            }
             if (!fonts.TryGetValue(font, out var f))
                 fonts[font] = f = new Font("Segoe UI", Math.Max(6, h * 0.78f), h >= 90 ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Pixel);
             using (var br = new SolidBrush(DashRenderer.ToColor(a[5])))
@@ -2983,6 +3037,7 @@ namespace User.FXProRpmSync
         public void Dispose()
         {
             foreach (var f in fonts.Values) f.Dispose();
+            foreach (var f in lookFonts.Values) f?.Dispose();
             foreach (var p in pictures.Values) p.Dispose();
             g.Dispose();
             Bitmap.Dispose();

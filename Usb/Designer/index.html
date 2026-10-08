@@ -62,19 +62,24 @@
     <nav class="tabs" id="tabs">
       <button data-tab="add" class="on"><span data-icon="plus"></span>Add</button>
       <button data-tab="layers"><span data-icon="layers"></span>Layers <span class="count" id="layerCount">0</span></button>
+      <button data-tab="pages" title="The dash's pages (the driver flips them with a wheel button)"><span data-icon="pages"></span>Pages <span class="count" id="pageTabCount"></span></button>
       <button data-tab="library"><span data-icon="grid"></span>Dashes</button>
     </nav>
     <div class="panes">
       <section class="pane on" data-pane="add">
+        <div class="addtarget" id="addTarget" hidden></div>
         <div class="eyebrow">Click or drag onto the screen</div>
         <div class="palette" id="palette"></div>
         <div class="eyebrow">Tip</div>
         <div class="note" style="color:var(--text3); font-size:12px; padding:0 2px">Values show live data (speed, gear, lap times…). Shapes and labels are drawn once, so they cost nothing while you drive.</div>
       </section>
       <section class="pane" data-pane="layers">
-        <div class="eyebrow">Top = in front · drag to reorder</div>
+        <label class="search"><span data-icon="search"></span><input id="layerSearch" placeholder="Search name, text, data, page" spellcheck="false" title="Search the layers (Ctrl F); Enter selects every match"><button class="clr" id="layerSearchClear" hidden title="Clear">✕</button></label>
+        <div class="layer-tools"><label class="switch"><input type="checkbox" id="layerShownOnly"><i></i><span>Only what the screen shows</span></label></div>
+        <div class="layer-info" id="layerInfo"></div>
         <ul class="layers" id="layers"></ul>
       </section>
+      <section class="pane" data-pane="pages"><div id="pagesPane"></div></section>
       <section class="pane" data-pane="library">
         <div class="bigbtns">
           <button class="btn" data-act="new"><span data-icon="plus"></span>New</button>

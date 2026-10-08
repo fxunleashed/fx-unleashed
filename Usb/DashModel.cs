@@ -207,6 +207,27 @@ namespace User.FXProRpmSync
             }
         }
 
+        /// <summary>Page pages[set] of each set in `v` (missing or out of range = the first page).</summary>
+        public static void Show(DashValues v, DashDefinition d, int[] pages)
+        {
+            for (int set = 0; set < MaxSets; set++)
+            {
+                int n = d.PageCountOf(set), p = pages != null && set < pages.Length ? pages[set] : 0;
+                v.SetPage(set, p >= 0 && p < n ? p : 0);
+            }
+        }
+
+        /// <summary>"0,2,1" -> {0, 2, 1}; null for an empty or broken list.</summary>
+        public static int[] ParseList(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            var parts = s.Split(',');
+            var r = new int[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+                if (!int.TryParse(parts[i].Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out r[i])) return null;
+            return r;
+        }
+
         /// <summary>`page` moved by `step`, wrapping round `count`.</summary>
         public static int Step(int page, int step, int count) => count <= 1 ? 0 : (((page + step) % count) + count) % count;
     }
