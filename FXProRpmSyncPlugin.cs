@@ -1219,16 +1219,24 @@ namespace User.FXProRpmSync
         {
             bool unlocked = Unlocked;
             if (!unlocked && !Settings.Enabled) return;
-            var w = await GetWheel().ConfigureAwait(false);
-            var sel = await simPro.GetSelectedPreset(w).ConfigureAwait(false);
-            var presetUuid = (string)sel["preset_uuid"];
-            var current = sel.SelectToken("config.rpm_lights.1") as JObject
-                          ?? throw new Exception("Selected preset has no rpm_lights");
-
-            var original = GetOrCaptureOriginal(presetUuid, current);
+            SimProClient.Wheel w = null;
+            string presetUuid = null;
+            JObject original = null;
+            try
+            {
+                w = await GetWheel().ConfigureAwait(false);
+                var sel = await simPro.GetSelectedPreset(w).ConfigureAwait(false);
+                presetUuid = (string)sel["preset_uuid"];
+                var current = sel.SelectToken("config.rpm_lights.1") as JObject
+                              ?? throw new Exception("Selected preset has no rpm_lights");
+                original = GetOrCaptureOriginal(presetUuid, current);
+            }
+            // USB mode draws the lights itself, so SimPro is optional there (only "your preset" patterns use its preset): an FX
+            // on its own cable, or SimPro closed, still gets each car's real shift lights. Standard mode needs it.
+            catch when (unlocked) { w = null; presetUuid = null; original = null; }
 
             // The wheel scales % thresholds by the game max RPM *SimPro* reads, so use that when we can.
-            var simProMax = await simPro.GetGameMaxRpm().ConfigureAwait(false);
+            var simProMax = w != null ? await simPro.GetGameMaxRpm().ConfigureAwait(false) : 0;
             var scaleMax = simProMax > 0 ? simProMax : t.MaxRpm;
 
             // The game's own data (extracted from its files, CarLightsDatabase) first, then Lovely Car Data.
@@ -1251,7 +1259,7 @@ namespace User.FXProRpmSync
             if (profile != null)
             {
                 // USB mode shows the car's own colours; SimPro only takes its palette
-                layout = RpmLayout.FromProfile(profile, includeGears: !w.OldDevice || Settings.LiveGearCurves, exactColours: unlocked);
+                layout = RpmLayout.FromProfile(profile, includeGears: w == null || !w.OldDevice || Settings.LiveGearCurves, exactColours: unlocked);
                 source = game?.Car.Rev != null
                     ? $"{game.Label} game data ({game.Car.Rev.Lights.Count} lights, {game.Car.Rev.Low}-{game.Car.Rev.High} rpm" + (game.Car.Rev.ColourGuessed ? ", some colours guessed" : "")
                       + (game.ReportedAs != null ? $", as {game.Car.CarId})" : ")")
@@ -1324,6 +1332,17 @@ namespace User.FXProRpmSync
 
             // 3) To SimPro's percent-of-game-max settings.
             if (scaleMax <= 0) return;
+            if (w.ProductUuid == WheelModel.Fx.SimProProduct)
+            {
+                // The FX's preset keeps its rev lights as 10 patterns of its 5 LEDs that the base steps through (FXProDashes
+                // docs/fx-wheel-firmware.md), not the FX Pro's 15 thresholds; nothing is written into it until that format
+                // is checked on an FX on the base. USB mode drives every FX light per car.
+                CurrentCar = t.CarKey;
+                AppliedRedline = layout.ShiftRpm;
+                AppliedMaxRpm = scaleMax;
+                Status = $"{t.CarKey}: the FX's lights stay SimPro's in standard mode (per-car lights: USB mode)";
+                return;
+            }
             JObject mapped;
             if (w.OldDevice && Settings.LiveGearCurves && layout.Gears != null)
             {

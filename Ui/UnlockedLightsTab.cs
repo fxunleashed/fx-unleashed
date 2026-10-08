@@ -68,7 +68,9 @@ namespace User.FXProRpmSync
             model = plugin.ActiveModel;
             big = new WheelView(model) { Width = 600 };
             bigEngine = new LightEngine(model);
-            bool neo = model == WheelModel.GtNeo;
+            bool neo = model == WheelModel.GtNeo, fx = model == WheelModel.Fx;
+            // the FX has no "SimHub device" source (the plugin's SimHub LED device is the FX Pro's): built-in or ATSR-Hub
+            if (fx && S.LightsFrom == LightsSource.SimHubDevice) S.LightsFrom = LightsSource.BuiltIn;
 
             // ----- Source -----
             var src = new StackPanel();
@@ -81,7 +83,7 @@ namespace User.FXProRpmSync
             srcText.Children.Add(Theme.Eyebrow("Lights come from"));
             srcHead.Children.Add(srcText);
             src.Children.Add(srcHead);
-            var seg = Theme.Segmented(new[] { "FX Unleashed", "ATSR-Hub", neo ? "SimHub's GT Neo device" : "SimHub device" }, (int)S.LightsFrom, i =>
+            var seg = Theme.Segmented(fx ? new[] { "FX Unleashed", "ATSR-Hub" } : new[] { "FX Unleashed", "ATSR-Hub", neo ? "SimHub's GT Neo device" : "SimHub device" }, (int)S.LightsFrom, i =>
             {
                 S.LightsFrom = (LightsSource)i;
                 Changed(); ShowSource();
@@ -91,7 +93,7 @@ namespace User.FXProRpmSync
             src.Children.Add(seg);
             var opts = new WrapPanel();
             var idle = Theme.Switch("Keep them on between sessions", S.IdleLights, v => { S.IdleLights = v; Changed(); },
-                neo ? "Off: the wheel's own lights while no game runs." : "Off: SimPro's lights while no game runs.");
+                neo || fx ? "Off: the wheel's own lights while no game runs." : "Off: SimPro's lights while no game runs.");
             idle.Margin = new Thickness(0, 0, 40, 6);
             opts.Children.Add(idle);
             var spotter = Theme.Switch("Spotter over ATSR-Hub / SimHub lights", S.SpotterOverExternal, v => { S.SpotterOverExternal = v; Changed(); },
@@ -125,7 +127,7 @@ namespace User.FXProRpmSync
             atsrPanel.Children.Add(Theme.Eyebrow("ATSR-Hub"));
             atsrPanel.Children.Add(Theme.Note("ATSR-Hub works out every light (shift lights, flags, spotter, TC/ABS, animations); the plugin sends them to the wheel. " +
                 (neo ? "Pick ATSR-Hub's GT Neo setup: its LEDs are numbered like the wheel view here (hover an LED to see its number). "
-                     : "Add the FX Pro in ATSR-Hub as a steering wheel (VID 0483, PID 0529) numbered like the wheel view here: hover an LED to see its number. ") +
+                     : $"Add the {model.Name} in ATSR-Hub as a steering wheel (VID 0483, PID 0529) numbered like the wheel view here: hover an LED to see its number. ") +
                 "While ATSR-Hub sends nothing, the plugin's own lights stay on."));
             atsrDevice = new ComboBox { Width = 300, IsEditable = true, Text = S.AtsrDevice ?? "" };
             atsrDevice.LostFocus += (s, e) => SetAtsrDevice(atsrDevice.Text);
@@ -190,9 +192,19 @@ namespace User.FXProRpmSync
             delete = Theme.Btn("Delete", Delete, icon: "\uE74D");
             presetButtons.Children.Add(duplicate);
             presetButtons.Children.Add(delete);
-            var other = neo ? WheelModel.FxPro : WheelModel.GtNeo;
-            copyTo = Theme.Btn("Copy to the " + other.Name, () => CopyTo(other), icon: "\uE8C8");
-            copyTo.ToolTip = $"Adds a copy of these lights to the {other.Name}'s own lights (they show there the next time it's the wheel in use)";
+            copyTo = Theme.Btn("Copy to another wheel", () =>
+            {
+                var menu = new ContextMenu { PlacementTarget = copyTo };
+                foreach (var m in WheelModel.All.Where(x => x != model))
+                {
+                    var item = new MenuItem { Header = "The " + m.Name };
+                    var to = m;
+                    item.Click += (s, e) => CopyTo(to);
+                    menu.Items.Add(item);
+                }
+                menu.IsOpen = true;
+            }, icon: "\uE8C8");
+            copyTo.ToolTip = "Adds a copy of these lights to another wheel's own lights (they show there the next time it's the wheel in use)";
             presetButtons.Children.Add(copyTo);
             side.Children.Add(presetButtons);
             side.Children.Add(new TextBlock { Text = "The preview revs up and down and triggers ABS and TC now and then. While the plugin drives the wheel, it shows the wheel's lights.", TextWrapping = TextWrapping.Wrap, Foreground = Theme.Text3, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0) });
@@ -435,7 +447,7 @@ namespace User.FXProRpmSync
             nameBox.Text = mine?.Name ?? "";
             delete.Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
             duplicate.Content = mine != null ? "Duplicate" : "Duplicate to edit";
-            copyTo.Content = "Copy to the " + (model == WheelModel.GtNeo ? WheelModel.FxPro : WheelModel.GtNeo).Name;
+            copyTo.Content = "Copy to another wheel";
             ((Border)editor.Tag).Visibility = mine != null ? Visibility.Visible : Visibility.Collapsed;
             if (mine != null) ShowEditor(); else big.Highlight(null);
             perCar?.Refresh(force: true);

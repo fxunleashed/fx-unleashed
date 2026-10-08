@@ -59,7 +59,7 @@ Simagic's firmware is not published anywhere.
 
 | | |
 |---|---|
-| Wheel | Simagic **FX Pro**, firmware 1.3.11 (tested on an Alpha EVO base). The **GT Neo** too: its rev lights in standard mode, and every light in USB mode (hold button 3 while the base powers up). |
+| Wheel | Simagic **FX Pro**, firmware 1.3.11 (tested on an Alpha EVO base). The **GT Neo** too: its rev lights in standard mode, and every light in USB mode (hold button 3 while the base powers up). The **FX**: every light in USB mode over its own cable, stock firmware (its 8 colours). |
 | SimPro Manager | **SimPro Manager 3** (tested with V3.2.2), running while you drive. |
 | SimHub | Tested with 9.11. The free version is fine. |
 | Unleashed mode | the custom firmware, and the wheel's USB cable to the PC (best: data only, the base powers the wheel). |

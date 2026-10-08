@@ -42,7 +42,7 @@ namespace User.FXProRpmSync
         /// <summary>The list changed (worker thread).</summary>
         public event Action Changed;
 
-        public WheelDetector() : this(m => FxUsb.FindPath(m.UsbFilter), true) { }
+        public WheelDetector() : this(m => m.FindUsb(), true) { }
 
         /// <summary>Tests: USB from `findUsb`, no SimPro, no timer (call Check).</summary>
         internal WheelDetector(Func<WheelModel, string> findUsb, bool start)

@@ -7,7 +7,7 @@
     <RootNamespace>User.FXProRpmSync</RootNamespace>
     <LangVersion>latest</LangVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.7.1</Version>
+    <Version>0.7.2</Version>
     <Product>FX Unleashed</Product>
     <Authors>ziadkadry99</Authors>
     <Copyright>Copyright (c) 2026 ziadkadry99. GPL-3.0-or-later.</Copyright>
@@ -38,6 +38,7 @@
     <EmbeddedResource Include="assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
     <EmbeddedResource Include="assets\fxpro-outline.svg" LogicalName="User.FXProRpmSync.fxpro-outline.svg" />
     <EmbeddedResource Include="assets\gtneo-outline.svg" LogicalName="User.FXProRpmSync.gtneo-outline.svg" />
+    <EmbeddedResource Include="assets\fx-outline.svg" LogicalName="User.FXProRpmSync.fx-outline.svg" />
     <EmbeddedResource Include="assets\logo.png" LogicalName="User.FXProRpmSync.logo.png" />
     <EmbeddedResource Include="Usb\Designer\*.*" LogicalName="User.FXProRpmSync.Designer.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Usb\Bundled\*.json" LogicalName="User.FXProRpmSync.Bundled.%(Filename)%(Extension)" />

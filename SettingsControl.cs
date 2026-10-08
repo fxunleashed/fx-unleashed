@@ -125,7 +125,16 @@ namespace User.FXProRpmSync
         {
             shownModel = plugin.ActiveModel;
             modes.Children.Clear();
-            if (shownModel == WheelModel.GtNeo)
+            if (shownModel == WheelModel.Fx)
+            {
+                standardCard = ModeCard(Glyph(0), "STANDARD", "Through SimPro · over RF",
+                    "SimPro drives the FX's lights over the base's radio; the plugin's per-car rev lights aren't available on the FX yet.",
+                    new[] { "SimPro's own lights" }, WheelMode.Standard);
+                unlockedCard = ModeCard(Glyph(1), "USB", "Its USB cable · stock firmware works",
+                    "The plugin drives all 20 lights itself: presets, each car's shift lights, alerts, sleep, and buttons that never stick.",
+                    new[] { "Every light", "Shift lights per car", "Alerts", "Sleep" }, WheelMode.Unlocked);
+            }
+            else if (shownModel == WheelModel.GtNeo)
             {
                 standardCard = ModeCard(Glyph(0), "STANDARD", "Through SimPro",
                     "The rev lights follow each car, through SimPro.",
@@ -151,8 +160,11 @@ namespace User.FXProRpmSync
         /// <summary>The other connected wheel, or null when only one is connected.</summary>
         private WheelModel OtherConnected()
         {
+            // the next one after the wheel shown, so with three connected the chip steps through them all
             var connected = plugin.ConnectedWheels.Select(w => w.Model).Distinct().ToList();
-            return connected.Count > 1 ? connected.FirstOrDefault(m => m != plugin.ActiveModel) : null;
+            if (connected.Count < 2) return null;
+            int at = connected.IndexOf(plugin.ActiveModel);
+            return connected[(at + 1) % connected.Count];
         }
 
         private void SwitchToOther()
@@ -389,7 +401,7 @@ namespace User.FXProRpmSync
             wheelChip.Cursor = other != null ? Cursors.Hand : null;
             wheelChipIcon.Visibility = other != null ? Visibility.Visible : Visibility.Collapsed; // the switch icon only when there's something to switch to
             wheelChip.BorderBrush = other != null ? Theme.Red : Theme.Line2;
-            wheelChip.ToolTip = other != null ? $"Both wheels are connected. The pages are for the {shownModel.Name}; click to set up the {other.Name} instead."
+            wheelChip.ToolTip = other != null ? $"More than one wheel is connected. The pages are for the {shownModel.Name}; click to set up the {other.Name} instead."
                                               : $"The pages are for the {shownModel.Name} (the wheel found).";
             RefreshUpdateBanner();
             feedProblem.Visibility = plugin.FeedProblem ? Visibility.Visible : Visibility.Collapsed;
@@ -403,7 +415,7 @@ namespace User.FXProRpmSync
             {
                 var u = plugin.Usb;
                 string state = u?.State ?? "Off";
-                wheelPill.Text = "USB  ·  " + state + (u?.WheelVersion != null && shownModel == WheelModel.FxPro ? "  ·  app " + u.WheelVersion : "");
+                wheelPill.Text = "USB  ·  " + state + (u?.WheelVersion != null && shownModel != WheelModel.GtNeo ? "  ·  app " + u.WheelVersion : "");
                 wheelDot.Fill = StateBrush(state);
             }
             else

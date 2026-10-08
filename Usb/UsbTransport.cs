@@ -33,12 +33,37 @@ namespace User.FXProRpmSync
         [DllImport("kernel32.dll", SetLastError = true)] internal static extern bool ReadFile(SafeFileHandle h, byte[] b, int n, out int r, IntPtr o);
         [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetFeature(SafeFileHandle h, byte[] b, int n);
         [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_SetFeature(SafeFileHandle h, byte[] b, int n);
+        [DllImport("hid.dll")] private static extern bool HidD_GetProductString(SafeFileHandle h, byte[] b, int n);
 
-        /// <summary>Device path of the wheel's HID interface, or null when it isn't plugged in.</summary>
-        public static string FindPath() => FindPath(DeviceFilter);
+        /// <summary>The FX Pro's HID path, or null when it isn't plugged in (never an FX, which shares its USB id).</summary>
+        public static string FindPath() => WheelModel.FxPro.FindUsb();
 
-        /// <summary>Device path of the first HID interface whose path contains `filter` ("vid_xxxx&amp;pid_yyyy"), or null.</summary>
-        public static string FindPath(string filter)
+        /// <summary>The FX's HID product string (the FX Pro's is "FX Pro Wheel").</summary>
+        public static bool IsFxProduct(string product) => string.Equals(product?.Trim(), "FX Wheel", StringComparison.OrdinalIgnoreCase);
+
+        private static readonly Dictionary<string, string> products = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>A HID device's product string (read once per path: a path names one plugged-in device), or null.</summary>
+        public static string ProductString(string path)
+        {
+            lock (products) if (products.TryGetValue(path, out var known)) return known;
+            string s = null;
+            try
+            {
+                using (var h = CreateFile(path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero))
+                {
+                    var b = new byte[256];
+                    if (!h.IsInvalid && HidD_GetProductString(h, b, b.Length)) s = Encoding.Unicode.GetString(b).TrimEnd('\0');
+                }
+            }
+            catch { }
+            if (s != null) lock (products) products[path] = s; // unread: asked again next time
+            return s;
+        }
+
+        /// <summary>Device path of the first HID interface whose path contains `filter` ("vid_xxxx&amp;pid_yyyy") and whose
+        /// product string passes `product` (null = any), or null.</summary>
+        public static string FindPath(string filter, Func<string, bool> product = null)
         {
             HidD_GetHidGuid(out var g);
             IntPtr set = SetupDiGetClassDevs(ref g, IntPtr.Zero, IntPtr.Zero, 0x12);
@@ -55,7 +80,7 @@ namespace User.FXProRpmSync
                         Marshal.WriteInt32(b, IntPtr.Size == 8 ? 8 : 6);
                         if (!SetupDiGetDeviceInterfaceDetail(set, ref di, b, req, out req, IntPtr.Zero)) continue;
                         string p = Marshal.PtrToStringAuto(b + 4);
-                        if (p != null && p.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0) return p;
+                        if (p != null && p.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0 && (product == null || product(ProductString(p)))) return p;
                     }
                     finally { Marshal.FreeHGlobal(b); }
                 }
@@ -65,13 +90,18 @@ namespace User.FXProRpmSync
 
         public sealed class Status
         {
+            public uint Product;   // 3 = FX Pro, 2 = FX
             public uint Version;   // 0x1030B = 1.3.11
             public uint RunMode;   // 0 = app, otherwise bootloader
             /// <summary>Report byte 0x20 (low byte of 0x20000850): the patch build after a marker query (build 7+), else 0.</summary>
             public byte Marker;
+            /// <summary>The report as read (33 bytes; status byte k = Raw[k]).</summary>
+            public byte[] Raw;
             public string VersionText => $"{(Version >> 16) & 0xFF}.{(Version >> 8) & 0xFF}.{Version & 0xFF}";
             /// <summary>The wheel app the patch was built for, running normally.</summary>
-            public bool IsSupportedApp => Version == 0x1030B && RunMode == 0;
+            public bool IsSupportedApp => Product == 3 && Version == 0x1030B && RunMode == 0;
+            /// <summary>An FX (not Pro) running stock app 1.3.5, the only FX app there is (Usb/FxTransport.cs).</summary>
+            public bool IsFxApp => Product == 2 && Version == 0x10305 && RunMode == 0;
             /// <summary>The wheel's bootloader (update mode): it reports version bytes 0F 01 01 01 where the app reports
             /// 0B 03 01 00; the run mode stays 0 (FXProDashes, build 9 flashed through the escape hatch).</summary>
             public bool IsBootloader => Version == 0x0101010F || RunMode != 0;
@@ -108,7 +138,7 @@ namespace User.FXProRpmSync
                 if (!HidD_GetFeature(h, b, b.Length)) return null;
                 // The report comes back without its id byte: 0x483, 3, version, run mode as u32 LE from byte 0.
                 // The app fills 0x24 bytes but the descriptor declares 32 + id, so only bytes 0x00-0x20 arrive.
-                return new Status { Version = BitConverter.ToUInt32(b, 8), RunMode = BitConverter.ToUInt32(b, 12), Marker = b[32] };
+                return new Status { Product = BitConverter.ToUInt32(b, 4), Version = BitConverter.ToUInt32(b, 8), RunMode = BitConverter.ToUInt32(b, 12), Marker = b[32], Raw = b };
             }
         }
 

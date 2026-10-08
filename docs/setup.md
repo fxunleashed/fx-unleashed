@@ -82,6 +82,10 @@ is on the About tab.
 *GT Neo:* it needs no custom firmware, so skip steps 1 and 3: hold button 3 while the base powers up, plug the USB cable in, and
 do step 2. It is newer and less tested than the FX Pro.
 
+*FX:* it needs no custom firmware either, so skip steps 1 and 3: update it to app 1.3.5 in SimPro if it runs an older one,
+plug its USB cable in, and do step 2. Its lights use the wheel's own 8 colours. It is the newest wheel here and not yet
+tried with the plugin.
+
 ## 3. Turn on picture memory
 
 ***Optional, but highly recommended.*** *About 3 minutes. Needs steps 1 and 2.* This is the screen's **RAM patch**: the plugin

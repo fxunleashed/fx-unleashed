@@ -357,6 +357,7 @@ namespace User.FXProRpmSync
         // Active session
         private FxConnection conn;            // FX Pro session (screen, RAM, LEDs)
         private NeoLedLink neo;               // GT Neo session (LEDs only)
+        private FxConnection fx;              // FX session (LEDs and the input-report re-arm; Usb/FxTransport.cs)
         private FxHostScreen screen;
         private ILedLink leds;
         private DashRenderer renderer;
@@ -401,10 +402,10 @@ namespace User.FXProRpmSync
         public string Detail { get; private set; } = "";
         public bool WheelFound => path != null;
         public string WheelVersion => model == WheelModel.GtNeo ? NeoUsb.VersionText(neoSerial) : status?.VersionText;
-        public bool SupportedApp => status?.IsSupportedApp == true;
+        public bool SupportedApp => status?.IsSupportedApp == true || (model == WheelModel.Fx && status?.IsFxApp == true);
         /// <summary>The wheel is in its updater (update mode), waiting for SimPro to install an app.</summary>
         public bool InUpdateMode => status?.IsBootloader == true;
-        public bool Active => conn != null || neo != null;
+        public bool Active => conn != null || neo != null || fx != null;
         /// <summary>The wheel USB mode is set up for now.</summary>
         public WheelModel Model => model;
         /// <summary>The custom dash is on the wheel's screen now.</summary>
@@ -832,7 +833,7 @@ namespace User.FXProRpmSync
                         wake.WaitOne(250);
                         continue;
                     }
-                    if (conn == null && neo == null) Open();
+                    if (conn == null && neo == null && fx == null) Open();
                     RunFrame(s, source, testing, sleeping);
                     wake.WaitOne(15); // a settings change wakes it early, so the wheel shows it at once
                 }
@@ -856,6 +857,7 @@ namespace User.FXProRpmSync
         {
             if (path == null) return false;
             if (model == WheelModel.GtNeo) return testing || s.LightsFrom != LightsSource.SimHubDevice;
+            if (model == WheelModel.Fx) return status?.IsFxApp == true; // stock 1.3.5 takes its lights over USB as it is
             return status?.IsSupportedApp == true && (Patched(s) || testing);
         }
 
@@ -885,6 +887,12 @@ namespace User.FXProRpmSync
                 if (!allowed) { State = "SimHub drives the lights"; Detail = "Lights come from SimHub's own GT Neo device (Lights tab)."; }
                 else { State = "Ready"; Detail = "Takes over the lights when a game runs."; }
             }
+            else if (model == WheelModel.Fx)
+            {
+                if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
+                else if (!status.IsFxApp) { State = "Unsupported wheel firmware"; Detail = $"The FX runs app {status.VersionText}{(status.IsBootloader || status.RunMode != 0 ? " (in update mode: install 1.3.5 in SimPro)" : "")}; USB mode needs its app 1.3.5 (install it in SimPro)."; }
+                else { State = "Ready"; Detail = "Takes over the lights when a game runs" + (build > 0 ? " (full colour: FX Unleashed patch)." : " (its 8 colours: stock firmware)."); }
+            }
             else if (status == null && (DateTime.UtcNow - appearedAt < BootGrace || buildTries > 0)) { State = "Wheel found"; Detail = "Letting it finish starting up."; }
             else if (status == null) { State = "Wheel found"; Detail = "Couldn't read its status."; }
             else if (!status.IsSupportedApp) { State = "Unsupported wheel firmware"; Detail = $"The wheel runs app {status.VersionText}{(status.IsBootloader ? " (in update mode: reinstall it in SimPro, see Recovery below)" : "")}; USB mode needs the patched 1.3.11 app."; }
@@ -895,15 +903,28 @@ namespace User.FXProRpmSync
         private void Probe(bool force)
         {
             if (!force && DateTime.UtcNow < nextProbe && (conn != null || path != null)) return;
-            if (conn != null || neo != null) return; // an open session finds out by failing writes
+            if (conn != null || neo != null || fx != null) return; // an open session finds out by failing writes
             nextProbe = DateTime.UtcNow.AddSeconds(2);
-            var p = plugin.Detector?.PathOf(model) ?? FxUsb.FindPath(model.UsbFilter);
+            var p = plugin.Detector?.PathOf(model) ?? model.FindUsb();
             if (model == WheelModel.GtNeo)
             {
                 // stock firmware: nothing to check but that it's there
                 if (p == null) { path = null; neoSerial = null; Setup.Poll(); return; }
                 Setup.Reset();
                 if (p != path) { path = p; neoSerial = NeoUsb.Serial(p); SimHub.Logging.Current.Info("[FXProRpmSync] USB mode: GT Neo found (" + (neoSerial ?? "no serial") + ")"); }
+                return;
+            }
+            if (model == WheelModel.Fx)
+            {
+                // read-only first: the status says which wheel and app; only an FX in app 1.3.5 is ever written to
+                if (p == null) { path = null; status = null; Setup.Poll(); return; }
+                Setup.Reset();
+                if (p != path) { path = p; status = null; build = -1; }
+                if (status != null) return;
+                status = FxUsb.ReadStatus(p);
+                if (status?.IsFxApp != true) { build = -1; return; }
+                build = FxWheel.QueryBuild(p) ?? 0;
+                SimHub.Logging.Current.Info("[FXProRpmSync] USB mode: FX found, app 1.3.5, " + (build > 0 ? "FX Unleashed patch build " + build : "stock firmware"));
                 return;
             }
             if (p == null) { path = null; status = null; if (powerToken != 0) powerSawGone = true; Setup.Poll(); return; }
@@ -960,7 +981,7 @@ namespace User.FXProRpmSync
         public int? FirmwareBuild => status == null || build < 0 ? (int?)null : build;
 
         /// <summary>The wheel runs the patch: it said so (build 7+), or the user confirmed it.</summary>
-        private bool Patched(UsbSettings s) => s.FirmwareConfirmed || (status != null && build > 0);
+        private bool Patched(UsbSettings s) => model == WheelModel.Fx ? status != null && build > 0 : s.FirmwareConfirmed || (status != null && build > 0);
 
         /// <summary>The wheel runs the patch (reported by the wheel or confirmed by the user).</summary>
         public bool FirmwarePatched => Patched(S);
@@ -979,6 +1000,16 @@ namespace User.FXProRpmSync
                 screenKey = null;
                 lastDash = lastDemo = clock.Elapsed.TotalSeconds;
                 SimHub.Logging.Current.Info("[FXProRpmSync] USB mode connected to the GT Neo");
+                return;
+            }
+            if (model == WheelModel.Fx)
+            {
+                fx = new FxConnection(path);
+                FxWheel.ReleaseInputReports(fx); // the stock app can stop its button reports by itself (FxWheel.InputReadyWord)
+                appliedVersion = -1;
+                screenKey = null;
+                lastDash = lastDemo = clock.Elapsed.TotalSeconds;
+                SimHub.Logging.Current.Info("[FXProRpmSync] USB mode connected to the FX (" + (build > 0 ? "full colour" : "8 colours") + ")");
                 return;
             }
             conn = new FxConnection(path);
@@ -1037,7 +1068,11 @@ namespace User.FXProRpmSync
             if (model.HasScreen && !sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
             // Idle with "keep the lights on between sessions" off: SimPro's lights, even while a screensaver holds the screen
             bool wantLeds = sleeping || (s.LightsEnabled && (source || s.IdleLights));
-            if (wantLeds && leds == null) { leds = neo ?? (ILedLink)new FxLedLink(conn); leds.Enable(); }
+            if (wantLeds && leds == null)
+            {
+                leds = neo ?? (fx != null ? (build > 0 ? new FxRgbLedLink(fx) : (ILedLink)new FxPaletteLedLink(fx)) : new FxLedLink(conn));
+                leds.Enable();
+            }
             else if (!wantLeds && leds != null) { leds.Disable(); leds = null; LastFrame = null; ScreenMirror.Leds(null); }
             if (!model.HasScreen) return; // the rest is the screen
             // What the screen should show
@@ -1597,11 +1632,11 @@ namespace User.FXProRpmSync
         private void KeepInputReports()
         {
             var now = DateTime.UtcNow;
-            if (conn == null || model != WheelModel.FxPro || now < nextRearmCheck) return;
+            if ((conn == null || model != WheelModel.FxPro) && (fx == null || model != WheelModel.Fx) || now < nextRearmCheck) return;
             nextRearmCheck = now.AddSeconds(1);
             var b = plugin.Buttons;
             if (b == null || !b.Found || now.Ticks - b.LastReportTicks < TimeSpan.FromSeconds(1).Ticks) return;
-            FxUsb.ReleaseInputReports(conn);
+            if (fx != null) FxWheel.ReleaseInputReports(fx); else FxUsb.ReleaseInputReports(conn);
             if (now - lastRearm > TimeSpan.FromSeconds(30))
                 SimHub.Logging.Current.Info("[FXProRpmSync] USB mode: the wheel's button reports had stopped; started them again");
             lastRearm = now;
@@ -1810,6 +1845,14 @@ namespace User.FXProRpmSync
         /// <summary>Gives the screen back (stock dash) and the LEDs (SimPro's colours).</summary>
         private void Deactivate(bool quiet = false)
         {
+            if (fx != null)
+            {
+                try { leds?.Disable(); } catch { }
+                try { fx.Dispose(); } catch { }
+                fx = null; leds = null; demo = null; LastFrame = null;
+                if (!quiet) SimHub.Logging.Current.Info("[FXProRpmSync] USB mode released the FX");
+                return;
+            }
             if (neo != null)
             {
                 try { leds?.Disable(); } catch { }

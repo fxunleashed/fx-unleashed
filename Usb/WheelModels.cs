@@ -15,6 +15,13 @@ namespace User.FXProRpmSync
         public string Name { get; private set; }
         /// <summary>The HID path filter of its own USB device.</summary>
         public string UsbFilter { get; private set; }
+        /// <summary>
+        /// The FX and the FX Pro share one USB id (VID 0483, PID 0529); their HID product strings tell them apart ("FX Wheel",
+        /// "FX Pro Wheel"). Null = any. The FX Pro also takes a wheel whose string can't be read (as before FX support).
+        /// </summary>
+        public Func<string, bool> UsbProduct { get; private set; }
+        /// <summary>The product id in its F1 status (0x483, product, version, run mode): FX 2, FX Pro 3; 0 = no F1 status.</summary>
+        public uint StatusProduct { get; private set; }
         /// <summary>SimPro's product_uuid for it (get_device_list).</summary>
         public string SimProProduct { get; private set; }
         public bool HasScreen { get; private set; }
@@ -68,6 +75,9 @@ namespace User.FXProRpmSync
 
         public override string ToString() => Name;
 
+        /// <summary>Its own USB device's HID path now, or null.</summary>
+        public string FindUsb() => FxUsb.FindPath(UsbFilter, UsbProduct);
+
         // ---------- The wheels ----------
 
         /// <summary>
@@ -77,6 +87,7 @@ namespace User.FXProRpmSync
         public static readonly WheelModel FxPro = new WheelModel
         {
             Id = "fxpro", Name = "FX Pro", UsbFilter = FxUsb.DeviceFilter, SimProProduct = "0000000002030000",
+            UsbProduct = p => !FxUsb.IsFxProduct(p), StatusProduct = 3,
             HasScreen = true, NeedsFirmware = true, ModeName = "Unleashed", LedCount = 38, HasLevels = true,
             Groups = new[] { LedGroup.Buttons, LedGroup.Encoders, LedGroup.SideLeft, LedGroup.SideRight, LedGroup.Rev },
             segments =
@@ -136,7 +147,45 @@ namespace User.FXProRpmSync
             },
         };
 
-        public static readonly WheelModel[] All = { FxPro, GtNeo };
+        /// <summary>
+        /// FX (not Pro), app 1.3.5, 20 LEDs as its firmware counts them: button lights 0-11, the rings of
+        /// the three dials 12 (left), 13 (right), 14 (middle), rev lights 15-19 (left to right, under the badge). The
+        /// stock app takes them over USB as palette colours (8 + off, one brightness for all); the FX Unleashed patch
+        /// (build 1+) as RGB. Where each LED sits: an owner's wheel test (2026-10-07). Usb/FxTransport.cs.
+        /// </summary>
+        public static readonly WheelModel Fx = new WheelModel
+        {
+            Id = "fx", Name = "FX", UsbFilter = FxUsb.DeviceFilter, SimProProduct = "0000000002020000",
+            UsbProduct = FxUsb.IsFxProduct, StatusProduct = 2,
+            HasScreen = false, NeedsFirmware = false, ModeName = "USB", LedCount = 20, HasLevels = false,
+            Groups = new[] { LedGroup.Buttons, LedGroup.Encoders, LedGroup.Rev },
+            segments =
+            {
+                [LedGroup.Buttons] = new[] { Range(0, 12) },
+                // left to right across the wheel: left dial, middle dial, right dial
+                [LedGroup.Encoders] = new[] { new[] { 12, 14, 13 } },
+                [LedGroup.Rev] = new[] { Range(15, 5) },
+            },
+            alertLeds =
+            {
+                // no side lights: their alerts use the left and right dial rings
+                [LedGroup.SideLeft] = new[] { 12 },
+                [LedGroup.SideRight] = new[] { 13 },
+                // 0-5 the left side's buttons, 6-11 the right side's
+                [LedGroup.ButtonsLeft] = Range(0, 6),
+                [LedGroup.ButtonsRight] = Range(6, 6),
+            },
+            groupNames =
+            {
+                [LedGroup.Encoders] = "Dial lights",
+                [LedGroup.ButtonsLeft] = "Buttons, left side",
+                [LedGroup.ButtonsRight] = "Buttons, right side",
+                [LedGroup.SideLeft] = "Left dial (for side alerts)",
+                [LedGroup.SideRight] = "Right dial (for side alerts)",
+            },
+        };
+
+        public static readonly WheelModel[] All = { FxPro, GtNeo, Fx };
 
         /// <summary>A model by id; the FX Pro for anything unknown (settings from before GT Neo support).</summary>
         public static WheelModel Find(string id) => All.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase)) ?? FxPro;

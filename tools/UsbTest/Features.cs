@@ -27,6 +27,7 @@ static class FeatureTests
         UpdaterTests.Run(dir);
         WorkstreamTests.Run();
         GtNeoTests.Run();
+        FxTests.Run();
         ScreenFlashTests.Run();
         LightStateTests.Run();
         CalibrationTests.Run();

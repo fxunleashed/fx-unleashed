@@ -118,8 +118,15 @@ namespace User.FXProRpmSync
             Child = canvas;
             for (int i = 0; i < shown.Length; i++) shown[i] = -1;
 
-            var geo = Outline(Model == WheelModel.GtNeo ? "gtneo-outline.svg" : "fxpro-outline.svg");
+            var geo = Outline(Model == WheelModel.GtNeo ? "gtneo-outline.svg" : Model == WheelModel.Fx ? "fx-outline.svg" : "fxpro-outline.svg");
             if (Model == WheelModel.FxPro) BuildPaddles(); // behind the body: seen through the thumb openings
+            if (Model == WheelModel.Fx && Outline("fx-outline.svg", "paddles") is Geometry fxPaddles)
+            {
+                // the FX's carbon paddles, seen through its finger windows (traced with the outline)
+                var carbon = new LinearGradientBrush(Color.FromRgb(0x2A, 0x2D, 0x33), Color.FromRgb(0x14, 0x15, 0x18), 60);
+                carbon.Freeze();
+                canvas.Children.Add(new Path { Data = fxPaddles, Fill = carbon, Stroke = Theme.B("#3A3F47"), StrokeThickness = 1, IsHitTestVisible = false });
+            }
             if (geo != null)
             {
                 if (glow)
@@ -138,6 +145,7 @@ namespace User.FXProRpmSync
             }
 
             if (Model == WheelModel.GtNeo) { BuildGtNeo(); return; }
+            if (Model == WheelModel.Fx) { BuildFx(); return; }
 
             // Bezel and screen
             Add(new Rectangle { Width = 262, Height = 148, RadiusX = 12, RadiusY = 12, Fill = Theme.B("#050607"), Stroke = Theme.B("#30343C"), StrokeThickness = 1.5 }, 201.5, 28);
@@ -561,6 +569,69 @@ namespace User.FXProRpmSync
             for (int i = 0; i < 10; i++) Led(i, Kind.Button, NeoButtons[i].X, NeoButtons[i].Y, 14, i < 5 ? $"Right button {5 - i} from the top" : $"Left button {i - 4} from the top");
         }
 
+        // ---------- FX: traced from SimPro's FX picture (tools/brand/trace_fx.py -> assets/fx-outline.svg) ----------
+
+        /// <summary>Button LEDs 0-11 where the owner's wheel test placed them: 0-5 the left side (lowest, the one above, next
+        /// one in, middle, top outer, top inner), 6-11 the right side (top inner, top outer, middle, next one in, next one
+        /// down, bottom).</summary>
+        private static readonly (double X, double Y)[] FxButtons =
+        {
+            (200.0, 320.0), (180.9, 281.3), (189.7, 238.6), (152.1, 212.3), (99.5, 53.2), (163.4, 66.6),
+            (500.2, 66.6), (564.1, 53.2), (511.5, 212.3), (472.9, 239.1), (480.6, 279.3), (463.6, 320.5),
+        };
+
+        /// <summary>The dials' rings: LED 12 left, 13 right, 14 middle.</summary>
+        private static readonly (double X, double Y)[] FxDials = { (261.2, 280.3), (400.3, 279.8), (331.8, 233.4) };
+
+        /// <summary>Rev LEDs 15-19, a row under the SIMAGIC badge (not in SimPro's picture; placed under the badge).</summary>
+        private static readonly double[] FxRevX = { 301.8, 319.0, 336.2, 353.4, 370.7 };
+        private const double FxRevY = 161.1;
+
+        private void BuildFx()
+        {
+            // the controls without LEDs, where SimPro's picture has them: a roller on top of each grip (rolls sideways), a
+            // roller at the inner edge of each upper window (rolls up and down), and the small knob between the dials
+            foreach (var (x, name) in new[] { (57.9, "Left handle encoder"), (605.0, "Right handle encoder") })
+            {
+                var g = new Grid { Width = 38, Height = 22, ToolTip = name };
+                g.Children.Add(new Rectangle { RadiusX = 6, RadiusY = 6, Fill = RollerBody, Stroke = UnlitRim, StrokeThickness = 1.5 });
+                for (int i = 0; i < 7; i++)
+                    g.Children.Add(new Rectangle
+                    {
+                        Width = 2.2, Height = 14, Fill = Ridge, RadiusX = 1, RadiusY = 1, HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5 + i * 4.3, 0, 0, 0),
+                    });
+                Add(g, x - 19, 111.8 - 11);
+            }
+            foreach (var (x, name) in new[] { (163.0, "Left side encoder"), (497.7, "Right side encoder") })
+            {
+                var g = new Grid { Width = 16, Height = 44, ToolTip = name };
+                g.Children.Add(new Rectangle { RadiusX = 5, RadiusY = 5, Fill = RollerBody, Stroke = UnlitRim, StrokeThickness = 1.5 });
+                for (int i = 0; i < 8; i++)
+                    g.Children.Add(new Rectangle
+                    {
+                        Width = 12, Height = 2.2, Fill = Ridge, RadiusX = 1, RadiusY = 1, VerticalAlignment = VerticalAlignment.Top,
+                        Margin = new Thickness(0, 4.5 + i * 4.6, 0, 0),
+                    });
+                Add(g, x - 8, 143.9 - 22);
+            }
+            Add(new Ellipse { Width = 20, Height = 20, Fill = KnobFill, Stroke = UnlitRim, StrokeThickness = 2.5, ToolTip = "Funky switch" }, 330.4 - 10, 315.6 - 10);
+
+            // the badge, with the rev lights under it
+            Add(new Rectangle { Width = 112, Height = 24, RadiusX = 5, RadiusY = 5, Fill = Theme.B("#0B0C0E"), Stroke = Theme.B("#30343C"), StrokeThickness = 1 }, Mid - 56, 122);
+            Add(new TextBlock { Text = "SIMAGIC", Width = 112, TextAlignment = TextAlignment.Center, FontSize = 12, FontWeight = FontWeights.Bold, Foreground = Theme.B("#6E747E"), IsHitTestVisible = false }, Mid - 56, 126);
+            for (int i = 0; i < 5; i++) Led(15 + i, Kind.Rev, FxRevX[i], FxRevY, 4.5, $"Rev light {i + 1}");
+            string[] dial = { "Left dial", "Right dial", "Middle dial" };
+            for (int i = 0; i < 3; i++) Led(12 + i, Kind.Encoder, FxDials[i].X, FxDials[i].Y, i == 2 ? 19 : 21, dial[i] + " light");
+            string[] names =
+            {
+                "Left side, lowest button", "Left side, the button above the lowest", "Left side, next one in", "Left side, middle button",
+                "Top left, outer button", "Top left, inner button", "Top right, inner button", "Top right, outer button",
+                "Right side, middle button", "Right side, next one in", "Right side, next one down", "Right side, lowest button",
+            };
+            for (int i = 0; i < 12; i++) Led(i, Kind.Button, FxButtons[i].X, FxButtons[i].Y, 12, names[i]);
+        }
+
         /// <summary>Rev LED 23 on the right (the plugin's "fill from the right").</summary>
         public bool ReverseRev
         {
@@ -682,24 +753,26 @@ namespace User.FXProRpmSync
         private static readonly Dictionary<string, Geometry> outlines = new Dictionary<string, Geometry>();
 
         /// <summary>A wheel's outline from its embedded SVG's path (M/L points; several subpaths = openings, even-odd).</summary>
-        private static Geometry Outline(string resource)
+        /// <param name="id">A path by its id (the FX's "paddles"); null = the file's first path (the outline).</param>
+        private static Geometry Outline(string resource, string id = null)
         {
             lock (outlines)
             {
-                if (outlines.TryGetValue(resource, out var cached)) return cached;
+                string key = resource + "#" + id;
+                if (outlines.TryGetValue(key, out var cached)) return cached;
                 Geometry g = null;
                 try
                 {
                     using (var st = typeof(WheelView).Assembly.GetManifestResourceStream("User.FXProRpmSync." + resource))
                     using (var r = new StreamReader(st))
                     {
-                        var m = Regex.Match(r.ReadToEnd(), "\\sd=\"([^\"]+)\"");
+                        var m = Regex.Match(r.ReadToEnd(), (id == null ? "" : "id=\"" + id + "\"") + "\\sd=\"([^\"]+)\"");
                         g = Geometry.Parse(m.Groups[1].Value + (m.Groups[1].Value.TrimEnd().EndsWith("Z") ? "" : " Z"));
                         g.Freeze();
                     }
                 }
                 catch { }
-                return outlines[resource] = g;
+                return outlines[key] = g;
             }
         }
 

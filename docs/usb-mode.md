@@ -8,7 +8,7 @@ SimPro (which keeps doing force feedback and settings). It needs the wheel's fir
 firmware (build 4 or later); on stock firmware nothing here works (and nothing breaks either, see [Firmware](#firmware)).
 
 Contents: [What it does](#what-it-does) · [Setup](#setup) · [Dashes](#dashes) · [Dash file format](#dash-file-format) ·
-[Lights](#lights) · [ATSR-Hub](#atsr-hub) · [Dash designer](dash-designer.md) · [How it talks to the wheel](#how-it-talks-to-the-wheel) · [GT Neo](#gt-neo) ·
+[Lights](#lights) · [ATSR-Hub](#atsr-hub) · [Dash designer](dash-designer.md) · [How it talks to the wheel](#how-it-talks-to-the-wheel) · [GT Neo](#gt-neo) · [FX](#fx) ·
 [Checking without the wheel](#checking-without-the-wheel) · [Troubleshooting](#troubleshooting)
 
 ## What it does
@@ -294,6 +294,49 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
   lower left, lower right, each from 12 o'clock clockwise; rev 58-72 left to right.
 - **Not yet tried on the wheel:** the plugin driving it (presets, alerts, sleep), the SimHub device switch, button
   bindings. Offline checks: `tools/UsbTest` `features` ("GT Neo ..."), `UI_WHEEL=gtneo UsbTest.exe OUT ui`.
+
+## FX
+
+Added 2026-10-07. The Simagic **FX** (not Pro) has no screen and, like the GT Neo, needs no custom firmware: its stock
+app 1.3.5 takes every light over its own USB cable. The settings page calls it **"USB"**.
+
+- **Which wheel:** the FX and the FX Pro share one USB id (`VID_0483&PID_0529`). The plugin tells them apart by the HID
+  product string ("FX Wheel" / "FX Pro Wheel", `WheelModel.UsbProduct`) and again by the F1 status (product 2 = FX,
+  3 = FX Pro): an FX is never written to as an FX Pro, and nothing at all is written to an FX that isn't running app
+  1.3.5 in its normal mode. SimPro lists it on the base as `0000000002020000`. With several wheels connected, the
+  header chip steps through them.
+- **Connecting:** plug the wheel's USB cable into the PC. The FX picks USB or the base when it powers up, so on the
+  base, plug the cable in before the base is switched on (or use it on the cable alone). Older FX apps (1.3.1) need
+  the 1.3.5 update in SimPro first.
+- **LEDs** (`Usb/FxTransport.cs`): 20, numbered like its firmware: 0-11 button lights (0-5 the left side: lowest, the
+  one above, next one in, middle, top outer, top inner; 6-11 the right side: top inner, top outer, middle, next one in,
+  next one down, lowest), 12/13/14 the rings of the left, right and middle dial, 15-19 the rev lights left to right
+  (under the SIMAGIC badge). Mapped on an owner's wheel with a test tool (2026-10-07).
+  - **Stock firmware:** the plugin writes the wheel's own colour tables in RAM (two small writes a frame, only when
+    something changed, everything again every 2 s): one of the wheel's **8 colours** per LED (red, orange, yellow,
+    green, blue, cyan, purple, white; the plugin's colours snap to the nearest) and **one brightness** for all LEDs (the
+    brightest LED's; much dimmer ones go off). A breathing effect dims the whole wheel. When the plugin lets go, the
+    firmware's default colours come back; the wheel's own saved colours return at its next power-up.
+  - **Patched firmware:** an FX running an FX Unleashed patch (build 1+, not released) answers a query with its build;
+    the plugin then sends any colour and a brightness per LED.
+- **Rev lights:** a car's lights are worked out for 15 LEDs; the FX's 5 show the 3rd, 6th, 9th, 12th and 15th
+  (`LightEngine.RevSource`), so the bar fills in the car's own steps and is full exactly at its shift point, in its
+  colours. Pit limiter, launch, refuel and the other rev-bar extras scale to 5.
+- **Without SimPro:** USB mode no longer needs SimPro running or a wheel in it to work out each car's lights (only
+  "your SimPro preset" patterns read SimPro's preset). An FX on its cable alone gets every car's real shift lights.
+- **Standard mode:** the plugin doesn't write rev lights into an FX's SimPro preset: the FX keeps its rev lights as 10
+  patterns of its 5 LEDs that the base steps through, not the FX Pro's 15 thresholds, and that hasn't been checked on
+  an FX on the base. Use USB mode for per-car lights on the FX.
+- **Buttons that never stick:** the stock FX app can stop sending button reports by itself, with no unplug (seen on
+  the owner's wheel: 19 minutes of dead buttons until a power cycle). While USB mode holds the wheel, the plugin sees
+  reports stop for a second and starts them again with one RAM write, as it does for the FX Pro.
+- **Presets:** the FX Pro's. The FX has no side lights: those groups are skipped, and side alerts (spotter) use the
+  left and right dial rings and each side's six buttons. "Setting levels" on the dials shows their colours steady.
+- **Lights source:** built-in or ATSR-Hub (the "SimHub device" source is the FX Pro's own SimHub LED device).
+- **Drawing:** traced from SimPro's FX picture (`tools/brand/trace_fx.py` -> `assets/fx-outline.svg`, positions in
+  `WheelView.BuildFx`). The picture doesn't show the rev lights; they're drawn as a row under the badge.
+- **Not yet tried on the wheel:** the plugin driving it (presets, car lights, sleep, the re-arm). Offline checks:
+  `tools/UsbTest` `features` ("FX: ...", "stock tables", "patch table", "rev bar (FX)"), `UI_WHEEL=fx UsbTest.exe OUT ui`.
 
 ## Library, screen mirror, wheel dash values, base per car
 

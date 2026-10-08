@@ -360,7 +360,7 @@ namespace User.FXProRpmSync
         public static bool IsBuiltIn(string id) => All.Any(p => p.Id == id);
 
         /// <summary>The built-in presets for a wheel (the gallery, the first-time default), in order.</summary>
-        public static LightProfile[] For(WheelModel m) => m == WheelModel.GtNeo ? GtNeo : FxPro;
+        public static LightProfile[] For(WheelModel m) => m == WheelModel.GtNeo ? GtNeo : FxPro; // the FX shares the FX Pro's (no side lights: skipped)
 
         /// <summary>Every built-in preset, both wheels (ids are unique across them).</summary>
         public static readonly LightProfile[] All;
@@ -1345,8 +1345,9 @@ namespace User.FXProRpmSync
                 }
                 for (int i = 0; i < leds.Length && i < layout.Rpm.Length; i++)
                 {
-                    bool lit = layout.Lit(i, rpm);
-                    var (r, g, b) = Rgb(layout.Colors[i]);
+                    int k = RevSource(i, leds.Length, layout.Rpm.Length);
+                    bool lit = layout.Lit(k, rpm);
+                    var (r, g, b) = Rgb(layout.Colors[k]);
                     frame[leds[i]] = lit ? new LedColor(r, g, b, bright) : new LedColor(0, 0, 0, 1);
                 }
                 return;
@@ -1365,10 +1366,22 @@ namespace User.FXProRpmSync
             var pattern = rev.Layout();
             for (int i = 0; i < leds.Length && i < pattern.Fractions.Length; i++)
             {
-                bool lit = pattern.Fractions[i] > 0 && rpm >= pattern.Fractions[i] * shift;
-                var (r, g, b) = Rgb(pattern.Colors[i]);
+                int k = RevSource(i, leds.Length, pattern.Fractions.Length);
+                bool lit = pattern.Fractions[k] > 0 && rpm >= pattern.Fractions[k] * shift;
+                var (r, g, b) = Rgb(pattern.Colors[k]);
                 frame[leds[i]] = lit ? new LedColor(r, g, b, bright) : new LedColor(0, 0, 0, 1);
             }
+        }
+
+        /// <summary>
+        /// Which of a 15-LED rev layout's lights rev LED `i` of `n` shows: itself on a 15-LED bar; on a shorter one (the FX's
+        /// 5) the last of its share (15 -> 5: 3, 6, 9, 12, 15), so the bar fills in the car's own steps and is full exactly
+        /// where the car's is.
+        /// </summary>
+        public static int RevSource(int i, int n, int layoutLeds)
+        {
+            if (n >= layoutLeds || n <= 0) return i;
+            return Math.Max(0, Math.Min(layoutLeds - 1, (int)Math.Round((i + 1) * (double)layoutLeds / n) - 1));
         }
 
         // ---------- Colour helpers ----------

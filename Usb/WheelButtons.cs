@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
@@ -72,10 +73,28 @@ namespace User.FXProRpmSync
 
         public static string Name(int button, WheelModel m)
         {
+            if (m == WheelModel.Fx) return FxNames.TryGetValue(button, out var fx) ? $"{fx} ({button})" : "Wheel button " + button;
             if (m != WheelModel.FxPro) return "Wheel button " + button;
             if (button == DashButton) return $"Dash button ({button})";
             return FxProControls.Describe(button, Layout) is string d ? $"{d} ({button})" : "Wheel button " + button;
         }
+
+        /// <summary>
+        /// The FX's controls by button number with its standard (identity) map: named and turned one by one on the owner's
+        /// wheel (FX wheel test 1.1.1, 2026-10-07). A map changed in SimPro moves them.
+        /// </summary>
+        private static readonly Dictionary<int, string> FxNames = new Dictionary<int, string>
+        {
+            [1] = "Right side, next one in", [2] = "Right side, middle button", [3] = "Top right, inner", [4] = "Top right, outer",
+            [5] = "Left side, next one in", [6] = "Left side, middle button", [7] = "Top left, outer", [8] = "Top left, inner",
+            [9] = "Right dial −", [10] = "Right dial +", [11] = "Left dial −", [12] = "Left dial +",
+            [13] = "Right shift paddle", [14] = "Left shift paddle", [15] = "Funky switch, turn +", [16] = "Funky switch, turn −",
+            [17] = "Middle dial −", [18] = "Middle dial +", [19] = "Left side, above the lowest", [20] = "Left side, lowest button",
+            [21] = "Right side, next one down", [22] = "Right side, lowest button",
+            [25] = "Funky switch left", [28] = "Funky switch down", [29] = "Funky switch up", [30] = "Funky switch right",
+            [33] = "Left handle encoder −", [34] = "Left handle encoder +", [35] = "Right handle encoder +", [36] = "Right handle encoder −",
+            [37] = "Left body encoder +", [38] = "Left body encoder −", [39] = "Right body encoder +", [40] = "Right body encoder −",
+        };
 
         /// <summary>Where the FX Pro's dash button and upper paddles report (the plugin's USB settings), for the names.</summary>
         public static UsbSettings Layout;
@@ -93,7 +112,7 @@ namespace User.FXProRpmSync
                 try
                 {
                     var model = plugin.ActiveModel;
-                    string path = plugin.Unlocked ? FxUsb.FindPath(model.UsbFilter) : null;
+                    string path = plugin.Unlocked ? model.FindUsb() : null;
                     if (path == null) { Thread.Sleep(2000); continue; }
                     using (var h = FxUsb.CreateFile(path, 0x80000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero)) // GENERIC_READ, shared
                     {

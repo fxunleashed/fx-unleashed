@@ -28,6 +28,7 @@
     <EmbeddedResource Include="..\..\assets\logo-nobg.png" LogicalName="User.FXProRpmSync.logo-nobg.png" />
     <EmbeddedResource Include="..\..\assets\fxpro-outline.svg" LogicalName="User.FXProRpmSync.fxpro-outline.svg" />
     <EmbeddedResource Include="..\..\assets\gtneo-outline.svg" LogicalName="User.FXProRpmSync.gtneo-outline.svg" />
+    <EmbeddedResource Include="..\..\assets\fx-outline.svg" LogicalName="User.FXProRpmSync.fx-outline.svg" />
     <EmbeddedResource Include="..\..\docs\legal\*.md" LogicalName="User.FXProRpmSync.Legal.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\Resources\screen-images.json" LogicalName="User.FXProRpmSync.screen-images.json" />
     <EmbeddedResource Include="..\..\Usb\Bundled\*.json" LogicalName="User.FXProRpmSync.Bundled.%(Filename)%(Extension)" />

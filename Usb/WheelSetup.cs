@@ -60,7 +60,16 @@ namespace User.FXProRpmSync
                 return ("Waiting for the wheel", "Switch the base on while holding button 3 on the GT Neo (keep holding it for about 2 seconds). " +
                                                  "It then shows up on USB through the quick release.");
             }
-            var name = onBase.FirstOrDefault(w => WheelModel.BySimPro(w.ProductUuid) != WheelModel.GtNeo)?.Name;
+            if (model == WheelModel.Fx)
+            {
+                if (onBase.Any(w => WheelModel.BySimPro(w.ProductUuid) == model))
+                    return ("Wheel on the base", "SimPro sees the FX on the base. The FX picks USB or the base when it powers up: for USB mode, plug its " +
+                                                 "USB cable into this PC before the base is switched on, or use the wheel on its cable alone.");
+                if (unknownDevice)
+                    return ("Unknown USB device", "Windows shows an unknown USB device. If it's the wheel, unplug its USB cable and plug it in again.");
+                return ("Waiting for the wheel", "Plug the FX's USB cable into this PC.");
+            }
+            var name = onBase.FirstOrDefault(w => WheelModel.BySimPro(w.ProductUuid) is var m && m != WheelModel.GtNeo && m != WheelModel.Fx)?.Name;
             if (unknownDevice)
                 return ("Unknown USB device", "Windows shows an unknown USB device. If it's the wheel, unplug its USB cable and plug it in again.");
             if (name != null)
