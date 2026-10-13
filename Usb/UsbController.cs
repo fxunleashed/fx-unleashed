@@ -1445,7 +1445,8 @@ namespace User.FXProRpmSync
                 v = latest;
                 RememberSession(s, v, now);
                 State = previewDash != null ? "Designer preview" : "Active";
-                Detail = previewDash != null ? "Showing the dash from the designer with live data." : model.HasScreen ? "Driving the dash and lights from SimHub." : "Driving the lights from SimHub.";
+                Detail = previewDash != null ? "Showing the dash from the designer with live data." : !s.DrawsLights ? (model.HasScreen ? "Driving the dash from SimHub; the lights are SimPro's" : "The lights are SimPro's") + (s.RevLightsViaSimPro ? ", with each car's rev lights set there." : ".")
+                       : model.HasScreen ? "Driving the dash and lights from SimHub." : "Driving the lights from SimHub.";
             }
             else if (sleeping)
             {
