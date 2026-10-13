@@ -260,6 +260,21 @@ static class LightStateTests
         Check("looks: engine off is the default 18% (dimmer than driving)", off.Take(23).Max(c => c.Brightness) < drive.Take(23).Max(c => c.Brightness) / 3);
         Check("looks: engine off leaves the rev bar dark", off.Skip(23).All(c => c.R + c.G + c.B == 0));
 
+        // "Rev lights only": the rev bar as it was, every other light dark; parked, the bar too (both wheels)
+        foreach (var m in new[] { WheelModel.FxPro, WheelModel.GtNeo })
+        {
+            var eng = new LightEngine(m);
+            var prof = LightPresets.For(m)[0].Clone();
+            var full = eng.Render(prof, Car(true, 7700), null, 1, false, LightMoment.Of(CarState.Driving));
+            var only = eng.OnlyRev(full, CarState.Driving);
+            var rev = new HashSet<int>(m.Leds(LedGroup.Rev));
+            bool revKept = rev.All(i => only[i].R == full[i].R && only[i].G == full[i].G && only[i].B == full[i].B && only[i].Brightness == full[i].Brightness) && rev.Any(i => full[i].R + full[i].G + full[i].B > 0);
+            bool restDark = Enumerable.Range(0, only.Length).Where(i => !rev.Contains(i)).All(i => only[i].R + only[i].G + only[i].B == 0) && Enumerable.Range(0, full.Length).Any(i => !rev.Contains(i) && full[i].R + full[i].G + full[i].B > 0);
+            Check($"rev lights only ({m.Name}): the rev bar unchanged, every other light dark", revKept && restDark && only.Length == full.Length);
+            var idleFrame = eng.Render(prof, new DashValues(), null, 1, false, LightMoment.Of(CarState.Idle));
+            Check($"rev lights only ({m.Name}): parked, the whole wheel is dark", idleFrame.Any(c => c.R + c.G + c.B > 0) && eng.OnlyRev(idleFrame, CarState.Idle).All(c => c.R + c.G + c.B == 0));
+        }
+
         var idle = e.Render(p, new DashValues(), null, 1, false, LightMoment.Of(CarState.Idle));
         Check("looks: aurora's idle look brings the rev bar in", idle.Skip(23).Any(c => c.R + c.G + c.B > 0));
 

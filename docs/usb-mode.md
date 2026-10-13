@@ -107,6 +107,11 @@ drive, pit limiter, stop) so the start-up settles into the look it ends in; park
 lights and the levels' flash on a change are the only things that move. `tools/UsbTest` checks every built-in preset on both
 wheels. With ATSR-Hub as the light source the animation is ATSR-Hub's own theme, not ours.
 
+**Rev lights only** (2026-10-13; Lights tab, per wheel: `UsbSettings.RevLightsOnly`, `LightEngine.OnlyRev`): the frame is drawn as
+usual and every light but the rev bar is then made dark, so the bar keeps the car's shift lights, the limiter lights, the extras and
+the alerts drawn on it (on the GT Neo that includes ABS / TC at its ends); alerts on other lights don't show. Parked (no game, a menu,
+engine off) the bar is dark too. Only for frames the plugin renders itself, not ATSR-Hub's or SimHub's device.
+
 **Rev bar extras** (`Usb/RevExtras.cs`, a profile's `Extras`): in some situations the rev bar shows something else, and the
 shift lights win again within 8% of the shift point (except for the first two):
 

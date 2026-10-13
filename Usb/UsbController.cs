@@ -270,7 +270,7 @@ namespace User.FXProRpmSync
             LightPreset = LightPreset, CustomLights = CustomLights, UserLights = UserLights, CarLights = CarLights, GameLights = GameLights,
             ButtonLeds = ButtonLeds, WheelButtons = WheelButtons, PressLights = PressLights, PressColor = PressColor,
             LightsFrom = LightsFrom, AtsrDevice = AtsrDevice, AtsrMap = AtsrMap, AtsrBrightness = AtsrBrightness,
-            TurnedOffSimHubDevice = TurnedOffSimHubDevice,
+            TurnedOffSimHubDevice = TurnedOffSimHubDevice, RevLightsOnly = RevLightsOnly,
         };
 
         private void Put(WheelSettings w)
@@ -281,7 +281,7 @@ namespace User.FXProRpmSync
             ButtonLeds = w.ButtonLeds ?? new Dictionary<int, int>(); WheelButtons = w.WheelButtons ?? new Dictionary<string, int>();
             PressLights = w.PressLights; PressColor = w.PressColor ?? "#FFFFFF";
             LightsFrom = w.LightsFrom; AtsrDevice = w.AtsrDevice; AtsrMap = w.AtsrMap ?? ""; AtsrBrightness = w.AtsrBrightness;
-            TurnedOffSimHubDevice = w.TurnedOffSimHubDevice;
+            TurnedOffSimHubDevice = w.TurnedOffSimHubDevice; RevLightsOnly = w.RevLightsOnly;
         }
 
         /// <summary>
@@ -301,6 +301,9 @@ namespace User.FXProRpmSync
 
         /// <summary>The plugin turned SimHub's own device for this wheel off (GT Neo), so it can offer to turn it back on.</summary>
         public bool TurnedOffSimHubDevice;
+
+        /// <summary>Only the rev bar is lit (LightEngine.OnlyRev): the other lights dark, the whole wheel dark when parked.</summary>
+        public bool RevLightsOnly;
     }
 
     /// <summary>A wheel's own LED and button settings while another wheel is active (UsbSettings.Wheels).</summary>
@@ -320,6 +323,7 @@ namespace User.FXProRpmSync
         public string AtsrMap = "";
         public bool AtsrBrightness = true;
         public bool TurnedOffSimHubDevice;
+        public bool RevLightsOnly;
 
         /// <summary>A wheel's settings the first time it's used: its first preset, nothing bound or mapped yet.</summary>
         public static WheelSettings Defaults(WheelModel m) => new WheelSettings { LightPreset = LightPresets.For(m)[0].Id };
@@ -1846,6 +1850,7 @@ namespace User.FXProRpmSync
                 {
                     // the Lights tab's "Preview as": the page's simulated values and state through this wheel's own lights
                     frame = engine.Render(lights, pv.Values, null, now, reverseRev, pv.Moment);
+                    if (s.RevLightsOnly) frame = engine.OnlyRev(frame, pv.Moment.State);
                     LightsState = "preview · " + CarStateTracker.Name(pv.Moment.State).ToLowerInvariant();
                 }
                 else if (s.LightsFrom == LightsSource.AtsrHub && !testing)
@@ -1877,6 +1882,7 @@ namespace User.FXProRpmSync
                     }
                     moment.Extras = extras.Update(v, now, plugin.DashCarKey, plugin.LaunchFor(plugin.DashCarKey));
                     frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev, moment);
+                    if (s.RevLightsOnly) frame = engine.OnlyRev(frame, moment.State);
                     LightsState += " · " + CarStateTracker.Name(moment.State).ToLowerInvariant();
                 }
                 if (!frameSleeping && !TestingLeds) frame = LoadingOverlay(frame);
