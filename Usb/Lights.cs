@@ -913,13 +913,22 @@ namespace User.FXProRpmSync
 
         /// <summary>
         /// An effect as it looks held still: pulses and sweeps have no frame worth freezing, so they become steady colour
-        /// (Rainbow-breathe a steady rainbow); flowing gradients, plasma, ripples, flames and stars are held where they are.
+        /// (Rainbow-breathe a steady rainbow, a twinkling sky every light lit in its star colours); flowing gradients, plasma,
+        /// ripples and flames are held where they are.
         /// </summary>
         private static GroupLighting Still(GroupLighting l)
         {
             LightEffect e;
             switch (l.Effect)
             {
+                case LightEffect.Twinkle:
+                {
+                    // a frozen moment of it is a nearly dark sky with a star or two caught lit: every light as a star instead
+                    var stars = l.Clone();
+                    stars.Effect = LightEffect.Solid;
+                    if (stars.Colors != null && stars.Colors.Count > 1) stars.Colors = stars.Colors.Skip(1).ToList();
+                    return stars;
+                }
                 case LightEffect.Breathe: case LightEffect.Heartbeat: case LightEffect.Strobe:
                 case LightEffect.Scanner: case LightEffect.Sparkle: e = LightEffect.Solid; break;
                 case LightEffect.RainbowBreathe: e = LightEffect.Rainbow; break;
@@ -1283,8 +1292,9 @@ namespace User.FXProRpmSync
                     double c = now / period * rate + Hash(led * 5.7 + 1);
                     double f = c - Math.Floor(c);
                     double k = Hash(led * 13.7 + Math.Floor(c) * 3.1) > 0.45 ? Math.Pow(Math.Sin(Math.PI * f), 3) : 0;
-                    // the base glows softly (a night sky, not off), stars flare over it
-                    return Scale(Mix(Rgb(colours[0]), Rgb(star), k), 0.3 + 0.7 * k, bright);
+                    // a star rises out of the first colour; between stars a light is off (a soft glow there looked right in the
+                    // drawing but on the wheel's LEDs it read as lights that should be off and weren't)
+                    return k <= 0 ? new LedColor(0, 0, 0, 1) : Scale(Mix(Rgb(colours[0]), Rgb(star), k), k, bright);
                 }
                 case LightEffect.Ripple:
                 {

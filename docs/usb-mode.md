@@ -100,7 +100,8 @@ everything, first match wins: ABS (left side, amber 12/s), TC (right side, blue)
 yellow flags (encoders), low fuel and DRS (off by default).
 
 **While driving** (2026-10-02): a preset's buttons and encoders hold one still frame of their effect (`StillWhileDriving`:
-pulses and sweeps become steady colour, gradients, plasma, flames and stars freeze) and the three side lights each side stay
+pulses and sweeps become steady colour, gradients, plasma and flames freeze, a twinkling sky becomes every light lit in its
+star colours) and the three side lights each side stay
 dark (`SidesDarkWhileDriving`: they're for alerts). Both are per profile, on by default, and cover every in-car state (start,
 drive, pit limiter, stop) so the start-up settles into the look it ends in; parked looks still animate. Alerts, the limiter
 lights and the levels' flash on a change are the only things that move. `tools/UsbTest` checks every built-in preset on both
@@ -273,7 +274,9 @@ firmware: its USB mode is stock. The settings page calls it **"USB"** and never 
 - **LEDs** (`Usb/NeoTransport.cs`, same order as SimHub's own GT Neo driver): 73, ids 0-9 button lights, 10-57 four
   rings of 12 around the encoders (10, 22, 34, 46 first), 58-72 rev lights left to right. Feature report `F0`, 64
   bytes, byte 6 `EC`: `EC 02 01/00` takes/releases the LEDs, `EC 03 n` + n x (id, R, G, B), 13 per report. Only
-  changed LEDs are sent; every second "host mode on" and the whole frame go out again. That overrules SimHub's own GT
+  changed LEDs are sent, 3 reports a frame on average (6 at most after quiet frames): the rev bar every frame, the
+  buttons and rings all together or a frame or two later (sent in part, a ring switched in two steps; 2026-10-12).
+  Every second "host mode on" and the whole frame go out again. That overrules SimHub's own GT
   Neo device, which sends `EC 02 00` when it's switched off (the wheel then ignores `EC 03` until the next `EC 02 01`;
   seen 2026-09-29), and keeps the wheel from taking its LEDs back (it does after 5 s without an `EC` packet).
   Brightness is applied on the PC; the wheel also scales by its own brightness from SimPro (SimHub asks for 100%

@@ -87,16 +87,22 @@ namespace User.FXProRpmSync
     /// sends `EC 02 00` when it's switched off, after which the wheel ignores every `EC 03`) or leaves its colours behind
     /// is overruled within a second. That refresh also keeps the wheel from taking its LEDs back (it does after 5 s).
     /// The wheel refuses reports when they come too fast (errors 31 / 995 while every LED changed each frame, seen
-    /// 2026-09-29), so each frame sends at most MaxReportsPerFrame: the rev bar first (it's what the driver reads), then
-    /// the other LEDs round-robin, so a busy animation only updates them a little slower. A refused report is tried again
-    /// next frame; only MaxFailures in a row drop the link.
+    /// 2026-09-29), so reports are rationed: MaxReportsPerFrame are earned every frame, and what a quiet frame doesn't
+    /// use is kept, up to BurstReports. A change after a quiet moment (all four rings switching on or off: 48 LEDs, four
+    /// reports) so goes out whole in one frame instead of most of it now and the rest a frame later; a busy animation
+    /// still averages MaxReportsPerFrame. The rev bar goes first, every frame (it's what the driver reads). The buttons and
+    /// rings go out all together: when the credit doesn't reach they wait a frame or two for it (an animation on them
+    /// then updates every other frame, whole) instead of switching in two steps. A refused report is tried again next
+    /// frame; only MaxFailures in a row drop the link.
     /// </summary>
     internal sealed class NeoLedLink : ILedLink, IDisposable
     {
         public const int LedCount = 73;
         public const int PerReport = 13;
-        /// <summary>Reports per frame (30 frames/s: about 90 a second).</summary>
+        /// <summary>Reports earned per frame (30 frames/s: about 90 a second).</summary>
         public const int MaxReportsPerFrame = 3;
+        /// <summary>The most one frame sends, after quiet frames: enough for every LED (73 / 13 = 6 reports).</summary>
+        public const int BurstReports = 6;
         public const int MaxFailures = 5;
         /// <summary>The rev bar's LED ids (58-72): sent before anything else.</summary>
         private static readonly int RevFirst = 58;
@@ -109,6 +115,8 @@ namespace User.FXProRpmSync
         private readonly int[] sent = new int[LedCount];
         private DateTime lastRefresh = DateTime.MinValue;
         private int failures, cursor;
+        /// <summary>Reports this frame may still send (see BurstReports).</summary>
+        private int credit;
 
         /// <summary>Reports refused so far (for the log).</summary>
         public int Refused { get; private set; }
@@ -173,14 +181,15 @@ namespace User.FXProRpmSync
 
         public void Send(LedColor[] frame, byte ceiling)
         {
-            int budget = MaxReportsPerFrame;
+            credit = Math.Min(BurstReports, credit + MaxReportsPerFrame);
+            bool full = credit == BurstReports;
             if (clock() - lastRefresh >= Refresh)
             {
                 // host mode on again (something may have switched it off) and every LED again (something may have changed them)
                 var on = Report(2); on[8] = 1;
                 lastRefresh = clock();
                 if (!TryWrite(on)) return;
-                budget--;
+                credit--;
                 Forget();
             }
             // what changed: the rev bar first, then the rest from where the last frame stopped
@@ -192,10 +201,19 @@ namespace User.FXProRpmSync
                 if (rgb != sent[i]) changed.Add((i, rgb));
             }
             for (int i = RevFirst; i < LedCount; i++) Consider(i);
-            int revCount = changed.Count;
+            int revCount = Math.Min(changed.Count, credit * PerReport);
+            if (revCount < changed.Count) changed.RemoveRange(revCount, changed.Count - revCount);
             for (int k = 0; k < RevFirst; k++) Consider((cursor + k) % RevFirst);
-            int take = Math.Min(changed.Count, budget * PerReport);
-            if (take < changed.Count) changed.RemoveRange(take, changed.Count - take);
+            // the buttons and rings go out together or not yet: sent as far as the reports reach, a ring would switch in two
+            // steps a frame apart (seen on the wheel 2026-10-12). They wait a frame or two for the credit instead; only with the
+            // credit full and still short (everything changing every frame, rev bar included) do they go out in part.
+            int left = credit - (revCount + PerReport - 1) / PerReport;
+            int rest = changed.Count - revCount;
+            if (rest > left * PerReport)
+            {
+                int take = full ? left * PerReport : 0;
+                changed.RemoveRange(revCount + take, rest - take);
+            }
             if (changed.Count > revCount) cursor = (changed[changed.Count - 1].Id + 1) % RevFirst;
             for (int start = 0; start < changed.Count; start += PerReport)
             {
@@ -209,6 +227,7 @@ namespace User.FXProRpmSync
                     r[o] = (byte)id; r[o + 1] = (byte)(rgb >> 16); r[o + 2] = (byte)(rgb >> 8); r[o + 3] = (byte)rgb;
                 }
                 if (!TryWrite(r)) return; // tried again next frame (they're still unsent)
+                credit--;
                 for (int k = 0; k < n; k++) sent[changed[start + k].Id] = changed[start + k].Rgb;
             }
         }

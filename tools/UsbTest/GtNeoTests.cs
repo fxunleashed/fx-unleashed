@@ -111,14 +111,19 @@ static class GtNeoTests
         var frame = Enumerable.Range(0, 73).Select(i => new LedColor((byte)i, 0x40, 0x80, 90)).ToArray();
         link.Send(frame, 90);
         var first = reports.SelectMany(r => Enumerable.Range(0, r[8]).Select(k => (int)r[9 + 4 * k])).ToList();
-        Check("GT Neo link: at most 3 reports a frame, the rev bar first", reports.Count == 3 && reports.All(r => r[7] == 3 && r[8] <= 13)
-              && first.Take(15).SequenceEqual(Enumerable.Range(58, 15)) && first.Count == 39);
+        Check("GT Neo link: the rev bar first, within 3 reports; the other lights wait to go out together", reports.Count == 2 && reports.All(r => r[7] == 3 && r[8] <= 13)
+              && first.SequenceEqual(Enumerable.Range(58, 15)));
         Check("GT Neo link: colours as R G B", reports[0][9] == 58 && reports[0][10] == 58 && reports[0][11] == 0x40 && reports[0][12] == 0x80);
         Check("GT Neo link: never the hang or update reports", reports.All(r => r[0] == 0xF0 && r[6] == 0xEC));
-        reports.Clear();
-        link.Send(frame, 90);
-        var second = reports.SelectMany(r => Enumerable.Range(0, r[8]).Select(k => (int)r[9 + 4 * k])).ToList();
-        Check("GT Neo link: the rest follows next frame", first.Concat(second).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, 73)) && reports.Count == 3);
+        // the buttons and rings: not in part, all 58 in one frame once the reports are there (two frames later)
+        var later = new List<List<int>>();
+        for (int k = 0; k < 2; k++)
+        {
+            reports.Clear();
+            link.Send(frame, 90);
+            later.Add(reports.SelectMany(r => Enumerable.Range(0, r[8]).Select(i => (int)r[9 + 4 * i])).ToList());
+        }
+        Check("GT Neo link: the rest follows whole, in one frame", later[0].Count == 0 && later[1].OrderBy(x => x).SequenceEqual(Enumerable.Range(0, 58)) && reports.Count == 5);
 
         reports.Clear();
         link.Send(frame, 90);
@@ -126,7 +131,7 @@ static class GtNeoTests
         now = now.AddSeconds(1.1);
         link.Send(frame, 90);
         Check("GT Neo link: every second, host mode on again and the frame again (within the budget; SimHub's device switches host mode off when it stops)",
-              reports.Count == 3 && reports[0][7] == 2 && reports[0][8] == 1 && reports[1][9] == 58);
+              reports.Count <= NeoLedLink.BurstReports && reports[0][7] == 2 && reports[0][8] == 1 && reports[1][9] == 58);
         for (int k = 0; k < 3; k++) link.Send(frame, 90);
 
         reports.Clear();
@@ -141,15 +146,45 @@ static class GtNeoTests
 
         // a busy animation: every LED changes every frame, the rev bar still goes out every frame
         bool revEveryFrame = true;
+        int busyReports = 0;
         for (int f = 0; f < 10; f++)
         {
             reports.Clear();
             var busy = Enumerable.Range(0, 73).Select(i => new LedColor((byte)(i + f * 7), (byte)f, 0, 90)).ToArray();
             link.Send(busy, 90);
             var ids = reports.Where(r => r[7] == 3).SelectMany(r => Enumerable.Range(0, r[8]).Select(k => (int)r[9 + 4 * k])).ToList();
-            revEveryFrame &= Enumerable.Range(58, 15).All(ids.Contains) && reports.Count <= 3;
+            // a frame may spend what earlier frames saved; over the ten it is three a frame
+            revEveryFrame &= Enumerable.Range(58, 15).All(ids.Contains) && reports.Count <= NeoLedLink.BurstReports;
+            busyReports += reports.Count;
         }
-        Check("GT Neo link: a busy animation stays within the budget, the rev bar every frame", revEveryFrame);
+        Check("GT Neo link: a busy animation stays within the budget, the rev bar every frame", revEveryFrame && busyReports <= NeoLedLink.BurstReports + 3 * 9, busyReports + " reports");
+
+        // an animation on the buttons and rings only (parked: the rev bar dark): each frame all 58 or none, never a part
+        bool wholeOrNone = true;
+        int wholes = 0;
+        for (int f = 0; f < 12; f++)
+        {
+            reports.Clear();
+            var anim = Enumerable.Range(0, 73).Select(i => i < 58 ? new LedColor((byte)(i + f * 5), 9, (byte)f, 90) : new LedColor(0, 0, 0, 90)).ToArray();
+            link.Send(anim, 90);
+            int n = reports.Where(r => r[7] == 3).Sum(r => r[8]);
+            if (f >= 2) { wholeOrNone &= n == 0 || n == 58; if (n == 58) wholes++; } // the first two still carry the rev bar going dark
+        }
+        Check("GT Neo link: buttons and rings animate whole frames (every other frame), never half a ring", wholeOrNone && wholes >= 4, wholes + " whole frames of 10");
+
+        // all four encoder rings switching at once after a quiet moment: 48 LEDs, in one frame, not 39 and then 9
+        var rings = Enumerable.Range(0, 73).Select(i => new LedColor(0, 0, 0, 90)).ToArray();
+        for (int k = 0; k < 4; k++) link.Send(rings, 90);
+        reports.Clear();
+        for (int i = 10; i < 58; i++) rings[i] = new LedColor(0, 255, 0, 90);
+        link.Send(rings, 90);
+        var lit = reports.Where(r => r[7] == 3).SelectMany(r => Enumerable.Range(0, r[8]).Select(k => (int)r[9 + 4 * k])).OrderBy(x => x).ToList();
+        Check("GT Neo link: the four rings change together in one frame", lit.SequenceEqual(Enumerable.Range(10, 48)) && reports.Count == 4);
+        reports.Clear();
+        for (int i = 0; i < 73; i++) rings[i] = new LedColor(255, 255, 255, 90);
+        link.Send(rings, 90);
+        link.Send(rings, 90);
+        Check("GT Neo link: a burst is paid back (two reports left for the frame after four)", reports.Count <= 2 + 3 + 3);
 
         // refused reports: tried again next frame; five in a row drop the link
         int refuse = 2;

@@ -17,7 +17,9 @@ per wheel (and Race Engineer). Not yet tried on a wheel in a game. Both wheels.
 - **Presets:** Prism replaced (saved choices move to Full Rainbow). New on both wheels: Neon Tokyo (the new default),
   Hyperspace, Le Mans Night, Inferno, Abyss, Heartbeat (resting 40 bpm when idle, 80 driving). Every built-in has
   idle / engine-off looks, a start-up, a shutdown and limiter lights; rev colours stay standard.
-- Lights tab: "Preview as" chips (every state, on the big wheel and every preset tile); your own lights edit the
+- Lights tab: "Preview as" chips (every state, on the big wheel and every preset tile; a picked one plays once, on the
+  real wheel too unless the car is being driven, then deselects: `UsbController.PreviewLights`; Driving = one lap of
+  the demo car; click it again to stop); your own lights edit the
   parked looks, start/stop, limiter and rev tint. A newly picked preset shows straight away in the current state (the
   3 s driving-look preview was removed 2026-09-29 at the user's request: it looked like a bad transition).
 - **Ring gauges (step 6, GT Neo):** "Setting levels" on the encoder rings makes each ring a 12-segment gauge

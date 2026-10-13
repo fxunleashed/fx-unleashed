@@ -712,6 +712,39 @@ namespace User.FXProRpmSync
             Wake();
         }
 
+        private sealed class LightsPreview { public DashValues Values; public LightMoment Moment; public long Ticks; }
+        private volatile LightsPreview lightsPreview;
+        private bool lightsPreviewWas; // for the log
+
+        /// <summary>
+        /// The Lights tab's "Preview as" state on the wheel too: the page hands over its simulated values and moment every
+        /// frame (null = stop), and the wheel's lights are rendered from them instead of the idle look. Only the lights: the
+        /// screen stays as it is. Ends by itself a second after the page stops calling (tab closed).
+        /// </summary>
+        public void PreviewLights(DashValues v, LightMoment m)
+        {
+            bool was = LightsPreviewNow != null;
+            lightsPreview = v == null || m == null ? null : new LightsPreview { Values = v, Moment = m, Ticks = DateTime.UtcNow.Ticks };
+            if (!was && v != null) Wake();
+        }
+
+        /// <summary>The Lights tab may show a state on the wheel: nothing else has the lights (test, demo, scenario, designer)
+        /// and the car isn't being driven (no game, in a menu, or standing still).</summary>
+        public bool LightsPreviewAllowed
+        {
+            get
+            {
+                if (Testing || demoOn || PreviewActive) return false;
+                var v = LiveNow;
+                return v == null || v.InMenu || v.SpeedKmh < 5;
+            }
+        }
+
+        private LightsPreview LightsPreviewNow
+        {
+            get { var p = lightsPreview; return p != null && DateTime.UtcNow.Ticks - p.Ticks < TimeSpan.FromSeconds(1).Ticks ? p : null; }
+        }
+
         /// <summary>The demo lap on the wheel: with `dashId`, that dash (from the dashes page), else the car's / default one.</summary>
         public void SetDemo(bool on, string dashId)
         {
@@ -834,11 +867,18 @@ namespace User.FXProRpmSync
                     if (!preview && previewDash != null) previewDash = null; // timed out
                     bool source = testing || demoOn || preview || LiveFresh;
                     double now = clock.Elapsed.TotalSeconds;
-                    if (source) { lastActive = now; sleepNow = false; }
+                    // the Lights tab previewing a state: the lights are wanted (also with "between sessions" off, or asleep)
+                    bool lightsPreviewed = s.LightsEnabled && LightsPreviewNow != null && LightsPreviewAllowed;
+                    if (lightsPreviewed != lightsPreviewWas)
+                    {
+                        lightsPreviewWas = lightsPreviewed;
+                        SimHub.Logging.Current.Info("[FXProRpmSync] USB mode: lights preview " + (lightsPreviewed ? "on (" + CarStateTracker.Name(LightsPreviewNow?.Moment.State ?? CarState.Driving).ToLowerInvariant() + ")" : "off"));
+                    }
+                    if (source || lightsPreviewed) { lastActive = now; sleepNow = false; }
                     bool sleeping = !source && (sleepNow || (s.SleepEnabled && now - lastActive >= Math.Max(1, s.SleepMinutes) * 60));
                     SleepIn = s.SleepEnabled && !source && !sleeping ? Math.Max(1, s.SleepMinutes) * 60 - (now - lastActive) : (double?)null;
                     Sleeping = sleeping && allowed;
-                    bool idle = (s.LightsEnabled && s.IdleLights) || (model.HasScreen && (s.ScreenSaver || s.ScreenOff)) || sleeping;
+                    bool idle = (s.LightsEnabled && s.IdleLights) || (model.HasScreen && (s.ScreenSaver || s.ScreenOff)) || sleeping || lightsPreviewed;
                     if (!allowed || (!source && !idle))
                     {
                         Deactivate();
@@ -1080,7 +1120,7 @@ namespace User.FXProRpmSync
             // checked every frame: night mode can start or end on its schedule without a settings change
             if (model.HasScreen && !sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
             // Idle with "keep the lights on between sessions" off: SimPro's lights, even while a screensaver holds the screen
-            bool wantLeds = sleeping || (s.LightsEnabled && (source || s.IdleLights));
+            bool wantLeds = sleeping || (s.LightsEnabled && (source || s.IdleLights || LightsPreviewNow != null));
             if (wantLeds && leds == null)
             {
                 leds = neo ?? (fx != null ? (build > 0 ? new FxRgbLedLink(fx) : (ILedLink)new FxPaletteLedLink(fx)) : new FxLedLink(conn));
@@ -1802,6 +1842,12 @@ namespace User.FXProRpmSync
                 if (TestingLeds) { frame = Volatile.Read(ref testLeds); LightsState = "test frame"; }
                 else if (frameSleeping) { frame = new LedColor[engine.Count]; LightsState = "off (sleeping)"; }
                 else if (scenarioRun != null) { var run = scenarioRun; frame = run.Frame(now, reverseRev); LightsState = "scenario: " + run.Scenario.Title; }
+                else if (LightsPreviewNow is LightsPreview pv && LightsPreviewAllowed)
+                {
+                    // the Lights tab's "Preview as": the page's simulated values and state through this wheel's own lights
+                    frame = engine.Render(lights, pv.Values, null, now, reverseRev, pv.Moment);
+                    LightsState = "preview · " + CarStateTracker.Name(pv.Moment.State).ToLowerInvariant();
+                }
                 else if (s.LightsFrom == LightsSource.AtsrHub && !testing)
                 {
                     if (ExternalFresh) { frame = Volatile.Read(ref external); LightsState = "ATSR-Hub"; }

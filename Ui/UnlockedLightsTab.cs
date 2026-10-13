@@ -44,7 +44,43 @@ namespace User.FXProRpmSync
         private readonly LightsForCarPanel perCar;
 
         // the state the previews play (docs/light-states-plan.md); Driving shows the wheel's own frame while it's driven
-        private CarState previewState = CarState.Driving;
+        private CarState previewStateNow = CarState.Driving;
+        /// <summary>The state the preview shows. One that is picked (a chip, or an editor that jumps to its state) plays once, on
+        /// the wheel too, then the preview goes back to driving with nothing picked (EndPickedPreview).</summary>
+        private CarState previewState { get => previewStateNow; set { previewStateNow = value; previewPicked = true; previewPickedAt = clock.Elapsed.TotalSeconds; } }
+        private bool previewPicked;
+        private double previewPickedAt;
+
+        /// <summary>How long a picked state plays: the start-up / shutdown once with a moment on its end, driving one lap of the
+        /// demo car (this is only its upper limit), the others a few seconds.</summary>
+        private static double PreviewSeconds(CarState s) =>
+            s == CarState.Starting ? CarStateTracker.StartSeconds + 1.2 : s == CarState.Stopping ? CarStateTracker.StopSeconds + 1.2 : s == CarState.Driving ? 180 : 5;
+
+        // picked "Driving": one lap of the demo car from a standing start (gears, braking, ABS, flags), stepped by the page
+        private UsbDemo previewLap;
+        private double previewLapAt;
+        private int previewLapNumber;
+
+        private void EndPickedPreview()
+        {
+            previewStateNow = CarState.Driving;
+            previewPicked = false;
+            previewLap = null;
+            BuildStateChips();
+        }
+
+        /// <summary>The demo lap's values now; `done` once the lap is over.</summary>
+        private DashValues StepPreviewLap(double t, out bool done)
+        {
+            bool fresh = previewLap == null;
+            if (fresh) previewLap = new UsbDemo();
+            var v = previewLap.Step(fresh ? 0 : Math.Max(0, Math.Min(0.2, t - previewLapAt)));
+            previewLapAt = t;
+            int lap = (int)previewLap.Telemetry.Get("completedLaps");
+            if (fresh) previewLapNumber = lap;
+            done = lap != previewLapNumber;
+            return v;
+        }
         private WrapPanel stateChips;
         private static readonly CarState[] PreviewStates =
             { CarState.Driving, CarState.PitLimiter, CarState.Starting, CarState.Idle, CarState.Menu, CarState.EngineOff, CarState.Stopping };
@@ -179,6 +215,7 @@ namespace User.FXProRpmSync
             side.Children.Add(Theme.Eyebrow("Preview as"));
             stateChips = new WrapPanel { Margin = new Thickness(0, 2, 0, 12) };
             side.Children.Add(stateChips);
+            side.Children.Add(Theme.Note("Pick a state to play it once, on the wheel too (not while you're driving).", new Thickness(0, -6, 0, 12)));
             BuildStateChips();
             nameRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
             nameBox = new TextBox { Width = 240 };
@@ -263,7 +300,7 @@ namespace User.FXProRpmSync
                 var (wheelDash, id) = plugin.UsbDashFor(plugin.DashCarKey);
                 big.Screen.Source = wheelDash ? null : DashPictures.Still(DashCache.Find(id) ?? BuiltInDashes.MustangGt3(), S.RamFor(id ?? BuiltInDashes.MustangId));
             };
-            Unloaded += (s, e) => { frameTimer.Stop(); slowTimer.Stop(); if (saveTimer.IsEnabled) { saveTimer.Stop(); plugin.SaveSettings(); } };
+            Unloaded += (s, e) => { frameTimer.Stop(); slowTimer.Stop(); Usb?.PreviewLights(null, null); if (saveTimer.IsEnabled) { saveTimer.Stop(); plugin.SaveSettings(); } };
 
             ShowSource();
             UiProfiler.Lap("lights timers + ShowSource");
@@ -457,8 +494,16 @@ namespace User.FXProRpmSync
         {
             double t = clock.Elapsed.TotalSeconds;
             var sim = SimLap.Values(t);
-            var live = previewState == CarState.Driving && carLimiterDraft == null && Usb?.Active == true && S.LightsEnabled ? Usb.LastFrame : null;
+            bool lapDone = false;
+            if (previewPicked && previewStateNow == CarState.Driving) sim = StepPreviewLap(t, out lapDone);
+            else previewLap = null;
+            // played once: nothing picked again, the wheel back to its own lights
+            if (previewPicked && (lapDone || t - previewPickedAt >= PreviewSeconds(previewStateNow))) { EndPickedPreview(); sim = SimLap.Values(t); }
             var (pv, moment) = PreviewMoment(t, sim);
+            // a picked state plays on the wheel too; not while the car is driven (the wheel shows the real thing then)
+            bool onWheel = (previewPicked || carLimiterDraft != null) && Usb?.LightsPreviewAllowed == true;
+            Usb?.PreviewLights(onWheel ? pv : null, moment);
+            var live = previewState == CarState.Driving && carLimiterDraft == null && Usb?.Active == true && S.LightsEnabled ? Usb.LastFrame : null;
             big.Show(live ?? bigEngine.Render(S.ActiveLights, pv, null, t, false, moment));
             // the pattern previews: a sweep up to the shift point in the preset's colours
             bool blinkOn = (int)(t * 8) % 2 == 0;
@@ -484,9 +529,9 @@ namespace User.FXProRpmSync
             double progress = 0;
             if (state == CarState.Starting || state == CarState.Stopping)
             {
-                // play it, hold the end for a moment, again
+                // played once from the click, its end held for a moment (PreviewSeconds)
                 double len = state == CarState.Starting ? CarStateTracker.StartSeconds : CarStateTracker.StopSeconds;
-                progress = Math.Min(1, t % (len + 1.2) / len);
+                progress = Math.Min(1, (t - previewPickedAt) / len);
             }
             DashValues v = sim;
             if (state == CarState.Idle) v = new DashValues();
@@ -502,14 +547,16 @@ namespace User.FXProRpmSync
             foreach (var st in PreviewStates)
             {
                 var ss = st;
+                bool on = previewPicked && st == previewState;
                 var chip = new Border
                 {
                     CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 3, 10, 4), Margin = new Thickness(0, 0, 6, 6), Cursor = Cursors.Hand,
-                    BorderThickness = new Thickness(1), BorderBrush = st == previewState ? Theme.Red : Theme.Line2, Background = st == previewState ? Theme.RedWash : Theme.Raised,
-                    Child = new TextBlock { Text = CarStateTracker.Name(st), FontSize = 11.5, Foreground = st == previewState ? Theme.Text : Theme.Text2 },
+                    BorderThickness = new Thickness(1), BorderBrush = on ? Theme.Red : Theme.Line2, Background = on ? Theme.RedWash : Theme.Raised,
+                    Child = new TextBlock { Text = CarStateTracker.Name(st), FontSize = 11.5, Foreground = on ? Theme.Text : Theme.Text2 },
                 };
                 chip.MouseLeftButtonUp += (s2, e2) =>
                 {
+                    if (on) { EndPickedPreview(); return; } // the one playing, clicked again: off
                     previewState = ss;
                     if (ss == CarState.Idle || ss == CarState.Menu || ss == CarState.EngineOff) lookState = ss;
                     BuildStateChips();
