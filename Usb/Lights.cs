@@ -812,20 +812,6 @@ namespace User.FXProRpmSync
         }
 
         /// <summary>
-        /// "Rev lights only" (UsbSettings.RevLightsOnly): the frame with every light but the rev bar dark, so the bar keeps its
-        /// shift lights, limiter lights, extras and the alerts drawn on it; parked (no game, a menu, engine off) the bar is dark too.
-        /// </summary>
-        public LedColor[] OnlyRev(LedColor[] frame, CarState state)
-        {
-            if (frame == null) return null;
-            var only = new LedColor[frame.Length];
-            for (int i = 0; i < only.Length; i++) only[i] = new LedColor(0, 0, 0, 1);
-            if (state == CarState.Idle || state == CarState.Menu || state == CarState.EngineOff) return only;
-            foreach (var led in Model.Leds(LedGroup.Rev)) if (led < frame.Length) only[led] = frame[led];
-            return only;
-        }
-
-        /// <summary>
         /// Alerts over a frame: the first active rule wins for a LED. `only` = just those triggers (the spotter over another
         /// program's lights).
         /// </summary>

@@ -107,10 +107,12 @@ drive, pit limiter, stop) so the start-up settles into the look it ends in; park
 lights and the levels' flash on a change are the only things that move. `tools/UsbTest` checks every built-in preset on both
 wheels. With ATSR-Hub as the light source the animation is ATSR-Hub's own theme, not ours.
 
-**Rev lights only** (2026-10-13; Lights tab, per wheel: `UsbSettings.RevLightsOnly`, `LightEngine.OnlyRev`): the frame is drawn as
-usual and every light but the rev bar is then made dark, so the bar keeps the car's shift lights, the limiter lights, the extras and
-the alerts drawn on it (on the GT Neo that includes ABS / TC at its ends); alerts on other lights don't show. Parked (no game, a menu,
-engine off) the bar is dark too. Only for frames the plugin renders itself, not ATSR-Hub's or SimHub's device.
+**Rev lights only** (2026-10-13; Lights tab, per wheel: `UsbSettings.RevLightsOnly`, `RevLightsViaSimPro`): the plugin leaves every
+light to SimPro and the wheel, and sets each car's rev lights in SimPro's preset exactly as standard mode does (`ApplyAsync`: live, never
+saved, restored on exit or when the switch goes off). It can't draw only the rev bar over USB: taking a wheel's LEDs takes all of them
+(the GT Neo's own renderer stops in host mode). So SimPro must be running; the rev lights use SimPro's palette and whole percents; this
+preset, its alerts, limiter lights and rev bar extras aren't shown. Not on the FX (nothing is written into its preset's rev lights) and
+not with ATSR-Hub's or SimHub's lights. On the GT Neo per-gear cars use SimPro's native per-gear mode, still untested.
 
 **Rev bar extras** (`Usb/RevExtras.cs`, a profile's `Extras`): in some situations the rev bar shows something else, and the
 shift lights win again within 8% of the shift point (except for the first two):

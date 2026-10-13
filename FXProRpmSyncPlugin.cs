@@ -1219,6 +1219,8 @@ namespace User.FXProRpmSync
         {
             bool unlocked = Unlocked;
             if (!unlocked && !Settings.Enabled) return;
+            // USB mode with "Rev lights only": the lights stay SimPro's, so the car's rev lights go into its preset as in standard mode
+            bool viaSimPro = !unlocked || Settings.Usb.RevLightsViaSimPro;
             SimProClient.Wheel w = null;
             string presetUuid = null;
             JObject original = null;
@@ -1320,13 +1322,17 @@ namespace User.FXProRpmSync
             // one line per car change: which data built the lights (what "the lights look off in this car" needs first)
             SimHub.Logging.Current.Info($"[FXProRpmSync] car {t.CarKey}: {source}; rev LEDs at {string.Join(",", layout.Rpm)}"
                 + (layout.FlashRpm > 0 ? $"; flash {layout.FlashRpm}" + (layout.FlashDark ? " (lights blink out)" : "") : "; no flash"));
-            if (unlocked)
+            if (!viaSimPro || w == null)
             {
-                // The USB lights show it (LightEngine); SimPro's preset is left alone.
+                // The USB lights show it (LightEngine); SimPro's preset is left alone, or put back as it was when "Rev lights
+                // only" was just switched off. (No wheel in SimPro with "Rev lights only" on: nothing to set them in.)
+                if (!viaSimPro && modifiedPresetUuid != null)
+                    try { await RestoreRevLightsAsync().ConfigureAwait(false); }
+                    catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] rev lights restore failed: " + ex.Message); }
                 CurrentCar = t.CarKey;
                 AppliedRedline = layout.ShiftRpm;
                 AppliedMaxRpm = t.MaxRpm;
-                Status = $"{t.CarKey}: {LightsSource}, shift {AppliedRedline:0} rpm (lights over USB)";
+                Status = $"{t.CarKey}: {LightsSource}, shift {AppliedRedline:0} rpm " + (viaSimPro ? "(rev lights only: SimPro isn't reachable, its own lights show)" : "(lights over USB)");
                 return;
             }
 
@@ -1429,6 +1435,12 @@ namespace User.FXProRpmSync
                 catch (Exception ex) { SimHub.Logging.Current.Warn("[FXProRpmSync] dash restore failed: " + ex.Message); }
             }
 
+            await RestoreRevLightsAsync().ConfigureAwait(false);
+        }
+
+        /// <summary>The preset's own rev lights back in SimPro, if this session changed them.</summary>
+        private async Task RestoreRevLightsAsync()
+        {
             gearLive = false;
             gearParts = null;
             pushedGear = null;

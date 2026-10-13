@@ -133,9 +133,10 @@ namespace User.FXProRpmSync
             idle.Margin = new Thickness(0, 0, 40, 6);
             opts.Children.Add(idle);
             var revOnly = Theme.Switch("Rev lights only", S.RevLightsOnly, v => { S.RevLightsOnly = v; Changed(); },
-                "On: only the rev lights are lit, with the car's shift lights, the pit limiter and the alerts shown on them. The other lights stay dark, and the whole wheel is dark when you're not in the car. For the lights from FX Unleashed.");
+                "On: every light stays SimPro's, and the plugin only sets each car's shift lights in SimPro (it must be running), as standard mode does. " +
+                "The rev lights then use SimPro's own colours; this preset, its alerts, limiter lights and rev bar extras aren't shown. For the lights from FX Unleashed.");
             revOnly.Margin = new Thickness(0, 0, 40, 6);
-            opts.Children.Add(revOnly);
+            if (!fx) opts.Children.Add(revOnly); // nothing is written into an FX preset's rev lights
             var spotter = Theme.Switch("Spotter over ATSR-Hub / SimHub lights", S.SpotterOverExternal, v => { S.SpotterOverExternal = v; Changed(); },
                 "On: a car alongside lights this preset's spotter alerts (the side lights) over those lights. Nothing else of the preset's alerts is drawn over them.");
             spotter.Margin = new Thickness(0, 0, 40, 6);
@@ -352,7 +353,7 @@ namespace User.FXProRpmSync
         {
             bool atsr = S.LightsFrom == LightsSource.AtsrHub;
             ((Border)atsrPanel.Tag).Visibility = atsr && S.LightsEnabled ? Visibility.Visible : Visibility.Collapsed;
-            builtIn.Opacity = S.LightsEnabled ? 1 : 0.5;
+            builtIn.Opacity = S.DrawsLights ? 1 : 0.5;
             RefreshState();
         }
 
@@ -371,6 +372,7 @@ namespace User.FXProRpmSync
             }
             var u = Usb;
             liveNote.Text = !S.LightsEnabled ? "The wheel shows SimPro's lights."
+                          : S.RevLightsViaSimPro ? "The wheel shows SimPro's lights, with each car's shift lights set in SimPro by the plugin."
                           : u?.Active == true ? "On the wheel now: " + u.LightsState + "."
                           : S.LightsFrom == LightsSource.AtsrHub ? "ATSR-Hub's lights show while the plugin drives the wheel; the preset below fills in while it sends nothing."
                           : S.LightsFrom == LightsSource.SimHubDevice && model == WheelModel.GtNeo ? "SimHub's own GT Neo device drives the lights (SimHub > Devices > Simagic GT Neo); the plugin leaves them alone. " +
@@ -505,11 +507,10 @@ namespace User.FXProRpmSync
             if (previewPicked && (lapDone || t - previewPickedAt >= PreviewSeconds(previewStateNow))) { EndPickedPreview(); sim = SimLap.Values(t); }
             var (pv, moment) = PreviewMoment(t, sim);
             // a picked state plays on the wheel too; not while the car is driven (the wheel shows the real thing then)
-            bool onWheel = (previewPicked || carLimiterDraft != null) && Usb?.LightsPreviewAllowed == true;
+            bool onWheel = (previewPicked || carLimiterDraft != null) && Usb?.LightsPreviewAllowed == true && S.DrawsLights;
             Usb?.PreviewLights(onWheel ? pv : null, moment);
             var live = previewState == CarState.Driving && carLimiterDraft == null && Usb?.Active == true && S.LightsEnabled ? Usb.LastFrame : null;
-            var shown = live ?? bigEngine.Render(S.ActiveLights, pv, null, t, false, moment);
-            big.Show(live == null && S.RevLightsOnly ? bigEngine.OnlyRev(shown, moment.State) : shown);
+            big.Show(live ?? bigEngine.Render(S.ActiveLights, pv, null, t, false, moment));
             // the pattern previews: a sweep up to the shift point in the preset's colours
             bool blinkOn = (int)(t * 8) % 2 == 0;
             foreach (var (strip, kind, rev) in patternStrips)

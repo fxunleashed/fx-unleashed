@@ -302,8 +302,19 @@ namespace User.FXProRpmSync
         /// <summary>The plugin turned SimHub's own device for this wheel off (GT Neo), so it can offer to turn it back on.</summary>
         public bool TurnedOffSimHubDevice;
 
-        /// <summary>Only the rev bar is lit (LightEngine.OnlyRev): the other lights dark, the whole wheel dark when parked.</summary>
+        /// <summary>
+        /// The plugin only looks after the rev lights: it leaves every light to SimPro and the wheel (taking a wheel's LEDs over
+        /// USB takes all of them: the GT Neo stops drawing its own lights in host mode) and sets each car's rev lights in
+        /// SimPro's preset, as standard mode does (FXProRpmSyncPlugin.ApplyAsync).
+        /// </summary>
         public bool RevLightsOnly;
+
+        /// <summary>"Rev lights only" is in effect: the plugin's own lights are picked, and not on the FX (nothing is written
+        /// into its preset's rev lights).</summary>
+        [Newtonsoft.Json.JsonIgnore] public bool RevLightsViaSimPro => LightsEnabled && RevLightsOnly && LightsFrom == LightsSource.BuiltIn && Model != WheelModel.Fx;
+
+        /// <summary>The plugin draws the wheel's lights itself, over USB.</summary>
+        [Newtonsoft.Json.JsonIgnore] public bool DrawsLights => LightsEnabled && !RevLightsViaSimPro;
     }
 
     /// <summary>A wheel's own LED and button settings while another wheel is active (UsbSettings.Wheels).</summary>
@@ -872,7 +883,7 @@ namespace User.FXProRpmSync
                     bool source = testing || demoOn || preview || LiveFresh;
                     double now = clock.Elapsed.TotalSeconds;
                     // the Lights tab previewing a state: the lights are wanted (also with "between sessions" off, or asleep)
-                    bool lightsPreviewed = s.LightsEnabled && LightsPreviewNow != null && LightsPreviewAllowed;
+                    bool lightsPreviewed = s.DrawsLights && LightsPreviewNow != null && LightsPreviewAllowed;
                     if (lightsPreviewed != lightsPreviewWas)
                     {
                         lightsPreviewWas = lightsPreviewed;
@@ -882,7 +893,7 @@ namespace User.FXProRpmSync
                     bool sleeping = !source && (sleepNow || (s.SleepEnabled && now - lastActive >= Math.Max(1, s.SleepMinutes) * 60));
                     SleepIn = s.SleepEnabled && !source && !sleeping ? Math.Max(1, s.SleepMinutes) * 60 - (now - lastActive) : (double?)null;
                     Sleeping = sleeping && allowed;
-                    bool idle = (s.LightsEnabled && s.IdleLights) || (model.HasScreen && (s.ScreenSaver || s.ScreenOff)) || sleeping || lightsPreviewed;
+                    bool idle = (s.DrawsLights && s.IdleLights) || (model.HasScreen && (s.ScreenSaver || s.ScreenOff)) || sleeping || lightsPreviewed;
                     if (!allowed || (!source && !idle))
                     {
                         Deactivate();
@@ -1124,7 +1135,7 @@ namespace User.FXProRpmSync
             // checked every frame: night mode can start or end on its schedule without a settings change
             if (model.HasScreen && !sleeping && !dimmed && Brightness(s) != sentBrightness) SendBrightness(s);
             // Idle with "keep the lights on between sessions" off: SimPro's lights, even while a screensaver holds the screen
-            bool wantLeds = sleeping || (s.LightsEnabled && (source || s.IdleLights || LightsPreviewNow != null));
+            bool wantLeds = sleeping || (s.DrawsLights && (source || s.IdleLights || LightsPreviewNow != null));
             if (wantLeds && leds == null)
             {
                 leds = neo ?? (fx != null ? (build > 0 ? new FxRgbLedLink(fx) : (ILedLink)new FxPaletteLedLink(fx)) : new FxLedLink(conn));
@@ -1850,7 +1861,6 @@ namespace User.FXProRpmSync
                 {
                     // the Lights tab's "Preview as": the page's simulated values and state through this wheel's own lights
                     frame = engine.Render(lights, pv.Values, null, now, reverseRev, pv.Moment);
-                    if (s.RevLightsOnly) frame = engine.OnlyRev(frame, pv.Moment.State);
                     LightsState = "preview · " + CarStateTracker.Name(pv.Moment.State).ToLowerInvariant();
                 }
                 else if (s.LightsFrom == LightsSource.AtsrHub && !testing)
@@ -1882,7 +1892,6 @@ namespace User.FXProRpmSync
                     }
                     moment.Extras = extras.Update(v, now, plugin.DashCarKey, plugin.LaunchFor(plugin.DashCarKey));
                     frame = engine.Render(lights, v, source && !testing && !demoOn ? plugin.CurrentLightsLayout : null, now, reverseRev, moment);
-                    if (s.RevLightsOnly) frame = engine.OnlyRev(frame, moment.State);
                     LightsState += " · " + CarStateTracker.Name(moment.State).ToLowerInvariant();
                 }
                 if (!frameSleeping && !TestingLeds) frame = LoadingOverlay(frame);
