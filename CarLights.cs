@@ -23,6 +23,47 @@ namespace User.FXProRpmSync
         public List<CarRevLight> Lights = new List<CarRevLight>();
         /// <summary>Some colours couldn't be read from the game and follow the usual green, yellow, red.</summary>
         public bool ColourGuessed;
+        /// <summary>Optional: the lights per gear ("R", "N", "1"..) when they differ (iRacing); this object is then the
+        /// curve for wheels that show one.</summary>
+        public Dictionary<string, CarRev> Gears;
+        /// <summary>Optional: from this rpm the row blinks (0 = it doesn't), a whole on/off cycle taking BlinkPeriodMs.</summary>
+        public int BlinkRpm, BlinkPeriodMs;
+        /// <summary>The colour every light shows in the blink's lit frame when it is one colour (the IR18's blue), else null:
+        /// the lights blink as they are.</summary>
+        public string BlinkColour;
+        /// <summary>The blink as the dash plays it: positions of the row's lights and one cycle of frames over them.</summary>
+        public List<double> BlinkPos;
+        public List<BlinkFrame> BlinkFrames;
+    }
+
+    /// <summary>One frame of a blink: how long it shows (seconds) and the colour of each light (null = dark).</summary>
+    public sealed class BlinkFrame
+    {
+        public double Seconds;
+        public string[] Colours;
+
+        /// <summary>The frame showing `t` seconds into a cycle of these frames.</summary>
+        public static BlinkFrame At(IList<BlinkFrame> frames, double t)
+        {
+            double period = frames.Sum(f => f.Seconds);
+            if (period <= 0) return frames[0];
+            double x = t % period;
+            if (x < 0) x += period;
+            foreach (var f in frames)
+            {
+                if (x < f.Seconds) return f;
+                x -= f.Seconds;
+            }
+            return frames[frames.Count - 1];
+        }
+
+        internal static List<BlinkFrame> Parse(JToken frames)
+        {
+            var list = (frames as JArray)?.OfType<JObject>()
+                .Select(f => new BlinkFrame { Seconds = (double?)f["s"] ?? 0, Colours = (f["leds"] as JArray ?? new JArray()).Select(x => (string)x).ToArray() })
+                .Where(f => f.Seconds > 0).ToList();
+            return list != null && list.Count > 1 ? list : null;
+        }
     }
 
     /// <summary>What the car's dash shows with the pit limiter on.</summary>
@@ -32,6 +73,20 @@ namespace User.FXProRpmSync
         public bool OnBar;
         public string Colour;
         public List<(double Pos, string Colour)> Lights = new List<(double, string)>();
+        /// <summary>Optional (iRacing): the lights blink, one cycle of frames over the same positions as Lights.</summary>
+        public List<BlinkFrame> Frames;
+        /// <summary>Optional (iRacing): what the row shows at each speed step, slowest first.</summary>
+        public List<CarLimiterStep> BySpeed;
+    }
+
+    /// <summary>One of the limiter's speed steps: from what speed (null = any slower; Rel = km/h over the pit speed limit,
+    /// else an absolute km/h) the row shows these lights (and blinks with these frames).</summary>
+    public sealed class CarLimiterStep
+    {
+        public double? From;
+        public bool Rel;
+        public List<(double Pos, string Colour)> Lights = new List<(double, string)>();
+        public List<BlinkFrame> Frames;
     }
 
     public sealed class CarLightsRecord
@@ -231,30 +286,67 @@ namespace User.FXProRpmSync
                 CarId = (string)c["carId"], Class = (string)c["class"], Manufacturer = (string)c["manufacturer"], Dash = (string)c["dash"],
                 Aliases = (c["aliases"] as JArray)?.Select(a => (string)a).Where(a => !string.IsNullOrEmpty(a)).ToList() ?? new List<string>(),
             };
-            if (c["rev"] is JObject r && r["range"] is JArray range && range.Count == 2)
+            if (c["rev"] is JObject r)
             {
-                var rev = new CarRev { Low = (int)range[0], High = (int)range[1], Steps = (int?)r["steps"] ?? 0, ColourGuessed = (bool?)r["colourGuessed"] ?? false };
-                foreach (JObject l in (r["leds"] as JArray ?? new JArray()).OfType<JObject>())
+                var rev = ParseRev(r);
+                if (rev != null && r["gears"] is JObject gears)
                 {
-                    var light = new CarRevLight { Pos = (double)l["pos"] };
-                    foreach (JArray st in (l["stages"] as JArray ?? new JArray()).OfType<JArray>())
-                        if (st.Count == 2) light.Stages.Add(((int)Math.Round((double)st[0]), (string)st[1]));
-                    if (light.Stages.Count > 0) rev.Lights.Add(light);
+                    foreach (var g in gears.Properties())
+                        if (g.Value is JObject go && ParseRev(go) is CarRev gr)
+                            (rev.Gears ?? (rev.Gears = new Dictionary<string, CarRev>()))[g.Name] = gr;
                 }
-                // Lights sharing a position can't be laid out along the bar (the Ligier JS P320 came out as five lights stacked
-                // at one end and one at the other, which lit the wheel lopsided): no rev data, so Lovely Car Data or the
-                // preset's pattern is used for the car instead.
-                bool stacked = rev.Lights.Count > 1 && rev.Lights.Select(l => Math.Round(l.Pos, 3)).Distinct().Count() < rev.Lights.Count;
-                if (rev.Lights.Count > 0 && !stacked) rec.Rev = rev;
+                rec.Rev = rev;
             }
             if (c["limiter"] is JObject lim)
             {
                 var l = new CarLimiterLights { OnBar = (bool?)lim["onBar"] ?? false, Colour = (string)lim["colour"] };
                 foreach (JObject x in (lim["leds"] as JArray ?? new JArray()).OfType<JObject>())
                     l.Lights.Add(((double)x["pos"], (string)x["colour"]));
-                if (l.OnBar ? l.Lights.Any(x => x.Colour != null) : l.Colour != null) rec.Limiter = l;
+                l.Frames = BlinkFrame.Parse(lim["blink"]?["frames"]);
+                foreach (JObject st in (lim["bySpeed"] as JArray ?? new JArray()).OfType<JObject>())
+                {
+                    var step = new CarLimiterStep { From = (double?)st["from"], Rel = (bool?)st["rel"] ?? false, Frames = BlinkFrame.Parse(st["blink"]?["frames"]) };
+                    foreach (JObject x in (st["leds"] as JArray ?? new JArray()).OfType<JObject>())
+                        step.Lights.Add(((double)x["pos"], (string)x["colour"]));
+                    (l.BySpeed ?? (l.BySpeed = new List<CarLimiterStep>())).Add(step);
+                }
+                if (l.OnBar ? l.Lights.Any(x => x.Colour != null) || l.Frames != null : l.Colour != null) rec.Limiter = l;
             }
             return rec;
+        }
+
+        /// <summary>One rev curve (the car's, or one gear's): range, lights, blink. Null when it has no usable lights.</summary>
+        private static CarRev ParseRev(JObject r)
+        {
+            if (!(r["range"] is JArray range) || range.Count != 2) return null;
+            var rev = new CarRev { Low = (int)range[0], High = (int)range[1], Steps = (int?)r["steps"] ?? 0, ColourGuessed = (bool?)r["colourGuessed"] ?? false };
+            foreach (JObject l in (r["leds"] as JArray ?? new JArray()).OfType<JObject>())
+            {
+                var light = new CarRevLight { Pos = (double)l["pos"] };
+                foreach (JArray st in (l["stages"] as JArray ?? new JArray()).OfType<JArray>())
+                    if (st.Count == 2) light.Stages.Add(((int)Math.Round((double)st[0]), (string)st[1]));
+                if (light.Stages.Count > 0) rev.Lights.Add(light);
+            }
+            // Lights sharing a position can't be laid out along the bar (the Ligier JS P320 came out as five lights stacked
+            // at one end and one at the other, which lit the wheel lopsided): no rev data, so Lovely Car Data or the
+            // preset's pattern is used for the car instead.
+            bool stacked = rev.Lights.Count > 1 && rev.Lights.Select(l => Math.Round(l.Pos, 3)).Distinct().Count() < rev.Lights.Count;
+            if (rev.Lights.Count == 0 || stacked) return null;
+            // the first blink: from its rpm the row goes on and off (or between two pictures); the lit frame is the fuller one
+            if ((r["blink"] as JArray)?.OfType<JObject>().FirstOrDefault() is JObject b && b["frames"] is JArray frames && frames.Count > 1)
+            {
+                rev.BlinkRpm = (int)Math.Round((double?)b["rpm"] ?? 0);
+                rev.BlinkPeriodMs = (int)Math.Round(((double?)b["period"] ?? 0) * 1000);
+                var lit = frames.OfType<JObject>().Select(f => (f["leds"] as JArray ?? new JArray()).Select(x => (string)x).Where(x => x != null).ToList())
+                                .OrderByDescending(f => f.Count).First();
+                if (lit.Count > 0 && lit.All(x => string.Equals(x, lit[0], StringComparison.OrdinalIgnoreCase))) rev.BlinkColour = lit[0];
+                rev.BlinkPos = (b["pos"] as JArray)?.Select(x => (double)x).ToList();
+                rev.BlinkFrames = BlinkFrame.Parse(frames);
+                if (rev.BlinkPos == null || rev.BlinkFrames == null || rev.BlinkFrames.Any(f => f.Colours.Length != rev.BlinkPos.Count))
+                    { rev.BlinkPos = null; rev.BlinkFrames = null; }
+                if (rev.BlinkRpm <= 0 || rev.BlinkPeriodMs <= 0) { rev.BlinkRpm = 0; rev.BlinkPeriodMs = 0; rev.BlinkColour = null; rev.BlinkFrames = null; }
+            }
+            return rev;
         }
 
         private static string Sha256(byte[] data)
@@ -272,7 +364,67 @@ namespace User.FXProRpmSync
         /// </summary>
         public static CarLedProfile ToProfile(CarRev rev, string name, out List<double?> slots)
         {
-            slots = Slots(rev.Lights.Select(l => l.Pos).ToList());
+            // every gear's lights share the row: the slots come from all the positions any gear lights
+            var all = new List<CarRev> { rev };
+            if (rev.Gears != null) all.AddRange(rev.Gears.Values);
+            var positions = new List<double>();
+            foreach (var p in all.SelectMany(r => r.Lights).Select(l => l.Pos).OrderBy(x => x))
+                if (positions.Count == 0 || p - positions[positions.Count - 1] > 1e-3) positions.Add(p);
+            slots = Slots(positions);
+            int n = slots.Count;
+
+            var main = Curve(rev, slots, out var colours, out var offAt, out int blinkMs);
+            var gearRpm = new Dictionary<string, int[]>();
+            if (rev.Gears != null && rev.Gears.Count > 0)
+            {
+                foreach (var g in rev.Gears)
+                {
+                    var curve = Curve(g.Value, slots, out var gc, out _, out int gb);
+                    // a light this gear never lights stays dark (0 would mean "lit from idle" further on)
+                    for (int i = 1; i <= n; i++)
+                    {
+                        if (colours[i] == Transparent && gc[i] != Transparent) colours[i] = gc[i];
+                        if (curve[i] == 0 && gc[i] == Transparent && slots[i - 1] != null) curve[i] = NeverRpm;
+                    }
+                    if (curve[0] == 0 && main[0] > 0) curve[0] = NeverRpm;
+                    blinkMs = Math.Max(blinkMs, gb);
+                    gearRpm[g.Key == "all" ? "1" : g.Key] = curve;
+                }
+            }
+            else gearRpm["1"] = main;
+            // the blink frame by frame, over the slots (the main curve's; every gear's blink looks the same)
+            List<BlinkFrame> frames = null;
+            if (rev.BlinkFrames != null && main[0] > 0)
+            {
+                var at = slots.Select(s => s == null ? -1 : rev.BlinkPos.FindIndex(p => Math.Abs(p - s.Value) <= 1e-3)).ToList();
+                frames = rev.BlinkFrames.Select(f => new BlinkFrame
+                {
+                    Seconds = f.Seconds,
+                    Colours = new string[] { null }.Concat(at.Select(k => k < 0 ? null : f.Colours[k])).ToArray(),
+                }).ToList();
+            }
+            return new CarLedProfile
+            {
+                CarName = name, LedNumber = n, Colors = colours,
+                GearRpm = gearRpm,
+                MainCurve = rev.Gears != null && rev.Gears.Count > 0 ? main : null,
+                FlashFrames = frames,
+                RedlineBlinkIntervalMs = blinkMs,
+                OffRpm = offAt.Any(v => v > 0) ? offAt : null,
+                MatchedBy = "the game's own dash",
+            };
+        }
+
+        /// <summary>An rpm no engine reaches: a light that a gear never lights.</summary>
+        public const int NeverRpm = 99999;
+        private const string Transparent = "#00000000";
+
+        /// <summary>
+        /// One curve over the row's slots: [0] = the flash rpm (0 = none), [1..] = when each slot's light first comes on
+        /// (0 = no light there). colours[0] = the flash colour (transparent: the lights blink as they are, or no flash).
+        /// </summary>
+        private static int[] Curve(CarRev rev, List<double?> slots, out string[] colours, out int[] offAt, out int blinkMs)
+        {
             var ordered = rev.Lights.OrderBy(l => l.Pos).ToList();
             // The flash: every light ends in one colour, and the last step turns the others to it (lights already in
             // that colour don't list the step again, like the M4 GT3's centre reds).
@@ -282,32 +434,39 @@ namespace User.FXProRpmSync
             bool flash = ordered.Count > 1 && flashColour != null
                          && last.All(s => string.Equals(s.Colour, flashColour, StringComparison.OrdinalIgnoreCase))
                          && ordered.Any(l => l.Stages.Count > 1 && l.Stages[l.Stages.Count - 1].Rpm == flashRpm);
-            if (flash) last = last.Select(_ => (flashRpm, flashColour)).ToList();
             int n = slots.Count;
-            var colours = new string[n + 1];
+            colours = new string[n + 1];
             var curve = new int[n + 1];
-            var offAt = new int[n + 1];
-            colours[0] = flash ? Argb(last[0].Colour) : "#00000000";
-            curve[0] = flash ? last[0].Rpm : 0;
-            int k = 0;
+            offAt = new int[n + 1];
+            colours[0] = flash ? Argb(flashColour) : Transparent;
+            curve[0] = flash ? flashRpm : 0;
+            blinkMs = 0;
+            if (rev.BlinkRpm > 0)
+            {
+                // half the period: the time between the lights going off and coming back, as Lovely's redlineBlinkInterval
+                blinkMs = Math.Max(1, rev.BlinkPeriodMs / 2);
+                if (!flash)
+                {
+                    // blinks in one colour of its own (the IR18's blue), or as it is (the colour stays transparent)
+                    curve[0] = rev.BlinkRpm;
+                    bool own = rev.BlinkColour != null && ordered.Any(l => !string.Equals(l.Stages[0].Colour, rev.BlinkColour, StringComparison.OrdinalIgnoreCase));
+                    colours[0] = own ? Argb(rev.BlinkColour) : Transparent;
+                }
+            }
             for (int i = 0; i < n; i++)
             {
-                if (slots[i] == null) { colours[i + 1] = "#00000000"; continue; }
-                var light = ordered[k++];
+                colours[i + 1] = Transparent;
+                if (slots[i] == null) continue;
+                var light = ordered.FirstOrDefault(l => Math.Abs(l.Pos - slots[i].Value) <= 1e-3);
+                if (light == null) continue;
                 var first = light.Stages[0];
                 colours[i + 1] = Argb(first.Colour);
                 curve[i + 1] = first.Rpm;
                 // a later stage with no colour switches it off (before the flash, which lights everything)
                 var dark = light.Stages.Skip(1).FirstOrDefault(st => st.Colour == null);
-                if (dark.Rpm > 0 && (!flash || dark.Rpm < last[0].Rpm)) offAt[i + 1] = dark.Rpm;
+                if (dark.Rpm > 0 && (curve[0] == 0 || dark.Rpm < curve[0])) offAt[i + 1] = dark.Rpm;
             }
-            return new CarLedProfile
-            {
-                CarName = name, LedNumber = n, Colors = colours,
-                GearRpm = new Dictionary<string, int[]> { ["1"] = curve },
-                OffRpm = offAt.Any(v => v > 0) ? offAt : null,
-                MatchedBy = "the game's own dash",
-            };
+            return curve;
         }
 
         /// <summary>Positions in bar order with a null (an unused LED) for each missing light in a gap: a gap of about
@@ -339,24 +498,46 @@ namespace User.FXProRpmSync
             if (lim == null) return null;
             if (!lim.OnBar) return new LimiterLook { Style = LimiterStyle.Solid, Colors = new List<string> { Hex(lim.Colour), "#000000" }, FromGame = true };
             int w = RpmLightsMapper.WheelLeds;
-            var pattern = new List<string>();
+            // the wheel LED each of its 15 rev LEDs takes its colour from: a position along the car's row
+            var spots = new double?[w];
+            double tol;
             if (car.Rev != null)
             {
                 var profile = ToProfile(car.Rev, car.CarId, out var slots);
-                var map = RpmLayout.SourceMap(profile, profile.GearRpm["1"]);
-                double tol = Tolerance(slots.Where(s => s != null).Select(s => s.Value).ToList());
-                for (int j = 0; j < w; j++)
+                tol = Tolerance(slots.Where(s => s != null).Select(s => s.Value).ToList());
+                if (slots.Count <= w && (lim.Frames != null || lim.BySpeed != null))
                 {
-                    var at = slots[map[j] - 1];
-                    pattern.Add(at == null ? "#000000" : Nearest(lim.Lights, at.Value, tol));
+                    // an animated pattern: one wheel LED per light of the car's row, the row centred on the wheel, so it shows as many lights
+                    // as the car's (the AMG GT3's six swapping lights stay six, not stretched to seven with a pair doubled); a steady
+                    // one keeps the rev bar's stretch (checked in AMS2: the M4 GT3's limiter sits on its rev lights)
+                    int offset = (w - slots.Count) / 2;
+                    for (int j = 0; j < w; j++) spots[j] = j - offset >= 0 && j - offset < slots.Count ? slots[j - offset] : null;
+                }
+                else
+                {
+                    var map = RpmLayout.SourceMap(profile, profile.GearRpm.TryGetValue("1", out var first) ? first : profile.GearRpm.Values.First());
+                    for (int j = 0; j < w; j++) spots[j] = slots[map[j] - 1];
                 }
             }
             else
             {
-                double tol = Tolerance(lim.Lights.Select(l => l.Pos).ToList());
-                for (int j = 0; j < w; j++) pattern.Add(Nearest(lim.Lights, w == 1 ? 0.5 : (double)j / (w - 1), tol));
+                tol = Tolerance(lim.Lights.Select(l => l.Pos).ToList());
+                for (int j = 0; j < w; j++) spots[j] = w == 1 ? 0.5 : (double)j / (w - 1);
             }
-            return new LimiterLook { Style = LimiterStyle.CarPattern, Pattern = pattern, Colors = new List<string> { "#0040FF", "#000000" }, FromGame = true };
+            List<string> Lay(List<(double Pos, string Colour)> lights) =>
+                spots.Select(at => at == null ? "#000000" : Nearest(lights, at.Value, tol)).ToList();
+            List<LimiterFrame> Frames(List<BlinkFrame> frames, List<(double Pos, string Colour)> lights) =>
+                frames?.Select(f => new LimiterFrame
+                {
+                    Seconds = f.Seconds,
+                    Pattern = Lay(lights.Select((l, i) => (l.Pos, i < f.Colours.Length ? f.Colours[i] : null)).ToList()),
+                }).ToList();
+            return new LimiterLook
+            {
+                Style = LimiterStyle.CarPattern, Pattern = Lay(lim.Lights), Colors = new List<string> { "#0040FF", "#000000" }, FromGame = true,
+                Frames = Frames(lim.Frames, lim.Lights),
+                BySpeed = lim.BySpeed?.Select(st => new LimiterSpeedLook { From = st.From, Rel = st.Rel, Pattern = Lay(st.Lights), Frames = Frames(st.Frames, st.Lights) }).ToList(),
+            };
         }
 
         private static double Tolerance(List<double> positions)

@@ -796,7 +796,7 @@ namespace User.FXProRpmSync
             // The pit limiter: this car's own lights, else the preset's
             var limiter = m?.CarLimiter ?? p.Limiter;
             bool limiterOn = state == CarState.PitLimiter && limiter != null && limiter.Style != LimiterStyle.None;
-            if (limiterOn) ApplyLimiter(frame, limiter, now);
+            if (limiterOn) ApplyLimiter(frame, limiter, now, v);
 
             // The rev bar's extras (pit speed, refuelling, lift and coast, brake bias, launch): over the shift lights while they last
             if (m?.Extras != null && (state == CarState.Driving || state == CarState.PitLimiter) && Model.Has(LedGroup.Rev))
@@ -964,15 +964,17 @@ namespace User.FXProRpmSync
                 if (frame[led].R + frame[led].G + frame[led].B == 0) frame[led] = new LedColor(r, g, b, bright);
         }
 
-        private void ApplyLimiter(LedColor[] frame, LimiterLook lim, double now)
+        private void ApplyLimiter(LedColor[] frame, LimiterLook lim, double now, DashValues v = null)
         {
             if (lim.Style == LimiterStyle.CarPattern && lim.Pattern != null && lim.Pattern.Count > 0)
             {
-                // the car's own lights, steady: the pattern is laid out for the rev bar, left to right
+                // the car's own lights, laid out for the rev bar left to right: at this speed (its speed steps), at this
+                // moment of its blink (on the game's clock)
+                var pattern = lim.PatternAt(v?.SpeedKmh ?? 0, v?.PitSpeedLimit ?? 0, BlinkClock(v, now)) ?? lim.Pattern;
                 var rev = Model.Leds(LedGroup.Rev);
                 for (int i = 0; i < rev.Length; i++)
                 {
-                    var c = Rgb(lim.Pattern[Math.Min(lim.Pattern.Count - 1, i * lim.Pattern.Count / rev.Length)]);
+                    var c = Rgb(pattern[Math.Min(pattern.Count - 1, i * pattern.Count / rev.Length)] ?? "#000000");
                     frame[rev[i]] = c.Item1 + c.Item2 + c.Item3 == 0 ? new LedColor(0, 0, 0, 1) : new LedColor(c.Item1, c.Item2, c.Item3, 90);
                 }
                 return;
@@ -1340,6 +1342,18 @@ namespace User.FXProRpmSync
             if (rev.UseCarData && car != null)
             {
                 var layout = car.Gears != null ? car.ForGear(v.GearKey) : car;
+                if (layout.FlashRpm > 0 && rpm >= layout.FlashRpm && layout.FlashFrames != null && layout.FlashFrames.Count > 1)
+                {
+                    // the car's own blink, frame by frame, on the game's clock (in step with the dash in the sim)
+                    var colours = FrameAt(layout.FlashFrames, BlinkClock(v, now));
+                    for (int i = 0; i < leds.Length; i++)
+                    {
+                        var c = colours[RevSource(i, leds.Length, colours.Length)];
+                        var (r, g, b) = Rgb(c ?? "#000000");
+                        frame[leds[i]] = c == null || r + g + b == 0 ? new LedColor(0, 0, 0, 1) : new LedColor(r, g, b, bright);
+                    }
+                    return;
+                }
                 if (layout.FlashRpm > 0 && rpm >= layout.FlashRpm)
                 {
                     double hz = layout.FlashBlinkUnits > 0 ? 1000.0 / (2 * layout.FlashBlinkUnits * RpmLightsMapper.BlinkMsPerUnit) : 0;
@@ -1381,6 +1395,30 @@ namespace User.FXProRpmSync
                 var (r, g, b) = Rgb(pattern.Colors[k]);
                 frame[leds[i]] = lit ? new LedColor(r, g, b, bright) : new LedColor(0, 0, 0, 1);
             }
+        }
+
+        /// <summary>The clock a car's own blinks run on: the game's session time when it gives one (iRacing's dash blinks on
+        /// it, so the wheel blinks with it), else the lights' own.</summary>
+        public static double BlinkClock(DashValues v, double now)
+        {
+            if (v == null || double.IsNaN(v.SessionTime) || v.SessionTime <= 0) return now;
+            // SimHub hands over the game's time up to a few frames before the lights draw: carry it on to this moment
+            // (at most a quarter second, so a paused game's clock doesn't run on)
+            double since = v.SessionTimeRead > 0
+                ? (System.Diagnostics.Stopwatch.GetTimestamp() - v.SessionTimeRead) / (double)System.Diagnostics.Stopwatch.Frequency : 0;
+            return v.SessionTime + Math.Max(0, Math.Min(0.25, since));
+        }
+
+        private static string[] FrameAt(List<(double Seconds, string[] Colors)> frames, double t)
+        {
+            double period = frames.Sum(f => f.Seconds), x = period > 0 ? t % period : 0;
+            if (x < 0) x += period;
+            foreach (var f in frames)
+            {
+                if (x < f.Seconds) return f.Colors;
+                x -= f.Seconds;
+            }
+            return frames[frames.Count - 1].Colors;
         }
 
         /// <summary>

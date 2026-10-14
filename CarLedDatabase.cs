@@ -19,6 +19,12 @@ namespace User.FXProRpmSync
         public Dictionary<string, int[]> GearRpm;    // gear ("R","N","1"..) -> length N+1
         /// <summary>Optional: RPM where a lit LED goes dark again before the flash (0 = stays lit), length N+1 (index 0 unused).</summary>
         public int[] OffRpm;
+        /// <summary>Optional (iRacing): the flash exactly as the dash plays it, one cycle: each frame's length in seconds and
+        /// its colour per LED (length N+1, index 0 unused; null = dark). Null: the flash is Colors[0], blinking evenly.</summary>
+        public List<BlinkFrame> FlashFrames;
+        /// <summary>Optional: the curve to use where no gear is known (the car data says which); null = the most common one.
+        /// iRacing's reverse and neutral share a curve far below every forward gear's, so "most common" would pick it.</summary>
+        public int[] MainCurve;
         public string MatchedBy = "exact";
 
         public string Signature() =>

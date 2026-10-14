@@ -10,7 +10,7 @@ back to Lovely, then to the light preset's pattern.
 | Game | Tool | What it reads |
 |---|---|---|
 | AMS2 (`ams2`) | `python -m cardata ams2 update` | `Vehicles/**/*.crd` (names), `<car>_cockpit.bin` (the RPM bar range; Reiza's cars inside `HRDFPERSISTENT.bff`, mods loose), `GUI/display_*.bgui` (the dash: rev steps, limiter lights), the lights' textures (colours) |
-| iRacing | — (none) | nothing to read: the sim's shift-light model is four RPM anchors per car (`firstShiftLED`, `RPMsShiftLED` = first/shift/last/blink, `RPMsShiftLEDVariable`), rendered as a proportional bar. No LED count, colours or per-gear curves exist in the game. iRacing cars come from Lovely (or those four anchors, live, from SimHub). |
+| iRacing (`iracing`) | `python -m cardata iracing update` | each car's own model: the switches that draw the dash from RPM, gear, pit limiter and time (which light, from what RPM, in what colour, per gear, the blink), the lights' textures (colours), and the car's script (the pit limiter's speed steps, shift lamps the script switches) |
 
 ## Files
 
@@ -54,13 +54,34 @@ A plugin that reads format 1 ignores a file or index with a higher `schema` (and
                                          // or "mirrored-column": one column on the dash screen shown on both halves
                                          // of the row, step 1 at the ends (best guess: the screen texture's mapping
                                          // onto the wheel model isn't readable)
-   "withTacho": true                     // optional: shift lights hung on a sweep tacho (range starts at 0)
+   "withTacho": true,                    // optional: shift lights hung on a sweep tacho (range starts at 0)
+   // iRacing (all optional):
+   "blink": [{"rpm": 11650, "period": 0.5,          // from this rpm the row blinks; one cycle takes `period` s
+              "frames": [{"s": 0.25, "leds": [null, null]}, {"s": 0.25, "leds": ["#268DFF", "#268DFF"]}]}],
+   "gears": {"R": {...}, "N": {...}, "1": {...}},  // the lights per gear when they differ: each a rev object of
+                                                    // its own (range, steps, leds, blink); the outer one is then
+                                                    // the curve most forward gears share (else the middle gear's)
+   "extra": [{"stages": [[7700, "#FF121A"]]}],     // lights apart from the row (a separate shift lamp), "extraBlink"
+   "lamp": true, "face": true,                     // one lamp the car's script switches on; `face`: it is the tacho's
+   "lampByTrackType": {"4": 7700}                  // face changing colour; another rpm on iRacing track type 4
  },
  "limiter": {                            // null: the dash shows nothing special
    "onBar": true,                        // the rev bar's lights change pattern
    "leds": [{"pos": 0.0, "colour": "#FF429E"}, {"pos": 0.2619, "colour": "#35FF0B"}],
-   "overSpeed": [{"leds": [...]}, ...]   // optional: extra layers over it (probably near / over the pit speed)
+   "overSpeed": [{"leds": [...]}, ...],  // optional: extra layers over it (probably near / over the pit speed)
+   // iRacing (all optional):
+   "blink": {"period": 0.5, "frames": [...]},      // the limiter lights blink (frames as for rev)
+   "bySpeed": [                                    // what the row shows at each speed step, slowest first; `leds`
+     {"from": null, "leds": [...]},                // above is the step in force just under the limit
+     {"from": 0.5, "rel": true, "leds": [...], "blink": {...}}   // from 0.5 km/h over the limit (`rel`); without
+   ],                                              // `rel`, from an absolute speed in km/h
+   "speedStates": [{"speedState": 2, "leds": [...]}],   // the same when the script's speed steps couldn't be read
+   "withRev": true                                 // the rev lights keep working under the limiter's lights
  },
+ "anchors": {"base": [9500, 11700, 11825, 11950],  // iRacing: the script's four numbers (first, shift, last, blink:
+             "gears": {"1": [...]}},               // what the SDK reports), per gear when the script sets them
+ "carNumber": 99,                                  // iRacing's car id
+ "notes": ["..."],                                 // how the record was read, what was assumed
  "since": "1.6.9.96", "changed": "1.6.9.96",   // game version first seen / last changed
  "missingSince": "1.7.0.1"                     // optional: no longer found (a removed car, an uninstalled mod)
 }
@@ -101,3 +122,26 @@ A plugin that reads format 1 ignores a file or index with a higher `schema` (and
   the first comes on above a quarter of the range.
 - `dash: "no-range"`: the cockpit file has no RPM bar range (its other layout: GT4s, CART cars and others).
 - Blinking isn't in the data: the flash and the limiter are shown steady.
+
+## iRacing notes
+
+- **Car id**: the car's folder under `cars\`, a nested one with a space (`stockcars chevyss`), as SimHub reports it;
+  the car's name and short name are aliases.
+- **What it is**: the sim draws the dash from the car's model, a tree of switches each picking what to draw from one
+  value (RPM, gear, pit limiter on, its speed step, time). The tool sets those values and reads which lights are
+  drawn in which colour: every RPM step of every gear, the blink's frames, the limiter's look at each speed step.
+  Nothing is measured or estimated. Checked against Lovely Car Data: 45 of 82 cars identical in every gear, most of
+  the rest within its rounding.
+- **`anchors` are not the lights.** The script's four numbers (what the SDK reports as `DriverCarSLFirstRPM` etc.)
+  often differ from when the dash lights really come on (the IR18: 9500 against 9550 for the first light).
+- **Gears**: `R`, `N`, `1`... (the sim's gear value 0, 1, 2...). Many top gears never ask for a shift: their lights
+  sit at the limiter. A light a gear never lights is missing from that gear's `leds`.
+- **A light switched off again** has a `null` stage, as in AMS2; a light that changes colour has a stage per colour.
+- **Colours**: the dominant hue of the light's texture rectangle; the lens drawn under an unlit light (grey, pale)
+  isn't a colour. `colourGuessed`: the car's cockpit textures aren't installed where the data was made (a car not
+  owned there), so the colours follow green, yellow, red and its limiter lights are left out.
+- **Direction**: lights in the car's own space run left to right. A row modelled in a steering wheel's own space
+  is turned so the first light to come on is at 0 (a note says so): right for every one-sided row, untested where
+  it would matter.
+- **Not included**: cars whose pack can't be read where the data was made (some variants and the pace cars), rev
+  bars drawn on a screen (`dash: "tacho"`), and what the dash does with warnings, flags or the ignition off.

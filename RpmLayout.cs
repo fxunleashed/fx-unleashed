@@ -24,6 +24,9 @@ namespace User.FXProRpmSync
         /// but a blink interval: most F1, LMU and ACC cars). USB mode only; SimPro's redline can only flash a colour.
         /// </summary>
         public bool FlashDark;
+        /// <summary>Optional (iRacing): the flash as the car's dash plays it, one cycle of frames, each the colour of every
+        /// rev LED ("#RRGGBB", null = dark). USB mode plays it on the game's clock; SimPro can't (it keeps FlashColor).</summary>
+        public List<(double Seconds, string[] Colors)> FlashFrames;
 
         /// <summary>Optional per-gear LED/flash RPMs ("R","N","1"..) for wheels with SimPro's Advanced mode.</summary>
         public Dictionary<string, GearCurve> Gears;
@@ -102,7 +105,7 @@ namespace User.FXProRpmSync
         public static RpmLayout FromProfile(CarLedProfile car, bool includeGears, bool exactColours = false)
         {
             // Most common curve = the "default" curve (also used for gears the car data doesn't list).
-            var defaultCurve = car.GearRpm.Values
+            var defaultCurve = car.MainCurve ?? car.GearRpm.Values
                 .GroupBy(v => string.Join(",", v)).OrderByDescending(g => g.Count()).First().First();
 
             string Colour(string c) => exactColours ? ExactColour(c) : RpmLightsMapper.ToSimProColor(c);
@@ -128,6 +131,9 @@ namespace User.FXProRpmSync
             layout.FlashColor = redColor ?? LedPalette.Blue;
             layout.FlashBlinkUnits = car.RedlineBlinkIntervalMs > 0
                 ? Math.Max(1, (int)Math.Round(car.RedlineBlinkIntervalMs / RpmLightsMapper.BlinkMsPerUnit)) : 0;
+            if (car.FlashFrames != null && layout.FlashRpm > 0)
+                layout.FlashFrames = car.FlashFrames.Select(f => (f.Seconds, Enumerable.Range(0, RpmLightsMapper.WheelLeds)
+                    .Select(j => map[j] < f.Colours.Length && f.Colours[map[j]] != null ? Colour(f.Colours[map[j]]) : null).ToArray())).ToList();
 
             if (includeGears && car.GearRpm.Values.Any(v => !v.SequenceEqual(defaultCurve)))
             {
@@ -139,7 +145,8 @@ namespace User.FXProRpmSync
                     for (int j = 0; j < RpmLightsMapper.WheelLeds; j++)
                         // 0 in a gear's curve = lit from idle (e.g. the Porsche Cup's 1st gear), not unused.
                         gc.Rpm[j] = layout.Rpm[j] > 0 ? Math.Max(1, curve[map[j]]) : 0;
-                    gc.FlashRpm = layout.FlashRpm > 0 ? Math.Max(curve[0], gc.Rpm.Max()) : 0;
+                    // a light this gear never lights (CarLightsDatabase.NeverRpm) doesn't push the flash out of reach
+                    gc.FlashRpm = layout.FlashRpm > 0 ? Math.Max(curve[0], gc.Rpm.Where(v => v < CarLightsDatabase.NeverRpm).DefaultIfEmpty(0).Max()) : 0;
                     layout.Gears[gear] = gc;
                 }
             }

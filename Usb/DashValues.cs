@@ -61,6 +61,11 @@ namespace User.FXProRpmSync
         /// <summary>The engine runs: the game says so, or the revs are up (games that don't report it). See CarStateTracker.</summary>
         public bool EngineOn;
         public double SpeedKmh;
+        /// <summary>The game's session clock in seconds (iRacing's SessionTime), NaN when the game doesn't give one: the car's
+        /// own blinks run on it, as its dash does.</summary>
+        public double SessionTime = double.NaN;
+        /// <summary>When SessionTime was read (Stopwatch ticks): the lights move it on from there to the moment they draw.</summary>
+        public long SessionTimeRead;
 
         /// <summary>
         /// A preview (designer, offline tools): bindings that can't be evaluated here (SimHub formulas without SimHub)
@@ -222,6 +227,11 @@ namespace User.FXProRpmSync
                 if (r.MaxRpm > 0) r.Set("rpmPercent", d.Rpms / r.MaxRpm * 100);
                 r.Set("gameRunning", true);
                 r.Set("throttle", d.Throttle); r.Set("brake", d.Brake); r.Set("clutch", d.Clutch);
+            });
+            Try(() =>
+            {
+                var st = pm.GetPropertyValue(RawData + "Telemetry.SessionTime");
+                if (st != null) { r.SessionTime = Convert.ToDouble(st, CultureInfo.InvariantCulture); r.SessionTimeRead = System.Diagnostics.Stopwatch.GetTimestamp(); }
             });
             Try(() =>
             {

@@ -107,6 +107,22 @@ namespace User.FXProRpmSync
         CarPattern,
     }
 
+    /// <summary>One frame of a car's animated limiter pattern.</summary>
+    public class LimiterFrame
+    {
+        public double Seconds;
+        public List<string> Pattern;
+    }
+
+    /// <summary>A car's limiter pattern from a speed on (From null = any slower; Rel = km/h over the pit limit).</summary>
+    public class LimiterSpeedLook
+    {
+        public double? From;
+        public bool Rel;
+        public List<string> Pattern;
+        public List<LimiterFrame> Frames;
+    }
+
     public class LimiterLook
     {
         public LimiterStyle Style = LimiterStyle.Alternate;
@@ -121,12 +137,50 @@ namespace User.FXProRpmSync
         public List<string> Pattern;
         /// <summary>Taken from the game's data for the car (not saved by the user).</summary>
         public bool FromGame;
+        /// <summary>CarPattern (iRacing): the pattern animates, one cycle of these frames (null = steady Pattern).</summary>
+        public List<LimiterFrame> Frames;
+        /// <summary>CarPattern (iRacing): another pattern from a speed on, slowest first (null = Pattern at any speed).</summary>
+        public List<LimiterSpeedLook> BySpeed;
+
+        /// <summary>The pattern (wheel rev LEDs, left to right) for this speed and moment: the speed step in force (speeds
+        /// relative to the pit limit need the limit; without it the first step), then the frame of its blink.</summary>
+        public List<string> PatternAt(double speedKmh, double pitLimitKmh, double clock)
+        {
+            var pattern = Pattern;
+            var frames = Frames;
+            if (BySpeed != null && BySpeed.Count > 0)
+            {
+                LimiterSpeedLook step = BySpeed[0];
+                foreach (var s in BySpeed)
+                {
+                    if (s.From == null) { step = s; continue; }
+                    if (s.Rel ? pitLimitKmh > 0 && speedKmh >= pitLimitKmh + s.From.Value : speedKmh >= s.From.Value) step = s;
+                }
+                pattern = step.Pattern ?? pattern;
+                frames = step.Frames;
+            }
+            if (frames != null && frames.Count > 1)
+            {
+                double period = frames.Sum(f => f.Seconds), x = period > 0 ? clock % period : 0;
+                if (x < 0) x += period;
+                foreach (var f in frames)
+                {
+                    if (x < f.Seconds) return f.Pattern;
+                    x -= f.Seconds;
+                }
+                return frames[frames.Count - 1].Pattern;
+            }
+            return pattern;
+        }
 
         public LimiterLook Clone()
         {
             var c = (LimiterLook)MemberwiseClone();
             c.Colors = (Colors ?? new List<string>()).ToList();
             c.Pattern = Pattern?.ToList();
+            c.Frames = Frames?.Select(f => new LimiterFrame { Seconds = f.Seconds, Pattern = f.Pattern?.ToList() }).ToList();
+            c.BySpeed = BySpeed?.Select(s => new LimiterSpeedLook { From = s.From, Rel = s.Rel, Pattern = s.Pattern?.ToList(),
+                Frames = s.Frames?.Select(f => new LimiterFrame { Seconds = f.Seconds, Pattern = f.Pattern?.ToList() }).ToList() }).ToList();
             return c;
         }
 

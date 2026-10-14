@@ -1350,9 +1350,11 @@ namespace User.FXProRpmSync
                 return;
             }
             JObject mapped;
-            if (w.OldDevice && Settings.LiveGearCurves && layout.Gears != null)
+            if (Settings.LiveGearCurves && layout.Gears != null)
             {
-                // The wheel can't switch curves by gear, so we do: one part per gear, the current one sent now.
+                // We switch the curves by gear: one part per gear, the current one sent now. Old devices can't do per-gear
+                // at all; SimPro's own per-gear mode on newer wheels (GT Neo) has never been seen working, and with "Rev
+                // lights only" it left the rev lights dark, so every wheel gets the switching that is checked on the wheel.
                 var parts = layout.Gears.Keys.ToDictionary(g => g, g => RpmLightsMapper.ToSimPro(original, layout.ForGear(g), scaleMax, false));
                 var gear = wantedGear ?? "N";
                 mapped = parts.TryGetValue(gear, out var p) ? p : RpmLightsMapper.ToSimPro(original, layout, scaleMax, false);

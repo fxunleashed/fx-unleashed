@@ -121,6 +121,85 @@ static class CarLightsTests
         Check("car data: another car isn't matched", CarLedDatabase.FindByWords(manifest, "Ligier JS P4") == null);
         Check("car data: two entries that read the same are never guessed between", CarLedDatabase.FindByWords(manifest, "af corse") == null);
 
+        // iRacing: the lights per gear, a blink of their own colour, and a light one gear never lights
+        db.Load(@"{ ""schema"": 1, ""game"": ""iracing"", ""simhubGame"": ""IRacing"", ""gameVersion"": ""2026.10.01.01"", ""cars"": [
+          { ""carId"": ""testcar"", ""aliases"": [""Test Car""], ""dash"": ""shift-lights"", ""rev"": { ""range"": [7000, 7400], ""steps"": 3,
+            ""leds"": [ { ""pos"": 0.0, ""stages"": [[7000, ""#00FF00""]] }, { ""pos"": 0.5, ""stages"": [[7200, ""#FFFF00""]] }, { ""pos"": 1.0, ""stages"": [[7400, ""#FF0000""]] } ],
+            ""blink"": [ { ""rpm"": 7600, ""period"": 0.5, ""frames"": [ { ""s"": 0.25, ""leds"": [null, null, null] }, { ""s"": 0.25, ""leds"": [""#0000FF"", ""#0000FF"", ""#0000FF""] } ] } ],
+            ""gears"": {
+              ""N"": { ""range"": [3000, 5000], ""steps"": 3, ""leds"": [ { ""pos"": 0.0, ""stages"": [[3000, ""#00FF00""]] }, { ""pos"": 0.5, ""stages"": [[4000, ""#FFFF00""]] }, { ""pos"": 1.0, ""stages"": [[5000, ""#FF0000""]] } ] },
+              ""R"": { ""range"": [3000, 5000], ""steps"": 3, ""leds"": [ { ""pos"": 0.0, ""stages"": [[3000, ""#00FF00""]] }, { ""pos"": 0.5, ""stages"": [[4000, ""#FFFF00""]] }, { ""pos"": 1.0, ""stages"": [[5000, ""#FF0000""]] } ] },
+              ""1"": { ""range"": [6500, 6900], ""steps"": 2, ""leds"": [ { ""pos"": 0.0, ""stages"": [[6500, ""#00FF00""]] }, { ""pos"": 0.5, ""stages"": [[6900, ""#FFFF00""]] } ],
+                       ""blink"": [ { ""rpm"": 7100, ""period"": 0.5, ""frames"": [ { ""s"": 0.25, ""leds"": [null, null, null] }, { ""s"": 0.25, ""leds"": [""#0000FF"", ""#0000FF"", ""#0000FF""] } ] } ] },
+              ""2"": { ""range"": [7000, 7400], ""steps"": 3, ""leds"": [ { ""pos"": 0.0, ""stages"": [[7000, ""#00FF00""]] }, { ""pos"": 0.5, ""stages"": [[7200, ""#FFFF00""]] }, { ""pos"": 1.0, ""stages"": [[7400, ""#FF0000""]] } ],
+                       ""blink"": [ { ""rpm"": 7600, ""period"": 0.5, ""frames"": [ { ""s"": 0.25, ""leds"": [null, null, null] }, { ""s"": 0.25, ""leds"": [""#0000FF"", ""#0000FF"", ""#0000FF""] } ] } ] } } },
+            ""limiter"": { ""onBar"": true, ""leds"": [ { ""pos"": 0.0, ""colour"": ""#00FF00"" }, { ""pos"": 0.5, ""colour"": null }, { ""pos"": 1.0, ""colour"": ""#00FF00"" } ],
+              ""blink"": { ""period"": 0.5, ""frames"": [] } } } ] }");
+        var ir = db.Find("IRacing", "testcar");
+        Check("car lights: iRacing car found, with its gears", ir?.Label == "iRacing 2026.10.01.01" && ir.Car.Rev?.Gears?.Count == 4 && db.Find("iracing", "Test Car") != null);
+        var irp = CarLightsDatabase.ToProfile(ir.Car.Rev, "testcar", out _);
+        Check("car lights: a curve per gear", irp.GearRpm.Count == 4 && irp.GearRpm["N"].Skip(1).SequenceEqual(new[] { 3000, 4000, 5000 }) && irp.GearRpm["2"].Skip(1).SequenceEqual(new[] { 7000, 7200, 7400 }),
+              string.Join(" | ", irp.GearRpm.Select(g => g.Key + ":" + string.Join(",", g.Value))));
+        Check("car lights: a light a gear never lights stays dark in it", irp.GearRpm["1"][3] == CarLightsDatabase.NeverRpm && irp.Colors[3] == "#FFFF0000");
+        Check("car lights: the blink is the flash, in its own colour, at each gear's rpm", irp.Colors[0] == "#FF0000FF" && irp.GearRpm["2"][0] == 7600 && irp.GearRpm["1"][0] == 7100
+              && irp.GearRpm["N"][0] == CarLightsDatabase.NeverRpm && irp.RedlineBlinkIntervalMs == 250, $"{irp.Colors[0]} {irp.RedlineBlinkIntervalMs}");
+        var irl = RpmLayout.FromProfile(irp, includeGears: true, exactColours: true);
+        Check("car lights: per-gear layouts on the wheel", irl.Gears != null && irl.ForGear("N").Rpm[0] == 3000 && irl.ForGear("2").Rpm[0] == 7000 && irl.ForGear("2").FlashRpm == 7600
+              && irl.ForGear("1").FlashRpm == 7100 && irl.FlashBlinkUnits > 0, irl.Gears == null ? "no gears" : string.Join(",", irl.ForGear("1").Rpm) + " flash " + irl.ForGear("1").FlashRpm);
+        Check("car lights: with no gear known, the car's own main curve, not reverse/neutral's (the most common)",
+              RpmLayout.FromProfile(irp, includeGears: false, exactColours: true).Rpm[0] == 7000);
+        // "Rev lights only" sends the USB-mode layout (the car's exact colours) to SimPro, which shows only its palette
+        var tmpl = Newtonsoft.Json.Linq.JObject.Parse(@"{ ""lights"": [ { ""mode"": ""X"", ""value"": [], ""color"": [], ""max_rpm"": 0,
+            ""rpm_redlines"": [ { ""enabled"": true, ""telemtery_item"": { ""value"": { ""threshold"": 0, ""max_value"": 20000 } },
+                ""light"": { ""active_effect"": ""mono"", ""configs"": { ""mono"": { ""foregroud_color"": [], ""select_lights"": [] }, ""breath"": { ""foregroud_color"": [], ""select_lights"": [], ""interval"": 1 } } } } ] } ] }");
+        var sp = RpmLightsMapper.ToSimPro(tmpl, RpmLayout.FromProfile(irp, includeGears: false, exactColours: true), 8000, false);
+        var spColours = ((Newtonsoft.Json.Linq.JArray)sp["lights"][0]["color"]).Select(c => (string)c).ToList();
+        Check("car lights: exact colours reach SimPro as its palette (others show as off)",
+              spColours.All(c => c == LedPalette.Off || RpmLightsMapper.ToSimProColor(c) == c) && spColours.Any(c => c != LedPalette.Off), string.Join(",", spColours));
+        Check("car lights: SimPro's palette by colour name (a lime green stays green, amber stays orange)",
+              RpmLightsMapper.ToSimProColor("#70FF01") == "#00ff84" && RpmLightsMapper.ToSimProColor("#45FF45") == "#00ff84" && RpmLightsMapper.ToSimProColor("#FFEA01") == "#fffd51"
+              && RpmLightsMapper.ToSimProColor("#FFAD18") == "#ff6c00" && RpmLightsMapper.ToSimProColor("#FF3B10") == "#ff0054" && RpmLightsMapper.ToSimProColor("#07C2FF") == "#00fffc"
+              && RpmLightsMapper.ToSimProColor("#268DFF") == "#0006ff" && RpmLightsMapper.ToSimProColor("#000000") == null);
+        Check("car lights: a gear's missing light doesn't light on the wheel", !irl.ForGear("1").Lit(14, 9000) && irl.ForGear("1").Lit(0, 6600));
+        Check("car lights: iRacing limiter lights on the row", CarLightsDatabase.ToLimiter(ir.Car)?.Pattern?.First() == "#00FF00");
+
+        // the blink frame by frame (the AMG GT3's limiter swaps two patterns every 0.25 s; a flash that isn't 50/50)
+        db.Load(@"{ ""schema"": 1, ""game"": ""iracingf"", ""simhubGame"": ""IRacingF"", ""gameVersion"": ""1"", ""cars"": [
+          { ""carId"": ""frames"", ""dash"": ""shift-lights"", ""rev"": { ""range"": [7000, 7200], ""steps"": 2,
+            ""leds"": [ { ""pos"": 0.0, ""stages"": [[7000, ""#00FF00""]] }, { ""pos"": 1.0, ""stages"": [[7200, ""#FF0000""]] } ],
+            ""blink"": [ { ""rpm"": 7400, ""period"": 0.4, ""pos"": [0.0, 1.0], ""frames"": [ { ""s"": 0.1, ""leds"": [""#0000FF"", null] }, { ""s"": 0.3, ""leds"": [null, ""#0000FF""] } ] } ] },
+            ""limiter"": { ""onBar"": true, ""leds"": [ { ""pos"": 0.0, ""colour"": ""#01C0FF"" }, { ""pos"": 1.0, ""colour"": ""#FFE901"" } ],
+              ""blink"": { ""period"": 0.5, ""frames"": [ { ""s"": 0.25, ""leds"": [""#01C0FF"", ""#FFE901""] }, { ""s"": 0.25, ""leds"": [""#FFE901"", ""#01C0FF""] } ] },
+              ""bySpeed"": [ { ""from"": null, ""leds"": [ { ""pos"": 0.0, ""colour"": ""#01C0FF"" }, { ""pos"": 1.0, ""colour"": ""#FFE901"" } ],
+                               ""blink"": { ""period"": 0.5, ""frames"": [ { ""s"": 0.25, ""leds"": [""#01C0FF"", ""#FFE901""] }, { ""s"": 0.25, ""leds"": [""#FFE901"", ""#01C0FF""] } ] } },
+                             { ""from"": 0.5, ""rel"": true, ""leds"": [ { ""pos"": 0.0, ""colour"": ""#FF0000"" }, { ""pos"": 1.0, ""colour"": ""#FF0000"" } ] } ] } } ] }");
+        var fr = db.Find("IRacingF", "frames").Car;
+        var frl = RpmLayout.FromProfile(CarLightsDatabase.ToProfile(fr.Rev, "frames", out _), includeGears: false, exactColours: true);
+        Check("car lights: the flash's frames reach the wheel", frl.FlashRpm == 7400 && frl.FlashFrames?.Count == 2 && frl.FlashFrames[0].Seconds == 0.1
+              && frl.FlashFrames[0].Colors[0] == "#0000FF" && frl.FlashFrames[0].Colors[14] == null && frl.FlashFrames[1].Colors[14] == "#0000FF",
+              frl.FlashFrames == null ? "none" : string.Join(" | ", frl.FlashFrames.Select(f => f.Seconds + ":" + string.Join(",", f.Colors))));
+        var frlim = CarLightsDatabase.ToLimiter(fr);
+        Check("car lights: the limiter swaps its patterns on the clock", frlim.PatternAt(50, 60, 0.1)[6] == "#01C0FF" && frlim.PatternAt(50, 60, 0.3)[6] == "#FFE901"
+              && frlim.PatternAt(50, 60, 10.1)[6] == "#01C0FF", string.Join(",", frlim.PatternAt(50, 60, 0.3)));
+        Check("car lights: an animated limiter shows as many lights as the car's, centred (no light doubled)",
+              frlim.PatternAt(50, 60, 0.1).Count(c => c != "#000000") == 2 && frlim.PatternAt(50, 60, 0.1)[5] == "#000000" && frlim.PatternAt(50, 60, 0.1)[7] == "#FFE901",
+              string.Join(",", frlim.PatternAt(50, 60, 0.1)));
+        Check("car lights: the limiter's speed step over the limit", frlim.PatternAt(61, 60, 0.3)[6] == "#FF0000" && frlim.PatternAt(60.2, 60, 0.3)[6] == "#FFE901"
+              && frlim.PatternAt(70, 0, 0.1)[6] == "#01C0FF");
+        var engine = new LightEngine(WheelModel.FxPro);
+        var dv = new DashValues { Running = true, Rpm = 7500, GearKey = "3", SessionTime = 100.05 };
+        var revLeds = WheelModel.FxPro.Leds(LedGroup.Rev);
+        var profileU = LightPresets.For(WheelModel.FxPro)[0].Clone();
+        profileU.Groups[LedGroup.Rev] = new GroupLighting { Effect = LightEffect.Rpm };
+        profileU.Rev.UseCarData = true;
+        profileU.RevTint = 0;
+        dv.FuelPercent = 50; dv.MaxRpm = 8000;
+        var f1 = engine.Render(profileU, dv, frl, 0, false);
+        dv.SessionTime = 100.2;
+        var f2 = engine.Render(profileU, dv, frl, 0, false);
+        Check("car lights: the wheel plays the flash on the game's clock", f1[revLeds[0]].B > 200 && f1[revLeds[14]].B == 0 && f2[revLeds[0]].B == 0 && f2[revLeds[14]].B > 200,
+              $"{f1[revLeds[0]].B}/{f1[revLeds[14]].B} then {f2[revLeds[0]].B}/{f2[revLeds[14]].B}");
+
         Check("car lights: slots keep an even bar as it is", CarLightsDatabase.Slots(new List<double> { 0, 0.25, 0.5, 0.75, 1 }).All(s => s != null));
         Check("car lights: a newer schema is ignored", Try(() => db.Load(M4Json().Replace("\"schema\": 1", "\"schema\": 99").Replace("\"ams2\"", "\"ams3\""))) &&
               db.Find("Automobilista2", "BMW M4 GT3")?.GameVersion == "1.6.9.96");

@@ -91,9 +91,11 @@ namespace User.FXProRpmSync
                 var e = (JObject)baseEntry.DeepClone();
                 e["mode"] = mode;
                 e["value"] = new JArray(rpm.Select(Pct));
-                e["color"] = new JArray(rpm.Select((r, i) => r <= 0 ? LedPalette.Off : layout.Colors[i]));
+                // SimPro shows only its palette (any other colour is off): a layout made for USB mode carries the car's exact
+                // colours ("Rev lights only" sends it here), so every colour is snapped on the way in
+                e["color"] = new JArray(rpm.Select((r, i) => r <= 0 ? LedPalette.Off : ToSimProColor(layout.Colors[i]) ?? LedPalette.Off));
                 e["max_rpm"] = newMax;
-                SetShiftStage(e, layout.FlashDark ? 0 : Pct(flashRpm), layout.FlashColor, layout.FlashBlinkUnits);
+                SetShiftStage(e, layout.FlashDark ? 0 : Pct(flashRpm), ToSimProColor(layout.FlashColor) ?? LedPalette.Red, layout.FlashBlinkUnits);
                 return e;
             }
 
@@ -178,17 +180,14 @@ namespace User.FXProRpmSync
         }
 
         // The FX Pro (an SimPro "old device") only displays SimPro's LED palette; any other color is shown as off.
-        private static readonly (double Hue, string Hex)[] PaletteHues =
-        {
-            (340, "#ff0054"), // red
-            (25,  "#ff6c00"), // orange
-            (59,  "#fffd51"), // yellow
-            (151, "#00ff84"), // green
-            (180, "#00fffc"), // cyan
-            (239, "#0006ff"), // blue
-            (263, "#6000ff"), // purple
-        };
         public const string PaletteWhite = "#eeeeee";
+
+        /// <summary>Hue ranges (degrees, each up to its bound) of the colours people call red, orange, yellow, green, cyan, blue,
+        /// purple, and red again, as SimPro's palette entries.</summary>
+        private static readonly (double UpTo, string Hex)[] PaletteRanges =
+        {
+            (15, "#ff0054"), (45, "#ff6c00"), (72, "#fffd51"), (165, "#00ff84"), (200, "#00fffc"), (250, "#0006ff"), (300, "#6000ff"), (361, "#ff0054"),
+        };
 
         /// <summary>
         /// "#AARRGGBB" / "#RRGGBB" / HTML color name -> nearest SimPro palette color;
@@ -209,8 +208,11 @@ namespace User.FXProRpmSync
             double hue = max == r ? 60 * (((g - b) / delta + 6) % 6)
                        : max == g ? 60 * ((b - r) / delta + 2)
                        : 60 * ((r - g) / delta + 4);
-            double HueDistance(double h) { var d = Math.Abs(h - hue) % 360; return d > 180 ? 360 - d : d; }
-            return PaletteHues.OrderBy(p => HueDistance(p.Hue)).First().Hex;
+            // by the colour's name, not the nearest palette hue: SimPro's green leans to cyan (151), so a lime LED (iRacing's
+            // #70FF01, hue 94) came out yellow
+            foreach (var (upTo, hex) in PaletteRanges)
+                if (hue < upTo) return hex;
+            return PaletteRanges[0].Hex;
         }
 
         /// <summary>
